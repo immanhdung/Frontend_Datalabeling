@@ -8,7 +8,7 @@ export default function Login() {
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8">
         {/* Title */}
         <h1 className="text-3xl font-bold text-center text-gray-800">
-          Data labelling system
+          Login to Data labelling system
         </h1>
         <p className="text-center text-gray-500 mt-2">
           Đăng nhập để tiếp tục
@@ -61,6 +61,9 @@ export default function Login() {
               />
               Nhớ đăng nhập
             </label>
+            <a href="#" className="text-blue-600 hover:underline">
+              Quên mật khẩu?
+            </a>
           </div>
 
           {/* Button */}
@@ -72,6 +75,14 @@ export default function Login() {
             Đăng nhập
           </button>
         </form>
+
+        {/* Footer */}
+        <p className="text-center text-sm text-gray-600 mt-6">
+          Chưa có tài khoản?{" "}
+          <a href="#" className="text-blue-600 font-medium hover:underline">
+            Đăng ký
+          </a>
+        </p>
       </div>
     </div>
   );

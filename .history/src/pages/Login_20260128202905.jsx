@@ -61,6 +61,9 @@ export default function Login() {
               />
               Nhớ đăng nhập
             </label>
+            <a href="#" className="text-blue-600 hover:underline">
+              Quên mật khẩu?
+            </a>
           </div>
 
           {/* Button */}
@@ -72,6 +75,14 @@ export default function Login() {
             Đăng nhập
           </button>
         </form>
+
+        {/* Footer */}
+        <p className="text-center text-sm text-gray-600 mt-6">
+          Chưa có tài khoản?{" "}
+          <a href="#" className="text-blue-600 font-medium hover:underline">
+            Đăng ký
+          </a>
+        </p>
       </div>
     </div>
   );
