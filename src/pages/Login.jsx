@@ -1,7 +1,69 @@
 import { useState } from "react";
+import axios from "axios";
+import { useNavigate } from "react-router-dom";
+
+const API_BASE = "https://datalabel-project-be-production.up.railway.app";
 
 export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const navigate = useNavigate();
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      const res = await axios.post(`${API_BASE}/api/Auth/login`, {
+        email,
+        password,
+      });
+
+      /**
+       * Giả sử BE trả về dạng:
+       * {
+       *   accessToken: "...",
+       *   user: { id, email, role, ... }
+       * }
+       * Nếu structure khác, gửi mình ảnh response nhé.
+       */
+      const { accessToken, user } = res.data;
+
+      // Lưu vào localStorage
+      localStorage.setItem("accessToken", accessToken);
+      localStorage.setItem("user", JSON.stringify(user));
+
+      // Điều hướng theo role
+      switch (user.role?.toLowerCase()) {
+        case "admin":
+          navigate("/admin/dashboard");
+          break;
+        case "manager":
+          navigate("/manager/dashboard");
+          break;
+        case "annotator":
+          navigate("/annotator/dashboard");
+          break;
+        case "reviewer":
+          navigate("/reviewer/dashboard");
+          break;
+        default:
+          navigate("/");
+      }
+    } catch (err) {
+      console.error(err);
+      setError(
+        err.response?.data?.message || "Đăng nhập thất bại. Sai email hoặc mật khẩu!"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100">
@@ -14,16 +76,26 @@ export default function Login() {
           Đăng nhập để tiếp tục
         </p>
 
+        {/* Error */}
+        {error && (
+          <div className="mt-4 text-sm text-red-600 bg-red-50 p-2 rounded">
+            {error}
+          </div>
+        )}
+
         {/* Form */}
-        <form className="mt-8 space-y-5">
+        <form onSubmit={handleLogin} className="mt-8 space-y-5">
           {/* Email */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Gmail
+              Email
             </label>
             <input
               type="email"
               placeholder="example@gmail.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
               className="w-full px-4 py-2.5 border rounded-lg 
                          focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -38,6 +110,9 @@ export default function Login() {
               <input
                 type={showPassword ? "text" : "password"}
                 placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
                 className="w-full px-4 py-2.5 border rounded-lg 
                            focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -52,24 +127,14 @@ export default function Login() {
             </div>
           </div>
 
-          {/* Options */}
-          <div className="flex items-center justify-between text-sm">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                className="rounded border-gray-300 text-blue-600"
-              />
-              Nhớ đăng nhập
-            </label>
-          </div>
-
           {/* Button */}
           <button
-            type="button"
+            type="submit"
+            disabled={loading}
             className="w-full bg-blue-600 text-white py-2.5 rounded-lg 
-                       font-semibold hover:bg-blue-700 transition"
+                       font-semibold hover:bg-blue-700 transition disabled:opacity-60"
           >
-            Đăng nhập
+            {loading ? "Đang đăng nhập..." : "Đăng nhập"}
           </button>
         </form>
       </div>
