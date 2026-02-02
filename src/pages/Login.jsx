@@ -2,11 +2,11 @@ import { useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
-const API_BASE = "https://datalabel-project-be-production.up.railway.app";
+const API_BASE = "datalabel-project-be-production.up.railway.app";
 
 export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -20,25 +20,16 @@ export default function Login() {
 
     try {
       const res = await axios.post(`${API_BASE}/api/Auth/login`, {
-        email,
+        username,
         password,
       });
 
-      /**
-       * Giả sử BE trả về dạng:
-       * {
-       *   accessToken: "...",
-       *   user: { id, email, role, ... }
-       * }
-       * Nếu structure khác, gửi mình ảnh response nhé.
-       */
       const { accessToken, user } = res.data;
 
-      // Lưu vào localStorage
+      // Lưu vào localStorage (để sau này dùng)
       localStorage.setItem("accessToken", accessToken);
       localStorage.setItem("user", JSON.stringify(user));
 
-      // Điều hướng theo role
       switch (user.role?.toLowerCase()) {
         case "admin":
           navigate("/admin/dashboard");
@@ -58,7 +49,8 @@ export default function Login() {
     } catch (err) {
       console.error(err);
       setError(
-        err.response?.data?.message || "Đăng nhập thất bại. Sai email hoặc mật khẩu!"
+        err.response?.data?.message ||
+        "Đăng nhập thất bại. Sai username hoặc mật khẩu!"
       );
     } finally {
       setLoading(false);
@@ -68,7 +60,6 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8">
-        {/* Title */}
         <h1 className="text-3xl font-bold text-center text-gray-800">
           Data labelling system
         </h1>
@@ -76,32 +67,28 @@ export default function Login() {
           Đăng nhập để tiếp tục
         </p>
 
-        {/* Error */}
         {error && (
           <div className="mt-4 text-sm text-red-600 bg-red-50 p-2 rounded">
             {error}
           </div>
         )}
 
-        {/* Form */}
         <form onSubmit={handleLogin} className="mt-8 space-y-5">
-          {/* Email */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Email
+              Username
             </label>
             <input
-              type="email"
-              placeholder="example@gmail.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="text"
+              placeholder="Nhập username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               required
               className="w-full px-4 py-2.5 border rounded-lg 
                          focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
-          {/* Password */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Mật khẩu
@@ -127,7 +114,6 @@ export default function Login() {
             </div>
           </div>
 
-          {/* Button */}
           <button
             type="submit"
             disabled={loading}
