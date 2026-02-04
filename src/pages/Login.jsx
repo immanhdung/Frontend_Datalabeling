@@ -1,8 +1,7 @@
 import { useState } from "react";
-import axios from "axios";
+import api from "../config/api";
 import { useNavigate } from "react-router-dom";
-
-const API_BASE = "datalabel-project-be-production.up.railway.app";
+import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
@@ -12,6 +11,7 @@ export default function Login() {
   const [error, setError] = useState("");
 
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -19,18 +19,25 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const res = await axios.post(`${API_BASE}/api/Auth/login`, {
+      const res = await api.post("/Auth/login", {
         username,
         password,
       });
 
+      console.log("Login response:", res.data);
       const { accessToken, user } = res.data;
 
-      // Lưu vào localStorage (để sau này dùng)
-      localStorage.setItem("accessToken", accessToken);
-      localStorage.setItem("user", JSON.stringify(user));
+      if (!accessToken || !user) {
+        throw new Error("Invalid response from server");
+      }
 
-      switch (user.role?.toLowerCase()) {
+      // Use the login function from AuthContext
+      login(user, accessToken);
+
+      const role = user.role?.toLowerCase();
+      console.log("User role:", role);
+
+      switch (role) {
         case "admin":
           navigate("/admin/dashboard");
           break;
@@ -47,7 +54,7 @@ export default function Login() {
           navigate("/");
       }
     } catch (err) {
-      console.error(err);
+      console.error("Login error:", err);
       setError(
         err.response?.data?.message ||
         "Đăng nhập thất bại. Sai username hoặc mật khẩu!"

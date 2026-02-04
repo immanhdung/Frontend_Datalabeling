@@ -111,8 +111,6 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-[#f8fafc] p-4 md:p-10 font-sans text-slate-900">
       <div className="max-w-7xl mx-auto space-y-10">
-
-        {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
             <h1 className="text-4xl font-display font-extrabold tracking-tight">
@@ -133,8 +131,6 @@ export default function AdminDashboard() {
             </button>
           </div>
         </div>
-
-        {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
           {stats.map((s, i) => (
             <div key={i} className="bg-white p-8 rounded-[28px] shadow-premium hover:shadow-premium-hover transition-all duration-300 border border-slate-100 group">
@@ -153,8 +149,6 @@ export default function AdminDashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-
-          {/* Recent Projects */}
           <div className="lg:col-span-2 space-y-8">
             <div className="bg-white rounded-[32px] p-10 shadow-premium border border-slate-100">
               <div className="flex items-center justify-between mb-10">
@@ -211,11 +205,7 @@ export default function AdminDashboard() {
               </button>
             </div>
           </div>
-
-          {/* Sidebar Area */}
           <div className="space-y-10">
-
-            {/* User Distribution */}
             <div className="bg-white rounded-[32px] p-10 shadow-premium border border-slate-100">
               <h2 className="text-2xl font-display font-extrabold text-slate-900 mb-8 font-display">Phân bố nhân sự</h2>
               <div className="space-y-5">
@@ -232,8 +222,6 @@ export default function AdminDashboard() {
                 ))}
               </div>
             </div>
-
-            {/* Activity Timeline */}
             <div className="bg-white rounded-[32px] p-10 shadow-premium border border-slate-100 overflow-hidden relative">
               <div className="flex items-center justify-between mb-10">
                 <h2 className="text-2xl font-display font-extrabold text-slate-900 font-display">Gần đây</h2>

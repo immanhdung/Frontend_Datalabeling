@@ -8,6 +8,8 @@ import ManagerProjects from "./pages/Manager/Projects";
 import ManagerCategories from "./pages/Manager/Categories.jsx";
 import ManagerAssignments from "./pages/Manager/Assignments";
 import ManagerReview from "./pages/Manager/Review";
+import AnnotatorDashboard from "./pages/Annotator/Dashboard";
+import ReviewerDashboard from "./pages/Reviewer/Dashboard";
 
 function App() {
     return (
@@ -21,6 +23,8 @@ function App() {
                 <Route path="/manager/categories" element={<ManagerCategories />} />
                 <Route path="/manager/assignments" element={<ManagerAssignments />} />
                 <Route path="/manager/review" element={<ManagerReview />} />
+                <Route path="/annotator/dashboard" element={<AnnotatorDashboard />} />
+                <Route path="/reviewer/dashboard" element={<ReviewerDashboard />} />
             </Route>
 
             <Route path="/" element={<Navigate to="/admin/dashboard" />} />

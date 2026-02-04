@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate, Outlet } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 import {
     LayoutDashboard,
@@ -48,18 +49,20 @@ const roleNavItems = {
 export default function DashboardLayout() {
     const location = useLocation();
     const navigate = useNavigate();
+    const { logout } = useAuth();
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const role = location.pathname.split("/")[1];
     const navItems = roleNavItems[role] || [];
 
     const handleLogout = () => {
+        logout();
         navigate("/login");
     };
 
     return (
         <div className="flex min-h-screen bg-gray-50">
             <aside
-                className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-white border-r transition-all duration-300 ${sidebarOpen ? "w-64" : "w-20"
+                className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-white border-r transition-all duration-300 ${sidebarOpen ? "w-72" : "w-20"
                     }`}
             >
                 <div className="flex h-16 items-center justify-between px-4 border-b">
@@ -68,7 +71,7 @@ export default function DashboardLayout() {
                             <div className="h-8 w-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white">
                                 <Tag className="h-5 w-5" />
                             </div>
-                            <span className="font-bold">DataLabel</span>
+                            <span className="font-bold text-3xl">DataLabel</span>
                         </div>
                     )}
                     <button
@@ -88,7 +91,7 @@ export default function DashboardLayout() {
                             <Link
                                 key={item.path}
                                 to={item.path}
-                                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${isActive
+                                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-lg font-medium transition ${isActive
                                     ? "bg-indigo-600 text-white"
                                     : "text-gray-600 hover:bg-indigo-50 hover:text-indigo-600"
                                     }`}

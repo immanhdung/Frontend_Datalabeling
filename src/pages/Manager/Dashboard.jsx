@@ -105,7 +105,6 @@ export default function ManagerDashboard() {
     return (
         <div className="min-h-screen bg-[#fcfdfe] p-4 md:p-10 font-sans text-slate-900">
             <div className="max-w-7xl mx-auto space-y-10">
-                {/* Header Section */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                     <div>
                         <h1 className="text-4xl font-display font-extrabold tracking-tight">
@@ -122,7 +121,6 @@ export default function ManagerDashboard() {
                     </button>
                 </div>
 
-                {/* Stats Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
                     {stats.map((s, i) => (
                         <div key={i} className="bg-white p-8 rounded-[28px] border border-slate-100 shadow-premium hover:shadow-premium-hover transition-all duration-300 group">
@@ -144,7 +142,6 @@ export default function ManagerDashboard() {
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-                    {/* Projects Section */}
                     <div className="lg:col-span-2 space-y-8">
                         <div className="bg-white rounded-[32px] border border-slate-100 shadow-premium p-10">
                             <div className="flex items-center justify-between mb-10">
@@ -199,7 +196,6 @@ export default function ManagerDashboard() {
                         </div>
                     </div>
 
-                    {/* Progress & Deadlines */}
                     <div className="space-y-10">
                         <div className="bg-white rounded-[32px] border border-slate-100 shadow-premium p-10">
                             <div className="flex items-center justify-between mb-10">
@@ -232,7 +228,6 @@ export default function ManagerDashboard() {
                             </div>
                         </div>
 
-                        {/* Summary Info */}
                         <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[32px] p-10 text-white shadow-lg shadow-blue-200 relative overflow-hidden group">
                             <div className="absolute -right-8 -top-8 w-40 h-40 bg-white/10 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-700" />
                             <div className="relative border-b border-white/20 pb-6 mb-6">
@@ -257,8 +252,6 @@ export default function ManagerDashboard() {
         </div>
     );
 }
-
-// Subtle helper for the trend icon in stats
 function TrendingUp({ className }) {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
