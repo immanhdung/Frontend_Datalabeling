@@ -33,6 +33,8 @@ export default function Login() {
       );
 
       console.log("Login response data:", res.data);
+
+      // ✅ PARSE ĐÚNG THEO BACKEND
       const {
         userId,
         username,
@@ -43,6 +45,8 @@ export default function Login() {
       if (!token || !roleName) {
         throw new Error("Invalid response from server");
       }
+
+      // ✅ lưu auth context + localStorage
       login(
         {
           id: userId,
@@ -53,6 +57,8 @@ export default function Login() {
       );
 
       const role = roleName.toLowerCase();
+
+      // ✅ redirect theo role
       switch (role) {
         case "admin":
           navigate("/admin/dashboard");

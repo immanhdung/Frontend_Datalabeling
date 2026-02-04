@@ -5,7 +5,7 @@ import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
-  const [usernameOrEmail, setUsernameOrEmail] = useState("");
+  const [usernameOrEmail, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -19,40 +19,27 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const res = await api.post(
-        "/Auth/login",
-        {
-          usernameOrEmail: usernameOrEmail.trim(),
-          password: password,
-        },
-        {
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      const res = await api.post("/Auth/login", {
+        usernameOrEmail,
+        password,
+      });
 
       console.log("Login response data:", res.data);
-      const {
-        userId,
-        username,
-        roleName,
-        token,
-      } = res.data;
 
-      if (!token || !roleName) {
+      // ✅ parse ĐÚNG theo backend
+      const { accessToken, user } = res.data;
+
+      if (!accessToken || !user?.role) {
         throw new Error("Invalid response from server");
       }
-      login(
-        {
-          id: userId,
-          username,
-          role: roleName,
-        },
-        token
-      );
 
-      const role = roleName.toLowerCase();
+      // lưu context + localStorage
+      login(user, accessToken);
+
+      const role = user.role.toLowerCase();
+      console.log("User role:", role);
+
+      // redirect theo role
       switch (role) {
         case "admin":
           navigate("/admin/dashboard");
@@ -73,7 +60,7 @@ export default function Login() {
       console.error("Login error:", err);
       setError(
         err.response?.data?.message ||
-          "Đăng nhập thất bại. Sai username hoặc mật khẩu!"
+        "Đăng nhập thất bại. Sai username hoặc mật khẩu!"
       );
     } finally {
       setLoading(false);
@@ -97,12 +84,12 @@ export default function Login() {
         <form onSubmit={handleLogin} className="mt-8 space-y-5">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Username / Email
+              Username
             </label>
             <input
               type="text"
               value={usernameOrEmail}
-              onChange={(e) => setUsernameOrEmail(e.target.value)}
+              onChange={(e) => setUsername(e.target.value)}
               required
               className="w-full px-4 py-2.5 border rounded-lg 
                          focus:outline-none focus:ring-2 focus:ring-blue-500"

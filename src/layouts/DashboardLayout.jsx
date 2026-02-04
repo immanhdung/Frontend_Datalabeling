@@ -119,7 +119,7 @@ export default function DashboardLayout() {
 
                         {sidebarOpen && (
                             <div className="flex-1">
-                                <p className="font-medium">Demo {role}</p>
+                                <p className="font-medium">{role}</p>
                                 <p className="text-xs text-gray-500 capitalize">{role}</p>
                             </div>
                         )}
