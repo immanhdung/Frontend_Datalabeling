@@ -5,7 +5,7 @@ import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
-  const [username, setUsername] = useState("");
+  const [usernameOrEmail, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -20,7 +20,7 @@ export default function Login() {
 
     try {
       const res = await api.post("/Auth/login", {
-        username,
+        usernameOrEmail,
         password,
       });
 
@@ -30,8 +30,6 @@ export default function Login() {
       if (!accessToken || !user) {
         throw new Error("Invalid response from server");
       }
-
-      // Use the login function from AuthContext
       login(user, accessToken);
 
       const role = user.role?.toLowerCase();
@@ -88,7 +86,7 @@ export default function Login() {
             <input
               type="text"
               placeholder="Nhập username"
-              value={username}
+              value={usernameOrEmail}
               onChange={(e) => setUsername(e.target.value)}
               required
               className="w-full px-4 py-2.5 border rounded-lg 

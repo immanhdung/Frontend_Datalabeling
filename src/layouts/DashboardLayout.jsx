@@ -62,7 +62,7 @@ export default function DashboardLayout() {
     return (
         <div className="flex min-h-screen bg-gray-50">
             <aside
-                className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-white border-r transition-all duration-300 ${sidebarOpen ? "w-72" : "w-20"
+                className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-white border-r transition-all duration-300 ${sidebarOpen ? "w-64" : "w-20"
                     }`}
             >
                 <div className="flex h-16 items-center justify-between px-4 border-b">
