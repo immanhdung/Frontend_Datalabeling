@@ -54,10 +54,8 @@ export default function CreateProjectPage() {
     const canProceed = () => {
         switch (step) {
             case 1:
-                return !!projectType;
-            case 2:
                 return projectName.trim() !== "" && projectDescription.trim() !== "";
-            case 3:
+            case 2:
                 return selectedCategoryId !== "";
             default:
                 return true;
@@ -92,10 +90,9 @@ export default function CreateProjectPage() {
     };
 
     const steps = [
-        { number: 1, title: "Loại dự án", icon: Layers },
-        { number: 2, title: "Thông tin", icon: FileText },
-        { number: 3, title: "Category", icon: FolderOpen },
-        { number: 4, title: "Xác nhận", icon: Check },
+        { number: 1, title: "Thông tin", icon: FileText },
+        { number: 2, title: "Category", icon: FolderOpen },
+        { number: 3, title: "Xác nhận", icon: Check },
     ];
 
     return (
@@ -130,10 +127,10 @@ export default function CreateProjectPage() {
                         >
                             <div
                                 className={`w-10 h-10 rounded-full flex items-center justify-center ${step > s.number
-                                        ? "bg-indigo-600 text-white"
-                                        : step === s.number
-                                            ? "border-2 border-indigo-600"
-                                            : "bg-gray-200"
+                                    ? "bg-indigo-600 text-white"
+                                    : step === s.number
+                                        ? "border-2 border-indigo-600"
+                                        : "bg-gray-200"
                                     }`}
                             >
                                 {step > s.number ? <Check /> : <s.icon />}
@@ -154,45 +151,8 @@ export default function CreateProjectPage() {
 
             {/* Card */}
             <div className="bg-white border rounded-xl p-6">
-                {/* Step 1 */}
+                {/* Step 1: Thông tin */}
                 {step === 1 && (
-                    <div className="space-y-6">
-                        <h2 className="text-xl font-semibold">Chọn loại dự án</h2>
-
-                        <div className="grid gap-4 sm:grid-cols-2">
-                            <div
-                                onClick={() => setProjectType("classification")}
-                                className={`border rounded-lg p-6 cursor-pointer ${projectType === "classification"
-                                        ? "border-indigo-600 bg-indigo-50"
-                                        : ""
-                                    }`}
-                            >
-                                <Layers className="h-8 w-8 mb-2 text-indigo-600" />
-                                <p className="font-semibold">Phân loại theo lớp</p>
-                                <p className="text-sm text-gray-500">
-                                    Mỗi ảnh chỉ có một nhãn
-                                </p>
-                            </div>
-
-                            <div
-                                onClick={() => setProjectType("detection")}
-                                className={`border rounded-lg p-6 cursor-pointer ${projectType === "detection"
-                                        ? "border-indigo-600 bg-indigo-50"
-                                        : ""
-                                    }`}
-                            >
-                                <Target className="h-8 w-8 mb-2 text-indigo-600" />
-                                <p className="font-semibold">Đánh dấu vùng</p>
-                                <p className="text-sm text-gray-500">
-                                    Khoanh vùng nhiều đối tượng
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Step 2 */}
-                {step === 2 && (
                     <div className="space-y-4">
                         <h2 className="text-xl font-semibold">Thông tin dự án</h2>
 
@@ -227,8 +187,8 @@ export default function CreateProjectPage() {
                     </div>
                 )}
 
-                {/* Step 3 */}
-                {step === 3 && (
+                {/* Step 2: Category */}
+                {step === 2 && (
                     <div className="space-y-4">
                         <h2 className="text-xl font-semibold">Chọn Category</h2>
 
@@ -274,8 +234,8 @@ export default function CreateProjectPage() {
                     </div>
                 )}
 
-                {/* Step 4 */}
-                {step === 4 && (
+                {/* Step 3: Xác nhận */}
+                {step === 3 && (
                     <div className="space-y-4">
                         <h2 className="text-xl font-semibold">Xác nhận</h2>
 
@@ -311,7 +271,7 @@ export default function CreateProjectPage() {
                     Quay lại
                 </button>
 
-                {step < 4 ? (
+                {step < 3 ? (
                     <button
                         className="bg-indigo-600 text-white px-4 py-2 rounded disabled:opacity-50"
                         onClick={() => setStep(step + 1)}

@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import {
     LayoutDashboard,
     Plus,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 
 export default function ManagerDashboard() {
+    const navigate = useNavigate();
     const stats = [
         {
             label: "Tổng dự án",
@@ -115,7 +117,10 @@ export default function ManagerDashboard() {
                         </p>
                     </div>
 
-                    <button className="inline-flex items-center gap-3 px-8 py-4 bg-blue-600 text-white text-lg rounded-[20px] font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 hover:-translate-y-0.5 transition-all duration-300">
+                    <button
+                        onClick={() => navigate("/manager/projects/create")}
+                        className="inline-flex items-center gap-3 px-8 py-4 bg-blue-600 text-white text-lg rounded-[20px] font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 hover:-translate-y-0.5 transition-all duration-300"
+                    >
                         <Plus className="w-6 h-6" />
                         Tạo dự án mới
                     </button>
