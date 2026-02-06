@@ -64,11 +64,11 @@ export default function Categories() {
         }
         try {
             setLoading(true);
+            // Theo Swagger: POST /api/labelsets/{labelSetId}/labels
             await Promise.all(
                 selectedCategoryIds.map(id =>
-                    api.post("/Labels", {
-                        name: labelName,
-                        categoryId: id
+                    api.post(`/labelsets/${id}/labels`, {
+                        name: labelName
                     })
                 )
             );
@@ -94,15 +94,59 @@ export default function Categories() {
         );
     };
 
-    const handleFileUpload = (e) => {
+    const handleUploadAction = async (e, isZip = false) => {
         const files = e.target.files;
-        console.log("Files to upload:", files);
+        if (!files || files.length === 0) return;
+
+        const currentId = selected?.categoryId || selected?.id;
+        if (!currentId) {
+            alert("Vui lòng chọn Category trước");
+            return;
+        }
+
+        try {
+            setLoading(true);
+            // Tìm Project thuộc Category này để upload (vì API Dataset Import yêu cầu projectId)
+            const projectsRes = await api.get(`/projects?CategoryId=${currentId}`);
+            const projects = projectsRes.data?.items || [];
+
+            if (projects.length === 0) {
+                alert("Category này hiện chưa có Project nào. Hãy tạo dự án trước khi upload ảnh.");
+                return;
+            }
+
+            const projectId = projects[0].id || projects[0].projectId;
+
+            if (isZip) {
+                const formData = new FormData();
+                formData.append("File", files[0]);
+                formData.append("Name", files[0].name);
+                await api.post(`/projects/${projectId}/datasets/import`, formData, {
+                    headers: { 'Content-Type': 'multipart/form-data' }
+                });
+            } else {
+                await Promise.all(Array.from(files).map(file => {
+                    const formData = new FormData();
+                    formData.append("File", file);
+                    formData.append("Name", file.name);
+                    return api.post(`/projects/${projectId}/datasets/import`, formData, {
+                        headers: { 'Content-Type': 'multipart/form-data' }
+                    });
+                }));
+            }
+
+            alert("Upload thành công!");
+            fetchCategories(currentId);
+        } catch (err) {
+            console.error("Upload error:", err);
+            alert("Upload thất bại: " + (err.response?.data?.message || err.message));
+        } finally {
+            setLoading(false);
+        }
     };
 
-    const handleZipUpload = (e) => {
-        const file = e.target.files[0];
-        console.log("ZIP to import:", file);
-    };
+    const handleFileUpload = (e) => handleUploadAction(e, false);
+    const handleZipUpload = (e) => handleUploadAction(e, true);
 
     return (
         <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
@@ -237,7 +281,7 @@ export default function Categories() {
                                         <label className="flex items-center gap-2 px-3 py-1.5 border rounded-lg text-sm cursor-pointer hover:bg-gray-50 transition-colors">
                                             <Upload className="w-4 h-4" />
                                             Upload ảnh
-                                            <input type="file" multiple accept="image/*" hidden onChange={handleFileUpload} />
+                                            <input type="file" multiple accept="image/*" hidden onChange={handleImageUpload} />
                                         </label>
                                     </div>
                                 </div>

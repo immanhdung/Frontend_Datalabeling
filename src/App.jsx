@@ -19,13 +19,14 @@ import ManagerReview from "./pages/Manager/Review";
 import ManagerProjectsDetail from "./pages/Manager/ProjectDetail";
 import CreateProjectPage from "./pages/Manager/CreateProject";
 
+
 // Annotator
 import AnnotatorDashboard from "./pages/Annotator/Dashboard";
 
 // Reviewer
 import ReviewerDashboard from "./pages/Reviewer/Dashboard";
 
-/* ---------------- PROTECTED ROUTE ---------------- */
+
 function ProtectedRoute({ children, allowRoles }) {
   const { user, loading } = useAuth();
 
@@ -39,7 +40,6 @@ function ProtectedRoute({ children, allowRoles }) {
   return children;
 }
 
-/* ---------------- ROLE REDIRECT ---------------- */
 function RoleRedirect() {
   const { user, loading } = useAuth();
 
@@ -63,13 +63,8 @@ function RoleRedirect() {
 function App() {
   return (
     <Routes>
-      {/* Public */}
       <Route path="/login" element={<Login />} />
-
-      {/* Auto redirect theo role */}
-      <Route path="/" element={<RoleRedirect />} />
-
-      {/* Dashboard Layout */}
+      <Route path="/" element={<Navigate to="/login" replace />} />
       <Route element={<DashboardLayout />}>
         {/* ADMIN */}
         <Route
@@ -162,6 +157,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+
 
         {/* ANNOTATOR */}
         <Route

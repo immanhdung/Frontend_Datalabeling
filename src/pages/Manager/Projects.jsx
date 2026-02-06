@@ -7,6 +7,9 @@ import {
   Tag,
   Image,
   Users,
+  Eye,
+  Trash2,
+  X,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../../config/api";
@@ -14,71 +17,150 @@ import { useAuth } from "../../context/AuthContext";
 
 export default function ManagerProjects() {
   const [projects, setProjects] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [openMenuId, setOpenMenuId] = useState(null);
+
+  // Modal Thêm nhãn state
+  const [showLabelModal, setShowLabelModal] = useState(false);
+  const [labelName, setLabelName] = useState("");
+  const [selectedProjectIds, setSelectedProjectIds] = useState([]);
+  const [submittingLabel, setSubmittingLabel] = useState(false);
 
   const navigate = useNavigate();
-  const { logout } = useAuth(); // ✅ để xử lý 401
+  const { logout } = useAuth();
 
   const fetchProjects = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const res = await api.get("/projects/mine");
-      console.log("PROJECTS FROM API:", res.data);
+      const [projRes, catRes] = await Promise.all([
+        api.get("/projects/mine"),
+        api.get("/categories").catch(() => ({ data: [] })),
+      ]);
 
-      /**
-       * Backend trả dạng:
-       * {
-       *   items: [],
-       *   totalItems,
-       *   page,
-       *   pageSize,
-       *   totalPages
-       * }
-       */
-      setProjects(Array.isArray(res.data?.items) ? res.data.items : []);
+      console.log("PROJECTS FROM API:", projRes.data);
+      console.log("CATEGORIES FROM API:", catRes.data);
+
+      setProjects(Array.isArray(projRes.data?.items) ? projRes.data.items : []);
+      setCategories(Array.isArray(catRes.data) ? catRes.data : []);
     } catch (err) {
       console.error("Fetch projects error:", err);
-
-      // ✅ Token hết hạn / không hợp lệ
       if (err.response?.status === 401) {
         logout();
         navigate("/login");
         return;
       }
-
       setError("Không tải được danh sách dự án");
     } finally {
       setLoading(false);
     }
   };
 
+  const handleCreateLabel = async () => {
+    if (!labelName.trim() || selectedProjectIds.length === 0) {
+      alert("Vui lòng nhập tên nhãn và chọn ít nhất một dự án");
+      return;
+    }
+
+    try {
+      setSubmittingLabel(true);
+
+      const uniqueTargetIds = new Set();
+      selectedProjectIds.forEach((id) => {
+        const project = projects.find((p) => (p.id || p.projectId) === id);
+        if (project?.categoryId) {
+          uniqueTargetIds.add(project.categoryId);
+        }
+      });
+
+      if (uniqueTargetIds.size === 0) {
+        alert("Không tìm thấy Category ID của các dự án đã chọn.");
+        setSubmittingLabel(false);
+        return;
+      }
+
+      // Gửi nhãn vào các LabelSet (tương ứng với CategoryId của các dự án)
+      for (const targetId of uniqueTargetIds) {
+        console.log(`Đang thêm nhãn "${labelName}" vào bộ nhãn của Category: ${targetId}`);
+        await api.post(`/labelsets/${targetId}/labels`, {
+          name: labelName, // ✅ CHỈ gửi name
+        });
+      }
+
+      alert("Thêm nhãn cho các dự án thành công!");
+      setShowLabelModal(false);
+      setLabelName("");
+      setSelectedProjectIds([]);
+      fetchProjects();
+    } catch (err) {
+      console.error("Error creating label:", err);
+      const serverMsg =
+        err.response?.data?.title ||
+        err.response?.data?.message ||
+        err.message;
+      alert(`Thêm nhãn thất bại: ${serverMsg}\nHãy đảm bảo tên nhãn chưa tồn tại trong danh mục này.`);
+    } finally {
+      setSubmittingLabel(false);
+    }
+  };
+
+  const toggleProjectSelection = (id) => {
+    setSelectedProjectIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Bạn có chắc chắn muốn xóa dự án này?")) return;
+    try {
+      await api.delete(`/projects/${id}`);
+      alert("Xóa dự án thành công!");
+      fetchProjects();
+    } catch (err) {
+      console.error("Delete project error:", err);
+      alert("Xóa dự án thất bại: " + (err.response?.data?.message || err.message));
+    }
+  };
+
   useEffect(() => {
     fetchProjects();
+
+    const handleClickOutside = () => setOpenMenuId(null);
+    window.addEventListener("click", handleClickOutside);
+    return () => window.removeEventListener("click", handleClickOutside);
   }, []);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Quản lý dự án</h1>
-          <p className="text-sm text-gray-500">
-            Tạo và quản lý các dự án gán nhãn
-          </p>
+          <p className="text-sm text-gray-500">Tạo và quản lý các dự án gán nhãn</p>
         </div>
-        <button
-          onClick={() => navigate("/manager/projects/create")}
-          className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700"
-        >
-          <Plus className="w-4 h-4" />
-          Tạo dự án mới
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={() => {
+              setSelectedProjectIds([]);
+              setShowLabelModal(true);
+            }}
+            className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-all font-medium shadow-sm"
+          >
+            <Tag className="w-4 h-4 text-indigo-600" />
+            Thêm nhãn
+          </button>
+          <button
+            onClick={() => navigate("/manager/projects/create")}
+            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-all font-medium shadow-md shadow-indigo-100"
+          >
+            <Plus className="w-4 h-4" />
+            Tạo dự án mới
+          </button>
+        </div>
       </div>
 
-      {/* Search + Filter */}
       <div className="flex gap-3">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -94,87 +176,185 @@ export default function ManagerProjects() {
         </button>
       </div>
 
-      {/* States */}
-      {loading && <p className="text-gray-500">Đang tải dự án...</p>}
+      {loading && (
+        <div className="flex items-center gap-2 text-gray-500">
+          <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+          Đang tải dự án...
+        </div>
+      )}
       {error && <p className="text-red-500">{error}</p>}
+
+      {/* Modal Thêm nhãn */}
+      {showLabelModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-[24px] shadow-2xl w-full max-w-[550px] overflow-hidden flex flex-col border border-gray-100">
+            <div className="p-6 border-b flex justify-between items-center bg-gray-50/50">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Thêm nhãn đồng loạt</h2>
+                <p className="text-sm text-gray-500">Áp dụng nhãn mới cho nhiều dự án cùng lúc</p>
+              </div>
+              <button
+                onClick={() => setShowLabelModal(false)}
+                className="p-2 hover:bg-white border border-transparent hover:border-gray-200 rounded-full transition-all"
+              >
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
+              {/* Tên nhãn */}
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-gray-700">Tên nhãn *</label>
+                <input
+                  type="text"
+                  value={labelName}
+                  onChange={(e) => setLabelName(e.target.value)}
+                  placeholder="Ví dụ: Xe ô tô, Biển báo, Chó..."
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-sm font-medium"
+                />
+              </div>
+
+              {/* Chọn dự án */}
+              <div className="space-y-3">
+                <label className="text-sm font-bold text-gray-700">
+                  Chọn dự án áp dụng ({selectedProjectIds.length})
+                </label>
+                {projects.length === 0 ? (
+                  <p className="text-sm text-gray-400 italic">Không có dự án</p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2 max-h-[200px] overflow-y-auto pr-2">
+                    {projects.map((p) => {
+                      const id = p.projectId || p.id;
+                      const isSelected = selectedProjectIds.includes(id);
+                      return (
+                        <div
+                          key={id}
+                          onClick={() => toggleProjectSelection(id)}
+                          className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${isSelected
+                              ? "border-indigo-500 bg-indigo-50"
+                              : "border-gray-100 hover:border-gray-300 bg-gray-50/30"
+                            }`}
+                        >
+                          <div
+                            className={`w-5 h-5 rounded border-2 flex items-center justify-center ${isSelected ? "bg-indigo-600 border-indigo-600" : "border-gray-300 bg-white"
+                              }`}
+                          >
+                            {isSelected && <Plus className="w-3 h-3 text-white rotate-45" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-gray-800 truncate">{p.name}</p>
+                            <p className="text-[10px] text-gray-400 uppercase font-black">
+                              {p.type || "N/A"}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-6 border-t bg-gray-50/50 flex justify-end gap-3">
+              <button
+                onClick={() => setShowLabelModal(false)}
+                className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-700"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                onClick={handleCreateLabel}
+                disabled={submittingLabel || !labelName.trim() || selectedProjectIds.length === 0}
+                className="px-8 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {submittingLabel ? "Đang xử lý..." : "Xác nhận thêm"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {!loading && !error && projects.length === 0 && (
         <p className="text-gray-500">Chưa có dự án nào</p>
       )}
 
-      {/* Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {projects.map((p) => (
-          <div
-            key={p.id || p.projectId}
-            className="bg-white border rounded-xl shadow-sm p-5 space-y-4"
-          >
-            {/* Header card */}
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className="font-semibold text-gray-900">
-                  {p.name || "Chưa có tên"}
-                </h3>
-                <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
-                  {p.status || "Đang hoạt động"}
-                </span>
-              </div>
-              <button className="p-1 hover:bg-gray-100 rounded">
-                <MoreHorizontal className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
+        {projects.map((p) => {
+          const id = p.projectId || p.id;
+          return (
+            <div key={id} className="bg-white border rounded-xl shadow-sm p-5 space-y-4">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <h3 className="font-semibold text-gray-900 line-clamp-1">
+                    {p.name || "Chưa có tên"}
+                  </h3>
+                  <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                    {p.status || "Đang hoạt động"}
+                  </span>
+                </div>
 
-            {/* Description */}
-            <p className="text-sm text-gray-500">
-              {p.description || "Chưa có mô tả"}
-            </p>
+                <div className="relative">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenMenuId(openMenuId === id ? null : id);
+                    }}
+                    className="p-1 hover:bg-gray-100 rounded"
+                  >
+                    <MoreHorizontal className="w-5 h-5 text-gray-500" />
+                  </button>
 
-            {/* Type */}
-            <div className="flex items-center gap-2 text-sm text-indigo-600">
-              <Tag className="w-4 h-4" />
-              {p.type || "Chưa xác định"}
-            </div>
+                  {openMenuId === id && (
+                    <div className="absolute right-0 mt-2 w-48 bg-white border rounded-xl shadow-xl z-10 py-2">
+                      <button
+                        onClick={() => navigate(`/manager/projects/${id}`)}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        <Eye className="w-4 h-4 text-blue-500" />
+                        Xem chi tiết
+                      </button>
+                      <button
+                        onClick={() => handleDelete(id)}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Xóa dự án
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
 
-            {/* Progress */}
-            <div>
-              <div className="flex justify-between text-sm text-gray-600 mb-1">
-                <span>Tiến độ</span>
-                <span>{p.progress ?? 0}%</span>
-              </div>
-              <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-indigo-600"
-                  style={{ width: `${p.progress ?? 0}%` }}
-                />
-              </div>
-            </div>
+              <p className="text-sm text-gray-500">{p.description || "Chưa có mô tả"}</p>
 
-            {/* Images & Labels */}
-            <div className="flex items-center justify-between text-sm text-gray-600 pt-2 border-t">
-              <div className="flex items-center gap-1">
-                <Image className="w-4 h-4" />
-                {p.imagesCount ?? 0} ảnh
-              </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-2 text-sm text-indigo-600">
                 <Tag className="w-4 h-4" />
-                {p.labelsCount ?? 0} nhãn
+                {p.type || "Chưa xác định"}
               </div>
-            </div>
 
-            {/* Footer */}
-            <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t">
-              <span>
-                {p.createdAt
-                  ? new Date(p.createdAt).toLocaleDateString()
-                  : ""}
-              </span>
-              <div className="flex items-center gap-1">
-                <Users className="w-4 h-4" />
-                {p.membersCount ?? 0} người
+              <div className="flex items-center justify-between text-sm text-gray-600 pt-2 border-t">
+                <div className="flex items-center gap-1">
+                  <Image className="w-4 h-4" />
+                  {p.imagesCount ?? 0} ảnh
+                </div>
+                <div className="flex items-center gap-1">
+                  <Tag className="w-4 h-4" />
+                  {p.labelsCount ?? 0} nhãn
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t">
+                <span>
+                  {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : ""}
+                </span>
+                <div className="flex items-center gap-1">
+                  <Users className="w-4 h-4" />
+                  {p.membersCount ?? 0} người
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

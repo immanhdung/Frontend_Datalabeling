@@ -33,6 +33,7 @@ const roleNavItems = {
         { icon: FolderKanban, label: "Quản lý dự án", path: "/manager/projects" },
         { icon: Users, label: "Giao việc", path: "/manager/assignments" },
         { icon: ClipboardCheck, label: "Duyệt dự án", path: "/manager/review" },
+
     ],
     annotator: [
         { icon: LayoutDashboard, label: "Dashboard", path: "/annotator/dashboard" },

@@ -11,8 +11,8 @@ const MENU_BY_ROLE = {
     manager: [
         { label: "Dashboard", path: "/manager/dashboard" },
         { label: "Quản lý dự án", path: "/manager/projects" },
-        { label: "Quản lý nhãn & ảnh", path: "/manager/datasets" },
-        { label: "Giao việc", path: "/manager/assign" },
+        { label: "Quản lý nhãn & ảnh", path: "/manager/categories" },
+        { label: "Giao việc", path: "/manager/assignments" },
         { label: "Duyệt dự án", path: "/manager/review" },
     ],
     annotator: [
