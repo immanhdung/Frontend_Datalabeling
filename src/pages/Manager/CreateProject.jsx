@@ -1,15 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../../config/api";
 import {
     ArrowLeft,
     ArrowRight,
-    Layers,
-    Target,
-    Image as ImageIcon,
-    Tag,
-    FileText,
     Check,
+    FileText,
     FolderOpen,
 } from "lucide-react";
 
@@ -17,28 +13,25 @@ export default function CreateProjectPage() {
     const navigate = useNavigate();
     const [step, setStep] = useState(1);
 
-    const [projectType, setProjectType] = useState("classification");
     const [projectName, setProjectName] = useState("");
     const [projectDescription, setProjectDescription] = useState("");
     const [guidelines, setGuidelines] = useState("");
 
     const [categories, setCategories] = useState([]);
     const [selectedCategoryId, setSelectedCategoryId] = useState("");
-
     const [loadingCategories, setLoadingCategories] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState("");
-
-    const selectedCategory = categories.find(
-        (c) => String(c.id) === String(selectedCategoryId)
-    );
-
-    // Load categories from API
+    const selectedCategory = useMemo(() => {
+        return categories.find(
+            (c) => String(c.categoryId || c.id) === String(selectedCategoryId)
+        );
+    }, [categories, selectedCategoryId]);
     useEffect(() => {
         const fetchCategories = async () => {
             try {
                 setLoadingCategories(true);
-                const res = await api.get("/Categories");
+                const res = await api.get("/categories");
                 setCategories(res.data || []);
             } catch (err) {
                 console.error(err);
@@ -50,39 +43,42 @@ export default function CreateProjectPage() {
 
         fetchCategories();
     }, []);
-
     const canProceed = () => {
-        switch (step) {
-            case 1:
-                return projectName.trim() !== "" && projectDescription.trim() !== "";
-            case 2:
-                return selectedCategoryId !== "";
-            default:
-                return true;
+        if (step === 1) {
+            return projectName.trim() && projectDescription.trim();
         }
+        if (step === 2) {
+            return selectedCategoryId !== "";
+        }
+        return true;
     };
-
     const handleSubmit = async () => {
-        setError("");
+        if (!selectedCategoryId) {
+            setError("Vui lòng chọn category");
+            return;
+        }
+
         setSubmitting(true);
+        setError("");
+
         try {
             const payload = {
-                name: projectName,
-                description: projectDescription,
-                guidelines: guidelines,
-                type: projectType, // "classification" | "detection"
+                name: projectName.trim(),
+                description: projectDescription.trim(),
                 categoryId: selectedCategoryId,
             };
 
-            const res = await api.post("/projects", payload);
-            console.log("CREATE PROJECT RES:", res.data);
+            console.log("CREATE PROJECT PAYLOAD:", payload);
+
+            await api.post("/projects", payload);
 
             alert("Tạo dự án thành công!");
             navigate("/manager/projects");
         } catch (err) {
-            console.error(err);
+            console.error(err.response?.data || err);
             setError(
-                err.response?.data?.message || "Tạo dự án thất bại, vui lòng thử lại"
+                err.response?.data?.message ||
+                "Tạo dự án thất bại (400 Bad Request)"
             );
         } finally {
             setSubmitting(false);
@@ -97,7 +93,6 @@ export default function CreateProjectPage() {
 
     return (
         <div className="max-w-4xl mx-auto space-y-6">
-            {/* Header */}
             <div className="flex items-center gap-4">
                 <button
                     className="p-2 rounded hover:bg-gray-100"
@@ -117,7 +112,6 @@ export default function CreateProjectPage() {
                 </div>
             )}
 
-            {/* Steps */}
             <div className="flex items-center justify-between">
                 {steps.map((s, index) => (
                     <div key={s.number} className="flex items-center">
@@ -148,10 +142,7 @@ export default function CreateProjectPage() {
                     </div>
                 ))}
             </div>
-
-            {/* Card */}
             <div className="bg-white border rounded-xl p-6">
-                {/* Step 1: Thông tin */}
                 {step === 1 && (
                     <div className="space-y-4">
                         <h2 className="text-xl font-semibold">Thông tin dự án</h2>
@@ -187,23 +178,12 @@ export default function CreateProjectPage() {
                     </div>
                 )}
 
-                {/* Step 2: Category */}
                 {step === 2 && (
                     <div className="space-y-4">
                         <h2 className="text-xl font-semibold">Chọn Category</h2>
 
                         {loadingCategories ? (
                             <p>Đang tải category...</p>
-                        ) : categories.length === 0 ? (
-                            <div>
-                                <p className="text-gray-500">Chưa có category nào</p>
-                                <button
-                                    className="mt-3 border px-4 py-2 rounded"
-                                    onClick={() => navigate("/manager/categories")}
-                                >
-                                    Tạo Category
-                                </button>
-                            </div>
                         ) : (
                             <select
                                 className="w-full border rounded px-3 py-2"
@@ -211,11 +191,15 @@ export default function CreateProjectPage() {
                                 onChange={(e) => setSelectedCategoryId(e.target.value)}
                             >
                                 <option value="">-- Chọn category --</option>
-                                {categories.map((c) => (
-                                    <option key={c.id} value={c.id}>
-                                        {c.name}
-                                    </option>
-                                ))}
+
+                                {categories.map((c, index) => {
+                                    const catId = c.categoryId || c.id;
+                                    return (
+                                        <option key={catId || index} value={String(catId)}>
+                                            {c.name}
+                                        </option>
+                                    );
+                                })}
                             </select>
                         )}
 
@@ -225,42 +209,21 @@ export default function CreateProjectPage() {
                                 <p className="text-sm text-gray-500">
                                     {selectedCategory.description || "Chưa có mô tả"}
                                 </p>
-                                <p className="text-sm mt-2">
-                                    • {selectedCategory.labelsCount || 0} nhãn •{" "}
-                                    {selectedCategory.imagesCount || 0} ảnh
-                                </p>
                             </div>
                         )}
                     </div>
                 )}
-
-                {/* Step 3: Xác nhận */}
                 {step === 3 && (
                     <div className="space-y-4">
                         <h2 className="text-xl font-semibold">Xác nhận</h2>
-
                         <div className="bg-gray-50 border rounded p-4 space-y-2">
-                            <p>
-                                <b>Tên:</b> {projectName}
-                            </p>
-                            <p>
-                                <b>Loại:</b>{" "}
-                                {projectType === "classification"
-                                    ? "Phân loại"
-                                    : "Đánh dấu vùng"}
-                            </p>
-                            <p>
-                                <b>Category:</b> {selectedCategory?.name}
-                            </p>
-                            <p>
-                                <b>Mô tả:</b> {projectDescription}
-                            </p>
+                            <p><b>Tên:</b> {projectName}</p>
+                            <p><b>Category:</b> {selectedCategory?.name}</p>
+                            <p><b>Mô tả:</b> {projectDescription}</p>
                         </div>
                     </div>
                 )}
             </div>
-
-            {/* Buttons */}
             <div className="flex justify-between">
                 <button
                     className="border px-4 py-2 rounded"
@@ -282,7 +245,7 @@ export default function CreateProjectPage() {
                     </button>
                 ) : (
                     <button
-                        className="bg-green-600 text-white px-4 py-2 rounded disabled:opacity-50"
+                        className="bg-green-600 text-white px-4 py-2 rounded"
                         onClick={handleSubmit}
                         disabled={submitting}
                     >
