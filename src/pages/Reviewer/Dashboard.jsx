@@ -37,9 +37,18 @@ const ReviewerDashboard = () => {
   // Save review history to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('reviewHistory', JSON.stringify(reviewHistory));
+    // Dispatch event to notify other components
+    window.dispatchEvent(new Event('reviewHistoryUpdated'));
   }, [reviewHistory]);
 
-  const [annotations, setAnnotations] = useState([
+  // Load annotations from reviewerAnnotations localStorage
+  const [annotations, setAnnotations] = useState(() => {
+    const savedAnnotations = localStorage.getItem('reviewerAnnotations');
+    if (savedAnnotations) {
+      return JSON.parse(savedAnnotations);
+    }
+    // Default mock data if no saved annotations
+    return [
     {
       id: '1',
       taskId: 'TASK-001',
@@ -122,7 +131,13 @@ const ReviewerDashboard = () => {
       type: 'text',
       priority: 'medium',
     },
-  ]);
+    ];
+  });
+
+  // Save annotations to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('reviewerAnnotations', JSON.stringify(annotations));
+  }, [annotations]);
 
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -218,6 +233,15 @@ const ReviewerDashboard = () => {
       ann.id === id ? { ...ann, status: 'approved', reviewedAt: now } : ann
     ));
     
+    // Update annotator task with review status
+    const annotatorTasks = JSON.parse(localStorage.getItem('annotatorTasks') || '[]');
+    const updatedTasks = annotatorTasks.map(task => 
+      task.id === annotation.taskId
+        ? { ...task, reviewStatus: 'approved', reviewedAt: now, feedback: 'Đã duyệt - Công việc xuất sắc!' }
+        : task
+    );
+    localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
+    
     // Add to review history
     const historyEntry = {
       id: `REV-${Date.now()}`,
@@ -244,6 +268,15 @@ const ReviewerDashboard = () => {
     setAnnotations(annotations.map(ann => 
       ann.id === id ? { ...ann, status: 'rejected', feedback, reviewedAt: now } : ann
     ));
+    
+    // Update annotator task with review status and feedback
+    const annotatorTasks = JSON.parse(localStorage.getItem('annotatorTasks') || '[]');
+    const updatedTasks = annotatorTasks.map(task => 
+      task.id === annotation.taskId
+        ? { ...task, reviewStatus: 'rejected', reviewedAt: now, feedback, status: 'in_progress', progress: 50 }
+        : task
+    );
+    localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
     
     // Add to review history
     const historyEntry = {

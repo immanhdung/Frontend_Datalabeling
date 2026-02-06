@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/common/Header';
 import {
@@ -24,73 +24,28 @@ import {
 const ReviewHistory = () => {
   const navigate = useNavigate();
 
-  // Load review history from localStorage
+  // Load review history from localStorage - sync with Dashboard
   const [reviewHistory, setReviewHistory] = useState(() => {
     const saved = localStorage.getItem('reviewHistory');
-    const savedData = saved ? JSON.parse(saved) : [];
-    
-    // Default mock data if no saved history
-    if (savedData.length === 0) {
-      return [
-        {
-          id: 'REV-001',
-          annotationId: '1',
-          taskId: 'TASK-001',
-          taskTitle: 'Gán nhãn ảnh xe hơi',
-          annotatorName: 'Nguyễn Văn A',
-          projectName: 'Phân loại phương tiện',
-          decision: 'approved',
-          feedback: 'Annotation chính xác, chất lượng tốt',
-          reviewedAt: '2026-02-05T14:30:00Z',
-          reviewTime: 5, // minutes
-          type: 'image',
-        },
-        {
-          id: 'REV-002',
-          annotationId: '2',
-          taskId: 'TASK-002',
-          taskTitle: 'Phân loại văn bản tin tức',
-          annotatorName: 'Trần Thị B',
-          projectName: 'Phân loại văn bản',
-          decision: 'rejected',
-          feedback: 'Thiếu một số entities quan trọng. Vui lòng kiểm tra lại phần tên riêng và địa điểm.',
-          issues: ['Thiếu entities', 'Phân loại sai một số câu'],
-          reviewedAt: '2026-02-05T11:20:00Z',
-          reviewTime: 8,
-          type: 'text',
-        },
-        {
-          id: 'REV-003',
-          annotationId: '3',
-          taskId: 'TASK-003',
-          taskTitle: 'Nhận diện đối tượng trong video',
-          annotatorName: 'Nguyễn Văn A',
-          projectName: 'Phân loại phương tiện',
-          decision: 'approved',
-          feedback: '',
-          reviewedAt: '2026-02-04T16:45:00Z',
-          reviewTime: 12,
-          type: 'video',
-        },
-        {
-          id: 'REV-004',
-          annotationId: '4',
-          taskId: 'TASK-004',
-          taskTitle: 'Gán nhãn âm thanh',
-          annotatorName: 'Lê Văn C',
-          projectName: 'Nhận diện âm thanh',
-          decision: 'rejected',
-          feedback: 'Thiếu nhãn cho một số phân đoạn quan trọng trong khoảng 2:30-3:15',
-          issues: ['Thiếu nhãn', 'Không tuân thủ hướng dẫn'],
-          reviewedAt: '2026-02-04T10:15:00Z',
-          reviewTime: 6,
-          type: 'audio',
-        },
-      ];
-    }
-    
-    return savedData;
+    return saved ? JSON.parse(saved) : [];
   });
+
+  // Reload data when component mounts or when localStorage changes
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const saved = localStorage.getItem('reviewHistory');
+      if (saved) {
+        setReviewHistory(JSON.parse(saved));
+      }
+    };
+
+    // Listen for custom event from other components
+    window.addEventListener('reviewHistoryUpdated', handleStorageChange);
+    
+    return () => {
+      window.removeEventListener('reviewHistoryUpdated', handleStorageChange);
+    };
+  }, []);
 
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -101,8 +56,12 @@ const ReviewHistory = () => {
     total: reviewHistory.length,
     approved: reviewHistory.filter(r => r.decision === 'approved').length,
     rejected: reviewHistory.filter(r => r.decision === 'rejected').length,
-    avgReviewTime: (reviewHistory.reduce((sum, r) => sum + r.reviewTime, 0) / reviewHistory.length).toFixed(1),
-    approvalRate: ((reviewHistory.filter(r => r.decision === 'approved').length / reviewHistory.length) * 100).toFixed(1),
+    avgReviewTime: reviewHistory.length > 0 
+      ? (reviewHistory.reduce((sum, r) => sum + r.reviewTime, 0) / reviewHistory.length).toFixed(1)
+      : '0',
+    approvalRate: reviewHistory.length > 0
+      ? ((reviewHistory.filter(r => r.decision === 'approved').length / reviewHistory.length) * 100).toFixed(1)
+      : '0',
   };
 
   // Filter history

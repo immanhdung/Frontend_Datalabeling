@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Header from '../../components/common/Header';
 import StatsCard from '../../components/common/StatsCard';
 import {
@@ -15,20 +16,20 @@ import {
   Search,
   Folder,
   Calendar,
-  Play
+  Play,
+  X
 } from "lucide-react";
 
 const AnnotatorDashboard = () => {
-  const [stats, setStats] = useState({
-    total: 200,
-    pending: 65,
-    inProgress: 15,
-    completed: 120,
-    approved: 95,
-    rejected: 15,
-  });
+  const navigate = useNavigate();
 
-  const [tasks, setTasks] = useState([
+  // Load tasks from localStorage
+  const [tasks, setTasks] = useState(() => {
+    const saved = localStorage.getItem('annotatorTasks');
+    if (saved) {
+      return JSON.parse(saved);
+    }
+    return [
     {
       id: 'task-1',
       title: 'Gán nhãn hình ảnh xe hơi - Dataset 001',
@@ -90,11 +91,39 @@ const AnnotatorDashboard = () => {
       reviewStatus: 'rejected',
       feedback: 'Một số frame bị thiếu annotations, vui lòng kiểm tra lại',
     },
-  ]);
+    ];
+  });
+
+  // Save tasks to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('annotatorTasks', JSON.stringify(tasks));
+  }, [tasks]);
+
+  // Calculate stats dynamically from tasks
+  const stats = {
+    total: tasks.length,
+    pending: tasks.filter(t => t.status === 'pending').length,
+    inProgress: tasks.filter(t => t.status === 'in_progress').length,
+    completed: tasks.filter(t => t.status === 'completed').length,
+    approved: tasks.filter(t => t.reviewStatus === 'approved').length,
+    rejected: tasks.filter(t => t.reviewStatus === 'rejected').length,
+  };
 
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('recent');
+  
+  // Create task modal
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newTask, setNewTask] = useState({
+    title: '',
+    description: '',
+    type: 'image',
+    priority: 'medium',
+    projectName: '',
+    dueDate: '',
+    totalItems: 100,
+  });
 
   const filteredTasks = tasks.filter((task) => {
     const matchesFilter = filter === 'all' || task.status === filter;
@@ -122,6 +151,49 @@ const AnnotatorDashboard = () => {
     setTasks(tasks.map(task => 
       task.id === taskId ? { ...task, status: 'in_progress', updatedAt: new Date().toISOString() } : task
     ));
+    navigate(`/annotator/task/${taskId}`);
+  };
+
+  const handleContinueTask = (taskId) => {
+    navigate(`/annotator/task/${taskId}`);
+  };
+
+  const handleViewTask = (taskId) => {
+    navigate(`/annotator/task/${taskId}`);
+  };
+
+  const handleCreateTask = () => {
+    if (!newTask.title || !newTask.projectName || !newTask.dueDate) {
+      alert('Vui lòng điền đầy đủ thông tin bắt buộc!');
+      return;
+    }
+
+    const task = {
+      id: `task-${Date.now()}`,
+      title: newTask.title,
+      description: newTask.description,
+      type: newTask.type,
+      status: 'pending',
+      priority: newTask.priority,
+      projectName: newTask.projectName,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      dueDate: new Date(newTask.dueDate).toISOString(),
+      progress: 0,
+      totalItems: newTask.totalItems,
+    };
+
+    setTasks([task, ...tasks]);
+    setShowCreateModal(false);
+    setNewTask({
+      title: '',
+      description: '',
+      type: 'image',
+      priority: 'medium',
+      projectName: '',
+      dueDate: '',
+      totalItems: 100,
+    });
   };
 
   const getDaysUntilDue = (dueDate) => {
@@ -137,7 +209,9 @@ const AnnotatorDashboard = () => {
         userRole="annotator"
         onRefresh={handleRefresh}
         actionButton={
-          <button className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+          <button 
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
             <Plus className="w-4 h-4" />
             Task mới
           </button>
@@ -388,23 +462,31 @@ const AnnotatorDashboard = () => {
                         </button>
                       )}
                       {task.status === 'in_progress' && (
-                        <button className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold transition-all">
+                        <button 
+                          onClick={() => handleContinueTask(task.id)}
+                          className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold transition-all">
                           Tiếp tục
                         </button>
                       )}
                       {task.status === 'completed' && (
                         <>
-                          <button className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm font-semibold transition-all">
+                          <button 
+                            onClick={() => handleViewTask(task.id)}
+                            className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm font-semibold transition-all">
                             Xem lại
                           </button>
                           {task.reviewStatus === 'rejected' && (
-                            <button className="px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-semibold transition-all">
+                            <button 
+                              onClick={() => handleContinueTask(task.id)}
+                              className="px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-semibold transition-all">
                               Sửa lại
                             </button>
                           )}
                         </>
                       )}
-                      <button className="px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-semibold transition-all">
+                      <button 
+                        onClick={() => handleViewTask(task.id)}
+                        className="px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-semibold transition-all">
                         Chi tiết
                       </button>
                     </div>
@@ -415,6 +497,141 @@ const AnnotatorDashboard = () => {
           )}
         </div>
       </main>
+
+      {/* Create Task Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold text-gray-900">Tạo Task Mới</h3>
+                <button
+                  onClick={() => setShowCreateModal(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Tiêu đề task *
+                </label>
+                <input
+                  type="text"
+                  value={newTask.title}
+                  onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+                  placeholder="VD: Gán nhãn hình ảnh xe hơi"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Mô tả
+                </label>
+                <textarea
+                  value={newTask.description}
+                  onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
+                  placeholder="Mô tả chi tiết về task"
+                  rows="3"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Loại task *
+                  </label>
+                  <select
+                    value={newTask.type}
+                    onChange={(e) => setNewTask({ ...newTask, type: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  >
+                    <option value="image">Image</option>
+                    <option value="text">Text</option>
+                    <option value="audio">Audio</option>
+                    <option value="video">Video</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Độ ưu tiên *
+                  </label>
+                  <select
+                    value={newTask.priority}
+                    onChange={(e) => setNewTask({ ...newTask, priority: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  >
+                    <option value="high">Cao</option>
+                    <option value="medium">Trung bình</option>
+                    <option value="low">Thấp</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Tên project *
+                </label>
+                <input
+                  type="text"
+                  value={newTask.projectName}
+                  onChange={(e) => setNewTask({ ...newTask, projectName: e.target.value })}
+                  placeholder="VD: Autonomous Driving"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Deadline *
+                  </label>
+                  <input
+                    type="date"
+                    value={newTask.dueDate}
+                    onChange={(e) => setNewTask({ ...newTask, dueDate: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Số lượng items
+                  </label>
+                  <input
+                    type="number"
+                    value={newTask.totalItems}
+                    onChange={(e) => setNewTask({ ...newTask, totalItems: parseInt(e.target.value) || 0 })}
+                    min="1"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-gray-200 flex gap-3">
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition-all"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleCreateTask}
+                className="flex-1 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-all"
+              >
+                Tạo Task
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

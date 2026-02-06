@@ -21,10 +21,26 @@ const Analytics = () => {
   const navigate = useNavigate();
 
   // Load review history from localStorage
-  const [reviewHistory] = useState(() => {
+  const [reviewHistory, setReviewHistory] = useState(() => {
     const saved = localStorage.getItem('reviewHistory');
     return saved ? JSON.parse(saved) : [];
   });
+
+  // Reload data when localStorage changes
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const saved = localStorage.getItem('reviewHistory');
+      if (saved) {
+        setReviewHistory(JSON.parse(saved));
+      }
+    };
+
+    window.addEventListener('reviewHistoryUpdated', handleStorageChange);
+    
+    return () => {
+      window.removeEventListener('reviewHistoryUpdated', handleStorageChange);
+    };
+  }, []);
 
   // Calculate overall statistics
   const totalReviews = reviewHistory.length;
