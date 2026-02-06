@@ -1,6 +1,10 @@
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import ReviewerDashboard from './pages/Reviewer/Dashboard';
+import ReviewerTask from './pages/Reviewer/Task';
+import ReviewerHistory from './pages/Reviewer/History';
+import ReviewerAnalytics from './pages/Reviewer/Analytics';
 import AnnotatorDashboard from './pages/Annotator/Dashboard';
+import AnnotatorTask from './pages/Annotator/Task';
 import AdminDashboard from './pages/Admin/Dashboard';
 
 // Trang chủ để chọn role
@@ -139,7 +143,11 @@ function App() {
         <Route path="/" element={<Home />} />
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
         <Route path="/reviewer/dashboard" element={<ReviewerDashboard />} />
+        <Route path="/reviewer/task/:taskId" element={<ReviewerTask />} />
+        <Route path="/reviewer/history" element={<ReviewerHistory />} />
+        <Route path="/reviewer/analytics" element={<ReviewerAnalytics />} />
         <Route path="/annotator/dashboard" element={<AnnotatorDashboard />} />
+        <Route path="/annotator/task/:taskId" element={<AnnotatorTask />} />
       </Routes>
     </Router>
   );
