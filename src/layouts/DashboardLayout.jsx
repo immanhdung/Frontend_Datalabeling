@@ -18,6 +18,7 @@ import {
     FolderOpen,
     History,
     MessageSquare,
+    Database,
 } from "lucide-react";
 
 const roleNavItems = {
@@ -29,11 +30,11 @@ const roleNavItems = {
     ],
     manager: [
         { icon: LayoutDashboard, label: "Dashboard", path: "/manager/dashboard" },
-        { icon: FolderOpen, label: "Quản lý nhãn & ảnh", path: "/manager/categories" },
         { icon: FolderKanban, label: "Quản lý dự án", path: "/manager/projects" },
+        { icon: FolderOpen, label: "Quản lý nhãn & ảnh", path: "/manager/categories" },
+        { icon: Database, label: "Datasets", path: "/manager/datasets" },
         { icon: Users, label: "Giao việc", path: "/manager/assignments" },
         { icon: ClipboardCheck, label: "Duyệt dự án", path: "/manager/review" },
-
     ],
     annotator: [
         { icon: LayoutDashboard, label: "Dashboard", path: "/annotator/dashboard" },
@@ -50,9 +51,9 @@ const roleNavItems = {
 export default function DashboardLayout() {
     const location = useLocation();
     const navigate = useNavigate();
-    const { logout } = useAuth();
+    const { logout, user } = useAuth();
     const [sidebarOpen, setSidebarOpen] = useState(true);
-    const role = location.pathname.split("/")[1];
+    const role = location.pathname.split("/")[1]?.toLowerCase();
     const navItems = roleNavItems[role] || [];
 
     const handleLogout = () => {
@@ -115,13 +116,13 @@ export default function DashboardLayout() {
                             }`}
                     >
                         <div className="h-8 w-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold">
-                            {role?.charAt(0)?.toUpperCase() || "U"}
+                            {(user?.username || user?.email || "U")[0].toUpperCase()}
                         </div>
 
                         {sidebarOpen && (
                             <div className="flex-1">
-                                <p className="font-medium">{role}</p>
-                                <p className="text-xs text-gray-500 capitalize">{role}</p>
+                                <p className="font-medium truncate">{user?.username || user?.email || "User"}</p>
+                                <p className="text-xs text-gray-500 capitalize">{user?.role || role}</p>
                             </div>
                         )}
                     </div>

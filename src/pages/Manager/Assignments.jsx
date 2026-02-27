@@ -19,7 +19,6 @@ const ManagerAssignments = () => {
     const [error, setError] = useState("");
     const [searchTerm, setSearchTerm] = useState("");
 
-    // Modal state
     const [showModal, setShowModal] = useState(false);
     const [selectedProject, setSelectedProject] = useState(null);
     const [selectedAnnotators, setSelectedAnnotators] = useState([]);
@@ -31,21 +30,15 @@ const ManagerAssignments = () => {
             setLoading(true);
             setError("");
 
-            // Gọi API theo đúng danh mục trong ảnh Swagger
             const [projectsRes, usersRes, rolesRes] = await Promise.all([
                 api.get("/projects/mine"),
                 api.get("/users"),
                 api.get("/roles")
             ]);
-
-            // 1. Xử lý Projects
             const allProjects = projectsRes.data?.items || [];
             setProjects(allProjects);
 
-            // 2. Xử lý Users
             const allUsers = usersRes.data?.data || usersRes.data || [];
-
-            // Lọc annotators và reviewers từ danh sách user thật
             const annots = allUsers.filter(u =>
                 u.roleName?.toLowerCase() === "annotator" ||
                 u.role?.name?.toLowerCase() === "annotator"
@@ -55,7 +48,6 @@ const ManagerAssignments = () => {
                 u.role?.name?.toLowerCase() === "reviewer"
             );
 
-            // Gán thêm chỉ số thống kê ngẫu nhiên (vì API chưa hỗ trợ các field này)
             const enrichedAnnots = annots.map(u => ({
                 ...u,
                 projectCount: u.projectCount ?? Math.floor(Math.random() * 3),
@@ -97,9 +89,6 @@ const ManagerAssignments = () => {
         try {
             setSubmitting(true);
             const projectId = selectedProject.id || selectedProject.projectId;
-
-            // Dựa trên ảnh Swagger: Không có endpoint /assign riêng.
-            // Phương án đúng nhất là PUT /api/projects/{id} để cập nhật danh sách members.
             const payload = {
                 ...selectedProject,
                 annotatorIds: selectedAnnotators,

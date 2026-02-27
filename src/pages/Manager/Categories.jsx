@@ -14,6 +14,9 @@ export default function Categories() {
     const [showLabelModal, setShowLabelModal] = useState(false);
     const [labelName, setLabelName] = useState("");
     const [selectedCategoryIds, setSelectedCategoryIds] = useState([]);
+    const [categoryProjects, setCategoryProjects] = useState([]);
+    const [fetchingProjects, setFetchingProjects] = useState(false);
+
     const fetchCategories = async (updateSelectedId) => {
         try {
             setLoading(true);
@@ -23,7 +26,10 @@ export default function Categories() {
             const targetId = updateSelectedId || selected?.categoryId || selected?.id;
             if (targetId) {
                 const refreshed = data.find(c => (c.categoryId || c.id) === targetId);
-                if (refreshed) setSelected(refreshed);
+                if (refreshed) {
+                    setSelected(refreshed);
+                    fetchCategoryProjects(targetId);
+                }
             }
         } catch (err) {
             console.error(err);
@@ -33,9 +39,27 @@ export default function Categories() {
         }
     };
 
+    const fetchCategoryProjects = async (categoryId) => {
+        try {
+            setFetchingProjects(true);
+            // API: GET /api/projects?CategoryId={id}
+            const res = await api.get(`/projects?CategoryId=${categoryId}`);
+            setCategoryProjects(res.data?.items || []);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setFetchingProjects(false);
+        }
+    };
+
     useEffect(() => {
         fetchCategories();
     }, []);
+
+    const handleSelectCategory = (c) => {
+        setSelected(c);
+        fetchCategoryProjects(c.categoryId || c.id);
+    };
 
     const handleCreate = async () => {
         if (!newName.trim()) {
@@ -64,7 +88,6 @@ export default function Categories() {
         }
         try {
             setLoading(true);
-            // Theo Swagger: POST /api/labelsets/{labelSetId}/labels
             await Promise.all(
                 selectedCategoryIds.map(id =>
                     api.post(`/labelsets/${id}/labels`, {
@@ -106,16 +129,12 @@ export default function Categories() {
 
         try {
             setLoading(true);
-            // Tìm Project thuộc Category này để upload (vì API Dataset Import yêu cầu projectId)
-            const projectsRes = await api.get(`/projects?CategoryId=${currentId}`);
-            const projects = projectsRes.data?.items || [];
-
-            if (projects.length === 0) {
+            if (categoryProjects.length === 0) {
                 alert("Category này hiện chưa có Project nào. Hãy tạo dự án trước khi upload ảnh.");
                 return;
             }
 
-            const projectId = projects[0].id || projects[0].projectId;
+            const projectId = categoryProjects[0].id || categoryProjects[0].projectId;
 
             if (isZip) {
                 const formData = new FormData();
@@ -136,7 +155,7 @@ export default function Categories() {
             }
 
             alert("Upload thành công!");
-            fetchCategories(currentId);
+            fetchCategoryProjects(currentId);
         } catch (err) {
             console.error("Upload error:", err);
             alert("Upload thất bại: " + (err.response?.data?.message || err.message));
@@ -152,9 +171,9 @@ export default function Categories() {
         <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
             <div className="flex justify-between items-center">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Quản lý nhãn và ảnh</h1>
+                    <h1 className="text-2xl font-bold text-gray-900">Phân loại theo Category</h1>
                     <p className="text-gray-500">
-                        Tổ chức dữ liệu theo các category
+                        Quản lý các dự án theo từng danh mục
                     </p>
                 </div>
                 <div className="flex gap-3">
@@ -194,14 +213,14 @@ export default function Categories() {
                             {categories.map((c, index) => (
                                 <div
                                     key={c.categoryId || c.id || index}
-                                    onClick={() => setSelected(c)}
+                                    onClick={() => handleSelectCategory(c)}
                                     className={`p-4 border rounded-lg cursor-pointer flex items-center justify-between hover:bg-gray-50 ${(selected?.categoryId || selected?.id) === (c.categoryId || c.id) ? "border-blue-500 bg-blue-50" : ""
                                         }`}
                                 >
                                     <div>
                                         <p className="font-medium text-gray-900">{c.name}</p>
                                         <p className="text-sm text-gray-500">
-                                            {c.labelsCount || 0} nhãn • {c.imagesCount || 0} ảnh
+                                            Phân loại: {c.description || "Chưa có mô tả"}
                                         </p>
                                     </div>
                                     <ChevronRight className="w-4 h-4 text-gray-400" />
@@ -214,93 +233,55 @@ export default function Categories() {
                     {!selected ? (
                         <div className="flex-1 flex flex-col items-center justify-center text-gray-500 p-12">
                             <Folder className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                            <p className="font-medium">Chọn một category để xem chi tiết</p>
+                            <p className="font-medium">Chọn một category để xem các dự án</p>
                             <p className="text-sm">
-                                Hoặc tạo category mới để bắt đầu
+                                Các dự án sẽ được hiển thị tại đây
                             </p>
                         </div>
                     ) : (
                         <div className="p-6">
-                            <div className="mb-6">
-                                <h2 className="text-2xl font-bold text-gray-900">{selected.name}</h2>
-                                <p className="text-gray-500">
-                                    {selected.description || "Chưa có mô tả"}
-                                </p>
-                            </div>
-                            <div className="mb-8">
-                                <div className="flex justify-between items-center mb-4">
-                                    <div className="flex items-center gap-2">
-                                        <Tag className="w-5 h-5 text-gray-400" />
-                                        <h3 className="font-semibold text-lg">Nhãn ({selected.labels?.length || 0})</h3>
-                                    </div>
-                                    <button
-                                        onClick={() => {
-                                            const catId = selected.categoryId || selected.id;
-                                            setSelectedCategoryIds([catId]);
-                                            setShowLabelModal(true);
-                                        }}
-                                        className="flex items-center gap-1.2 px-3 py-1.5 border rounded-lg text-sm hover:bg-gray-50 transition-colors"
-                                    >
-                                        <Plus className="w-3.5 h-3.5" />
-                                        Thêm nhãn
-                                    </button>
+                            <div className="mb-6 flex justify-between items-start">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-gray-900">{selected.name}</h2>
+                                    <p className="text-gray-500">
+                                        {selected.description || "Chưa có mô tả"}
+                                    </p>
                                 </div>
-                                <div className="flex flex-wrap gap-2">
-                                    {(selected.labels?.length > 0 || selected.labelsCount > 0) ? (
-                                        (selected.labels || [{ name: "Chó" }, { name: "Mèo" }]).map((l, i) => {
-                                            const colors = [
-                                                { bg: "bg-indigo-100", text: "text-indigo-700" },
-                                                { bg: "bg-emerald-100", text: "text-emerald-700" },
-                                                { bg: "bg-amber-100", text: "text-amber-700" },
-                                                { bg: "bg-rose-100", text: "text-rose-700" },
-                                            ];
-                                            const color = colors[i % colors.length];
-                                            return (
-                                                <span key={i} className={`px-4 py-1.5 ${color.bg} ${color.text} rounded-full text-sm font-semibold`}>
-                                                    {l.name}
-                                                </span>
-                                            );
-                                        })
-                                    ) : (
-                                        <p className="text-sm text-gray-400 italic">Chưa có nhãn nào</p>
-                                    )}
+                                <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold uppercase">
+                                    {categoryProjects.length} Dự án
                                 </div>
                             </div>
-                            <div>
-                                <div className="flex justify-between items-center mb-4">
-                                    <div className="flex items-center gap-2">
-                                        <ImageIcon className="w-5 h-5 text-gray-400" />
-                                        <h3 className="font-semibold text-lg">Ảnh ({selected.imagesCount || 0})</h3>
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <label className="flex items-center gap-2 px-3 py-1.5 border rounded-lg text-sm cursor-pointer hover:bg-gray-50 transition-colors">
-                                            <FileUp className="w-4 h-4" />
-                                            Import ZIP
-                                            <input type="file" accept=".zip" hidden onChange={handleZipUpload} />
-                                        </label>
-                                        <label className="flex items-center gap-2 px-3 py-1.5 border rounded-lg text-sm cursor-pointer hover:bg-gray-50 transition-colors">
-                                            <Upload className="w-4 h-4" />
-                                            Upload ảnh
-                                            <input type="file" multiple accept="image/*" hidden onChange={handleImageUpload} />
-                                        </label>
-                                    </div>
-                                </div>
 
-                                {selected.imagesCount > 0 ? (
-                                    <div className="grid grid-cols-4 gap-4">
-                                        {[...Array(Math.min(selected.imagesCount, 8))].map((_, i) => (
-                                            <div key={i} className="aspect-square bg-gray-100 rounded-lg overflow-hidden border">
-                                                <img
-                                                    src={`https://picsum.photos/seed/${selected.id}-${i}/200`}
-                                                    alt=""
-                                                    className="w-full h-full object-cover"
-                                                />
+                            <div>
+                                <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
+                                    <Plus className="w-5 h-5 text-gray-400" />
+                                    Danh sách dự án thuộc Category
+                                </h3>
+
+                                {fetchingProjects ? (
+                                    <div className="flex justify-center p-12">
+                                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                                    </div>
+                                ) : categoryProjects.length > 0 ? (
+                                    <div className="grid grid-cols-2 gap-4">
+                                        {categoryProjects.map((p) => (
+                                            <div key={p.id || p.projectId} className="p-4 border border-gray-100 rounded-xl hover:shadow-md transition-all bg-gray-50/30">
+                                                <h4 className="font-bold text-gray-900">{p.name}</h4>
+                                                <p className="text-sm text-gray-500 line-clamp-2 mt-1">{p.description}</p>
+                                                <div className="mt-4 flex items-center justify-between">
+                                                    <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-black uppercase">
+                                                        {p.type}
+                                                    </span>
+                                                    <span className="text-xs text-gray-400">
+                                                        {p.status}
+                                                    </span>
+                                                </div>
                                             </div>
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="h-40 border-2 border-dashed rounded-xl flex items-center justify-center text-gray-400">
-                                        Trống
+                                    <div className="h-40 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-gray-400">
+                                        <p>Chưa có dự án nào trong category này</p>
                                     </div>
                                 )}
                             </div>

@@ -18,6 +18,7 @@ import ManagerAssignments from "./pages/Manager/Assignments";
 import ManagerReview from "./pages/Manager/Review";
 import ManagerProjectsDetail from "./pages/Manager/ProjectDetail";
 import CreateProjectPage from "./pages/Manager/CreateProject";
+import Datasets from "./pages/Manager/Datasets";
 
 
 // Annotator
@@ -154,6 +155,14 @@ function App() {
           element={
             <ProtectedRoute allowRoles={["manager"]}>
               <ManagerReview />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/manager/datasets"
+          element={
+            <ProtectedRoute allowRoles={["manager"]}>
+              <Datasets />
             </ProtectedRoute>
           }
         />

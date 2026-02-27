@@ -12,6 +12,7 @@ const MENU_BY_ROLE = {
         { label: "Dashboard", path: "/manager/dashboard" },
         { label: "Quản lý dự án", path: "/manager/projects" },
         { label: "Quản lý nhãn & ảnh", path: "/manager/categories" },
+        { label: "Datasets", path: "/manager/datasets" },
         { label: "Giao việc", path: "/manager/assignments" },
         { label: "Duyệt dự án", path: "/manager/review" },
     ],
@@ -32,7 +33,7 @@ export default function Sidebar() {
 
     if (!user) return null;
 
-    const menus = MENU_BY_ROLE[user.role] || [];
+    const menus = MENU_BY_ROLE[user.role?.toLowerCase()] || [];
 
     return (
         <aside className="w-64 bg-slate-900 text-white flex flex-col">
@@ -63,10 +64,10 @@ export default function Sidebar() {
             <div className="p-4 border-t border-slate-700">
                 <div className="flex items-center gap-3 mb-3">
                     <div className="w-10 h-10 rounded-full bg-indigo-500 flex items-center justify-center font-bold">
-                        {user.email[0].toUpperCase()}
+                        {(user.email || user.username || "U")[0].toUpperCase()}
                     </div>
                     <div>
-                        <p className="text-sm font-medium">{user.email}</p>
+                        <p className="text-sm font-medium">{user.email || user.username}</p>
                         <p className="text-xs text-slate-400">{user.role}</p>
                     </div>
                 </div>

@@ -28,8 +28,28 @@ export default function ManagerProjects() {
   const [selectedProjectIds, setSelectedProjectIds] = useState([]);
   const [submittingLabel, setSubmittingLabel] = useState(false);
 
+  // Modal Gán Dataset state
+  const [showDatasetModal, setShowDatasetModal] = useState(false);
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [datasets, setDatasets] = useState([
+    { id: 1, name: "Bộ dữ liệu chó mèo", imagesCount: 150 },
+    { id: 2, name: "Giao thông đô thị", imagesCount: 420 },
+  ]);
+
   const navigate = useNavigate();
   const { logout } = useAuth();
+
+  const handleAssignDataset = async (datasetId) => {
+    try {
+      // Logic gọi API gán dataset cho project
+      // await api.post(`/projects/${selectedProject.id || selectedProject.projectId}/datasets`, { datasetId });
+      alert(`Đã gán dataset cho dự án "${selectedProject.name}" (Giả lập)`);
+      setShowDatasetModal(false);
+    } catch (err) {
+      console.error(err);
+      alert("Gán dataset thất bại");
+    }
+  };
 
   const fetchProjects = async () => {
     try {
@@ -40,9 +60,6 @@ export default function ManagerProjects() {
         api.get("/projects/mine"),
         api.get("/categories").catch(() => ({ data: [] })),
       ]);
-
-      console.log("PROJECTS FROM API:", projRes.data);
-      console.log("CATEGORIES FROM API:", catRes.data);
 
       setProjects(Array.isArray(projRes.data?.items) ? projRes.data.items : []);
       setCategories(Array.isArray(catRes.data) ? catRes.data : []);
@@ -82,11 +99,9 @@ export default function ManagerProjects() {
         return;
       }
 
-      // Gửi nhãn vào các LabelSet (tương ứng với CategoryId của các dự án)
       for (const targetId of uniqueTargetIds) {
-        console.log(`Đang thêm nhãn "${labelName}" vào bộ nhãn của Category: ${targetId}`);
         await api.post(`/labelsets/${targetId}/labels`, {
-          name: labelName, // ✅ CHỈ gửi name
+          name: labelName,
         });
       }
 
@@ -101,7 +116,7 @@ export default function ManagerProjects() {
         err.response?.data?.title ||
         err.response?.data?.message ||
         err.message;
-      alert(`Thêm nhãn thất bại: ${serverMsg}\nHãy đảm bảo tên nhãn chưa tồn tại trong danh mục này.`);
+      alert(`Thêm nhãn thất bại: ${serverMsg}`);
     } finally {
       setSubmittingLabel(false);
     }
@@ -202,7 +217,6 @@ export default function ManagerProjects() {
             </div>
 
             <div className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
-              {/* Tên nhãn */}
               <div className="space-y-2">
                 <label className="text-sm font-bold text-gray-700">Tên nhãn *</label>
                 <input
@@ -214,7 +228,6 @@ export default function ManagerProjects() {
                 />
               </div>
 
-              {/* Chọn dự án */}
               <div className="space-y-3">
                 <label className="text-sm font-bold text-gray-700">
                   Chọn dự án áp dụng ({selectedProjectIds.length})
@@ -231,8 +244,8 @@ export default function ManagerProjects() {
                           key={id}
                           onClick={() => toggleProjectSelection(id)}
                           className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${isSelected
-                              ? "border-indigo-500 bg-indigo-50"
-                              : "border-gray-100 hover:border-gray-300 bg-gray-50/30"
+                            ? "border-indigo-500 bg-indigo-50"
+                            : "border-gray-100 hover:border-gray-300 bg-gray-50/30"
                             }`}
                         >
                           <div
@@ -274,6 +287,56 @@ export default function ManagerProjects() {
         </div>
       )}
 
+      {/* Modal Gán Dataset */}
+      {showDatasetModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-[24px] shadow-2xl w-full max-w-[450px] overflow-hidden flex flex-col border border-gray-100">
+            <div className="p-6 border-b flex justify-between items-center bg-gray-50/50">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Gán Dataset vào dự án</h2>
+                <p className="text-sm text-gray-500">Dự án: {selectedProject?.name}</p>
+              </div>
+              <button
+                onClick={() => setShowDatasetModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-full transition-all"
+              >
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-3 overflow-y-auto max-h-[60vh]">
+              {datasets.map((ds) => (
+                <button
+                  key={ds.id}
+                  onClick={() => handleAssignDataset(ds.id)}
+                  className="w-full flex items-center justify-between p-4 border border-gray-100 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
+                      <Image className="w-5 h-5 text-indigo-600" />
+                    </div>
+                    <div className="text-left">
+                      <p className="font-bold text-gray-800">{ds.name}</p>
+                      <p className="text-xs text-gray-400">{ds.imagesCount} hình ảnh</p>
+                    </div>
+                  </div>
+                  <Plus className="w-5 h-5 text-gray-300 group-hover:text-indigo-600 transition-colors" />
+                </button>
+              ))}
+            </div>
+
+            <div className="p-4 border-t bg-gray-50/50 text-center">
+              <button
+                onClick={() => setShowDatasetModal(false)}
+                className="text-sm font-bold text-gray-500 hover:text-gray-700"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {!loading && !error && projects.length === 0 && (
         <p className="text-gray-500">Chưa có dự án nào</p>
       )}
@@ -305,13 +368,23 @@ export default function ManagerProjects() {
                   </button>
 
                   {openMenuId === id && (
-                    <div className="absolute right-0 mt-2 w-48 bg-white border rounded-xl shadow-xl z-10 py-2">
+                    <div className="absolute right-0 mt-2 w-48 bg-white border rounded-xl shadow-xl z-20 py-2">
                       <button
                         onClick={() => navigate(`/manager/projects/${id}`)}
                         className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                       >
                         <Eye className="w-4 h-4 text-blue-500" />
                         Xem chi tiết
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedProject(p);
+                          setShowDatasetModal(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-indigo-600 hover:bg-indigo-50"
+                      >
+                        <Image className="w-4 h-4" />
+                        Gán Datasets
                       </button>
                       <button
                         onClick={() => handleDelete(id)}
