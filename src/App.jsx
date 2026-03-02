@@ -6,6 +6,12 @@ import ReviewerAnalytics from './pages/Reviewer/Analytics';
 import AnnotatorDashboard from './pages/Annotator/Dashboard';
 import AnnotatorTask from './pages/Annotator/Task';
 import AdminDashboard from './pages/Admin/Dashboard';
+import ManagerDashboard from './pages/Manager/Dashboard';
+import ManagerProjects from './pages/Manager/Projects';
+import ManagerProjectDetail from './pages/Manager/ProjectDetail';
+import ManagerDatasets from './pages/Manager/Datasets';
+import ManagerCreateProject from './pages/Manager/CreateProject';
+import AssignTasks from './pages/Manager/AssignTasks';
 
 // Trang chủ để chọn role
 function Home() {
@@ -21,7 +27,7 @@ function Home() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
           {/* Admin Card */}
           <Link to="/admin/dashboard">
             <div className="bg-white rounded-2xl shadow-2xl p-8 hover:scale-105 transition-transform cursor-pointer group">
@@ -124,6 +130,40 @@ function Home() {
               </div>
             </div>
           </Link>
+
+          {/* Manager Card */}
+          <Link to="/manager/assign-tasks">
+            <div className="bg-white rounded-2xl shadow-2xl p-8 hover:scale-105 transition-transform cursor-pointer group">
+              <div className="flex flex-col items-center">
+                <div className="w-24 h-24 bg-purple-500 rounded-full flex items-center justify-center mb-6 group-hover:bg-purple-600 transition-colors">
+                  <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                  </svg>
+                </div>
+                <h2 className="text-3xl font-bold text-gray-900 mb-3">Manager</h2>
+                <p className="text-gray-600 text-center mb-6">
+                  Quản lý projects và assign tasks
+                </p>
+                <ul className="text-left text-sm text-gray-600 space-y-2 w-full">
+                  <li className="flex items-center gap-2">
+                    <span className="text-purple-500">✓</span> Quản lý projects
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-purple-500">✓</span> Assign tasks
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-purple-500">✓</span> Theo dõi tiến độ
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-purple-500">✓</span> Quản lý datasets
+                  </li>
+                </ul>
+                <button className="mt-8 w-full bg-purple-500 text-white py-3 rounded-lg font-semibold hover:bg-purple-600 transition-colors">
+                  Vào Dashboard →
+                </button>
+              </div>
+            </div>
+          </Link>
         </div>
 
         <div className="text-center mt-12">
@@ -148,6 +188,12 @@ function App() {
         <Route path="/reviewer/analytics" element={<ReviewerAnalytics />} />
         <Route path="/annotator/dashboard" element={<AnnotatorDashboard />} />
         <Route path="/annotator/task/:taskId" element={<AnnotatorTask />} />
+        <Route path="/manager/dashboard" element={<ManagerDashboard />} />
+        <Route path="/manager/projects" element={<ManagerProjects />} />
+        <Route path="/manager/project/:projectId" element={<ManagerProjectDetail />} />
+        <Route path="/manager/datasets" element={<ManagerDatasets />} />
+        <Route path="/manager/create-project" element={<ManagerCreateProject />} />
+        <Route path="/manager/assign-tasks" element={<AssignTasks />} />
       </Routes>
     </Router>
   );
