@@ -48,15 +48,22 @@ export default function Datasets() {
     const fetchData = async () => {
         try {
             setLoading(true);
-            // Lấy cả Projects và Categories từ backend
-            const [projRes, catRes] = await Promise.all([
+            setError(null);
+
+            // Lấy riêng biệt Projects, Categories và thực tế là Datasets
+            const [projRes, catRes, datasetRes] = await Promise.all([
                 api.get("/projects/mine"),
-                api.get("/categories")
+                api.get("/categories"),
+                api.get("/datasets").catch(() => ({ data: [] })) // Fallback if endpoint doesn't exist
             ]);
 
-            const items = projRes.data?.items || [];
-            setProjects(items);
-            setDatasets(items);
+            const projectsList = projRes.data?.items || [];
+            setProjects(projectsList);
+
+            // Dataset thực tế từ endpoint /datasets
+            const datasetsList = datasetRes.data?.items || datasetRes.data || [];
+            setDatasets(datasetsList);
+
             setCategories(catRes.data || []);
         } catch (err) {
             console.error("Fetch data error:", err);

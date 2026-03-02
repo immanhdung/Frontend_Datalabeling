@@ -31,23 +31,43 @@ export default function ManagerProjects() {
   // Modal Gán Dataset state
   const [showDatasetModal, setShowDatasetModal] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
-  const [datasets, setDatasets] = useState([
-    { id: 1, name: "Bộ dữ liệu chó mèo", imagesCount: 150 },
-    { id: 2, name: "Giao thông đô thị", imagesCount: 420 },
-  ]);
+  const [datasets, setDatasets] = useState([]);
+  const [loadingDatasets, setLoadingDatasets] = useState(false);
 
   const navigate = useNavigate();
   const { logout } = useAuth();
 
   const handleAssignDataset = async (datasetId) => {
+    if (!selectedProject || !datasetId) return;
     try {
-      // Logic gọi API gán dataset cho project
-      // await api.post(`/projects/${selectedProject.id || selectedProject.projectId}/datasets`, { datasetId });
-      alert(`Đã gán dataset cho dự án "${selectedProject.name}" (Giả lập)`);
+      setSubmittingLabel(true); // Reusing submitting state or use a new one
+      const projectId = selectedProject.id || selectedProject.projectId;
+
+      // Real API call to assign dataset to project
+      await api.post(`/projects/${projectId}/datasets`, { datasetId });
+
+      alert(`Đã gán dataset cho dự án "${selectedProject.name}" thành công!`);
       setShowDatasetModal(false);
+      fetchProjects(); // Refresh to show updated counts if any
     } catch (err) {
-      console.error(err);
-      alert("Gán dataset thất bại");
+      console.error("Assign dataset error:", err);
+      alert("Gán dataset thất bại: " + (err.response?.data?.message || err.message));
+    } finally {
+      setSubmittingLabel(false);
+    }
+  };
+
+  const fetchDatasets = async () => {
+    try {
+      setLoadingDatasets(true);
+      const res = await api.get("/datasets");
+      const items = res.data?.items || res.data || [];
+      setDatasets(items);
+    } catch (err) {
+      console.error("Fetch datasets error:", err);
+      // Fallback or keep empty
+    } finally {
+      setLoadingDatasets(false);
     }
   };
 
@@ -130,18 +150,26 @@ export default function ManagerProjects() {
 
   const handleDelete = async (id) => {
     if (!window.confirm("Bạn có chắc chắn muốn xóa dự án này?")) return;
+
     try {
       await api.delete(`/projects/${id}`);
+      setProjects((prev) =>
+        prev.filter((p) => (p.projectId || p.id) !== id)
+      );
+
       alert("Xóa dự án thành công!");
-      fetchProjects();
     } catch (err) {
       console.error("Delete project error:", err);
-      alert("Xóa dự án thất bại: " + (err.response?.data?.message || err.message));
+      alert(
+        "Xóa dự án thất bại: " +
+        (err.response?.data?.message || err.message)
+      );
     }
   };
 
   useEffect(() => {
     fetchProjects();
+    fetchDatasets();
 
     const handleClickOutside = () => setOpenMenuId(null);
     window.addEventListener("click", handleClickOutside);
@@ -305,24 +333,38 @@ export default function ManagerProjects() {
             </div>
 
             <div className="p-6 space-y-3 overflow-y-auto max-h-[60vh]">
-              {datasets.map((ds) => (
-                <button
-                  key={ds.id}
-                  onClick={() => handleAssignDataset(ds.id)}
-                  className="w-full flex items-center justify-between p-4 border border-gray-100 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all group"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
-                      <Image className="w-5 h-5 text-indigo-600" />
-                    </div>
-                    <div className="text-left">
-                      <p className="font-bold text-gray-800">{ds.name}</p>
-                      <p className="text-xs text-gray-400">{ds.imagesCount} hình ảnh</p>
-                    </div>
-                  </div>
-                  <Plus className="w-5 h-5 text-gray-300 group-hover:text-indigo-600 transition-colors" />
-                </button>
-              ))}
+              {loadingDatasets ? (
+                <div className="flex flex-col items-center py-10">
+                  <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-2" />
+                  <p className="text-sm text-gray-400">Đang tải datasets...</p>
+                </div>
+              ) : datasets.length === 0 ? (
+                <div className="text-center py-10">
+                  <p className="text-sm text-gray-400 italic">Không tìm thấy dataset nào</p>
+                </div>
+              ) : (
+                datasets.map((ds) => {
+                  const dsId = ds.id || ds.datasetId;
+                  return (
+                    <button
+                      key={dsId}
+                      onClick={() => handleAssignDataset(dsId)}
+                      className="w-full flex items-center justify-between p-4 border border-gray-100 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all group"
+                    >
+                      <div className="flex items-center gap-3 text-wrap text-left">
+                        <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center group-hover:bg-indigo-100 transition-colors shrink-0">
+                          <Image className="w-5 h-5 text-indigo-600" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-gray-800 truncate">{ds.name}</p>
+                          <p className="text-xs text-gray-400">{ds.imagesCount || 0} hình ảnh</p>
+                        </div>
+                      </div>
+                      <Plus className="w-5 h-5 text-gray-300 group-hover:text-indigo-600 transition-colors shrink-0" />
+                    </button>
+                  );
+                })
+              )}
             </div>
 
             <div className="p-4 border-t bg-gray-50/50 text-center">
