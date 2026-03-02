@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { taskAPI, annotationAPI } from '../../config/api';
 import {
   ArrowLeft,
   Save,
@@ -24,8 +25,10 @@ import {
 const AnnotatorTask = () => {
   const { taskId } = useParams();
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Load task from localStorage
+  // Load task from API
   const [task, setTask] = useState(null);
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
   const [annotations, setAnnotations] = useState([]);
@@ -80,34 +83,74 @@ const AnnotatorTask = () => {
   };
 
   useEffect(() => {
-    // Load task from localStorage
-    const savedTasks = localStorage.getItem('annotatorTasks');
-    if (savedTasks) {
-      const tasks = JSON.parse(savedTasks);
-      const foundTask = tasks.find(t => t.id === taskId);
-      if (foundTask) {
-        // Initialize mock items if not exists
-        if (!foundTask.items) {
-          foundTask.items = generateMockItems(foundTask.type, foundTask.totalItems);
-          // Save back to localStorage with items
-          const updatedTasks = tasks.map(t => 
-            t.id === taskId ? { ...t, items: foundTask.items } : t
-          );
-          localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
-        }
-        setTask(foundTask);
-        // Load existing annotations for current item
-        if (foundTask.items[0]?.annotations) {
-          setAnnotations(foundTask.items[0].annotations);
+    loadTask();
+  }, [taskId]);
+
+  const loadTask = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Try to load from API first
+      const response = await taskAPI.getById(taskId);
+      const taskData = response.data.data || response.data;
+      
+      // Initialize mock items if not exists
+      if (!taskData.items) {
+        taskData.items = generateMockItems(taskData.type, taskData.totalItems || 10);
+      }
+      
+      setTask(taskData);
+      
+      // Load existing annotations for current item
+      if (taskData.items[0]?.annotations) {
+        setAnnotations(taskData.items[0].annotations);
+      }
+      
+      // Save to localStorage as backup
+      const savedTasks = JSON.parse(localStorage.getItem('annotatorTasks') || '[]');
+      const taskExists = savedTasks.some(t => t.id === taskId);
+      if (!taskExists) {
+        savedTasks.push(taskData);
+      } else {
+        const updatedTasks = savedTasks.map(t => t.id === taskId ? taskData : t);
+        localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
+      }
+    } catch (err) {
+      console.error('Error loading task from API:', err);
+      
+      // Fallback to localStorage
+      const savedTasks = localStorage.getItem('annotatorTasks');
+      if (savedTasks) {
+        const tasks = JSON.parse(savedTasks);
+        const foundTask = tasks.find(t => t.id === taskId);
+        if (foundTask) {
+          console.log('Using localStorage fallback data');
+          // Initialize mock items if not exists
+          if (!foundTask.items) {
+            foundTask.items = generateMockItems(foundTask.type, foundTask.totalItems);
+            // Save back to localStorage with items
+            const updatedTasks = tasks.map(t => 
+              t.id === taskId ? { ...t, items: foundTask.items } : t
+            );
+            localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
+          }
+          setTask(foundTask);
+          // Load existing annotations for current item
+          if (foundTask.items[0]?.annotations) {
+            setAnnotations(foundTask.items[0].annotations);
+          }
+          setError(null); // Clear error since we have fallback data
+        } else {
+          setError('Task không tồn tại');
         }
       } else {
-        navigate('/annotator/dashboard');
+        setError(err.response?.data?.message || 'Không thể tải task');
       }
-    } else {
-      // No tasks in localStorage, go back to dashboard
-      navigate('/annotator/dashboard');
+    } finally {
+      setLoading(false);
     }
-  }, [taskId, navigate]);
+  };
 
   const labels = task?.type === 'image' 
     ? ['Car', 'Person', 'Bicycle', 'Truck', 'Motorcycle']
@@ -198,81 +241,115 @@ const AnnotatorTask = () => {
     setAnnotations(annotations.filter(ann => ann.id !== id));
   };
 
-  const handleSave = () => {
-    // Save annotations to current item
-    if (task && task.items) {
-      const updatedItems = [...task.items];
-      updatedItems[currentItemIndex] = {
-        ...updatedItems[currentItemIndex],
-        annotations,
-        status: 'annotated',
-      };
+  const handleSave = async () => {
+    try {
+      // Save annotations to current item
+      if (task && task.items) {
+        const updatedItems = [...task.items];
+        updatedItems[currentItemIndex] = {
+          ...updatedItems[currentItemIndex],
+          annotations,
+          status: 'annotated',
+        };
 
-      // Update task in localStorage
-      const savedTasks = localStorage.getItem('annotatorTasks');
-      if (savedTasks) {
-        const tasks = JSON.parse(savedTasks);
-        const updatedTasks = tasks.map(t => 
-          t.id === taskId 
-            ? { ...t, items: updatedItems, progress: calculateProgress(updatedItems) }
-            : t
-        );
-        localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
-        setTask({ ...task, items: updatedItems });
-      }
-    }
-    alert('Đã lưu annotations!');
-  };
+        // Try to save via API
+        try {
+          await annotationAPI.create({
+            taskId: task.id,
+            itemIndex: currentItemIndex,
+            annotations: annotations,
+            status: 'annotated'
+          });
+        } catch (apiErr) {
+          console.warn('API save failed, using localStorage fallback:', apiErr);
+        }
 
-  const handleSubmit = () => {
-    if (annotations.length === 0) {
-      alert('Vui lòng thêm ít nhất một annotation trước khi submit!');
-      return;
-    }
-    handleSave();
-    
-    // Move to next item or complete task
-    if (currentItemIndex < task.items.length - 1) {
-      setCurrentItemIndex(currentItemIndex + 1);
-      setAnnotations(task.items[currentItemIndex + 1]?.annotations || []);
-    } else {
-      alert('Đã hoàn thành tất cả items! Task sẽ được gửi đi review.');
-      // Mark task as completed
-      const savedTasks = localStorage.getItem('annotatorTasks');
-      if (savedTasks) {
-        const tasks = JSON.parse(savedTasks);
-        const completedTask = tasks.find(t => t.id === taskId);
-        const updatedTasks = tasks.map(t => 
-          t.id === taskId 
-            ? { ...t, status: 'completed', completedAt: new Date().toISOString(), progress: 100, reviewStatus: 'pending_review' }
-            : t
-        );
-        localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
-
-        // Create annotation for reviewer
-        if (completedTask) {
-          const reviewerAnnotations = JSON.parse(localStorage.getItem('reviewerAnnotations') || '[]');
-          const newAnnotation = {
-            id: `ann-${Date.now()}`,
-            taskId: completedTask.id,
-            taskTitle: completedTask.title,
-            annotatorName: 'Annotator User', // You can replace with actual user name
-            projectName: completedTask.projectName,
-            type: completedTask.type,
-            status: 'pending_review',
-            priority: completedTask.priority,
-            createdAt: new Date().toISOString(),
-            data: {
-              totalItems: completedTask.totalItems,
-              completedItems: completedTask.items?.length || 0,
-              annotations: completedTask.items?.map(item => item.annotations).flat() || [],
-            },
-          };
-          reviewerAnnotations.unshift(newAnnotation);
-          localStorage.setItem('reviewerAnnotations', JSON.stringify(reviewerAnnotations));
+        // Update task in localStorage (fallback)
+        const savedTasks = localStorage.getItem('annotatorTasks');
+        if (savedTasks) {
+          const tasks = JSON.parse(savedTasks);
+          const updatedTasks = tasks.map(t => 
+            t.id === taskId 
+              ? { ...t, items: updatedItems, progress: calculateProgress(updatedItems) }
+              : t
+          );
+          localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
+          setTask({ ...task, items: updatedItems });
         }
       }
-      navigate('/annotator/dashboard');
+      alert('Đã lưu annotations!');
+    } catch (err) {
+      console.error('Error saving annotations:', err);
+      alert('Không thể lưu annotations');
+    }
+  };
+
+  const handleSubmit = async () => {
+    try {
+      if (annotations.length === 0) {
+        alert('Vui lòng thêm ít nhất một annotation trước khi submit!');
+        return;
+      }
+      await handleSave();
+      
+      // Move to next item or complete task
+      if (currentItemIndex < task.items.length - 1) {
+        setCurrentItemIndex(currentItemIndex + 1);
+        setAnnotations(task.items[currentItemIndex + 1]?.annotations || []);
+      } else {
+        alert('Đã hoàn thành tất cả items! Task sẽ được gửi đi review.');
+        
+        // Try to submit via API
+        try {
+          await taskAPI.submit(taskId, {
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+            items: task.items
+          });
+        } catch (apiErr) {
+          console.warn('API submit failed, using localStorage fallback:', apiErr);
+        }
+        
+        // Mark task as completed (localStorage fallback)
+        const savedTasks = localStorage.getItem('annotatorTasks');
+        if (savedTasks) {
+          const tasks = JSON.parse(savedTasks);
+          const completedTask = tasks.find(t => t.id === taskId);
+          const updatedTasks = tasks.map(t => 
+            t.id === taskId 
+              ? { ...t, status: 'completed', completedAt: new Date().toISOString(), progress: 100, reviewStatus: 'pending_review' }
+              : t
+          );
+          localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
+
+          // Create annotation for reviewer (localStorage compatibility)
+          if (completedTask) {
+            const reviewerAnnotations = JSON.parse(localStorage.getItem('reviewerAnnotations') || '[]');
+            const newAnnotation = {
+              id: `ann-${Date.now()}`,
+              taskId: completedTask.id,
+              taskTitle: completedTask.title,
+              annotatorName: 'Annotator User', // You can replace with actual user name
+              projectName: completedTask.projectName,
+              type: completedTask.type,
+              status: 'pending_review',
+              priority: completedTask.priority,
+              createdAt: new Date().toISOString(),
+              data: {
+                totalItems: completedTask.totalItems,
+                completedItems: completedTask.items?.length || 0,
+                annotations: completedTask.items?.map(item => item.annotations).flat() || [],
+              },
+            };
+            reviewerAnnotations.unshift(newAnnotation);
+            localStorage.setItem('reviewerAnnotations', JSON.stringify(reviewerAnnotations));
+          }
+        }
+        navigate('/annotator/dashboard');
+      }
+    } catch (err) {
+      console.error('Error submitting task:', err);
+      alert('Không thể submit task');
     }
   };
 
@@ -421,6 +498,45 @@ const AnnotatorTask = () => {
         return <div>Unsupported task type</div>;
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Đang tải task...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="max-w-md w-full mx-auto p-6">
+          <div className="bg-white rounded-lg shadow-lg p-8 text-center">
+            <AlertCircle className="w-16 h-16 text-red-600 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Lỗi tải task</h2>
+            <p className="text-gray-600 mb-6">{error}</p>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={loadTask}
+                className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                Thử lại
+              </button>
+              <button
+                onClick={() => navigate('/annotator/dashboard')}
+                className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                Quay lại
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!task) {
     return (

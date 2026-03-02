@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { taskAPI } from '../../config/api';
 import Header from '../../components/common/Header';
 import StatsCard from '../../components/common/StatsCard';
 import {
@@ -22,14 +23,43 @@ import {
 
 const AnnotatorDashboard = () => {
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Load tasks from localStorage
-  const [tasks, setTasks] = useState(() => {
-    const saved = localStorage.getItem('annotatorTasks');
-    if (saved) {
-      return JSON.parse(saved);
-    }
-    return [
+  // Load tasks from API
+  const [tasks, setTasks] = useState([]);
+
+  // Load tasks on mount
+  useEffect(() => {
+    loadTasks();
+  }, []);
+
+  const loadTasks = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Load my tasks from API
+      const response = await taskAPI.getMyTasks();
+      const data = response.data.data || response.data || [];
+      
+      setTasks(data);
+      
+      // Save to localStorage as backup
+      localStorage.setItem('annotatorTasks', JSON.stringify(data));
+    } catch (err) {
+      console.error('Error loading tasks from API:', err);
+      
+      // Fallback to localStorage if API fails
+      const saved = localStorage.getItem('annotatorTasks');
+      if (saved) {
+        console.log('Using localStorage fallback data');
+        setTasks(JSON.parse(saved));
+        setError(null); // Clear error since we have fallback data
+      } else {
+        // Default mock data
+        console.log('Using default mock data');
+        setTasks([
     {
       id: 'task-1',
       title: 'Gán nhãn hình ảnh xe hơi - Dataset 001',
@@ -91,13 +121,13 @@ const AnnotatorDashboard = () => {
       reviewStatus: 'rejected',
       feedback: 'Một số frame bị thiếu annotations, vui lòng kiểm tra lại',
     },
-    ];
-  });
-
-  // Save tasks to localStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem('annotatorTasks', JSON.stringify(tasks));
-  }, [tasks]);
+    ]);
+        setError(null); // Clear error since we have mock data
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Calculate stats dynamically from tasks
   const stats = {
@@ -144,13 +174,19 @@ const AnnotatorDashboard = () => {
   });
 
   const handleRefresh = () => {
-    console.log('Refreshing data...');
+    loadTasks();
   };
 
   const handleStartTask = (taskId) => {
+    // Update task status locally
     setTasks(tasks.map(task => 
       task.id === taskId ? { ...task, status: 'in_progress', updatedAt: new Date().toISOString() } : task
     ));
+    // Also update in localStorage for compatibility
+    const updatedTasks = tasks.map(task => 
+      task.id === taskId ? { ...task, status: 'in_progress', updatedAt: new Date().toISOString() } : task
+    );
+    localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
     navigate(`/annotator/task/${taskId}`);
   };
 
@@ -201,6 +237,25 @@ const AnnotatorDashboard = () => {
     return days;
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Header
+          title="Annotator Dashboard"
+          userName="Annotator"
+          userRole="annotator"
+          onRefresh={handleRefresh}
+        />
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Đang tải dữ liệu...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header
@@ -219,6 +274,23 @@ const AnnotatorDashboard = () => {
       />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start">
+            <AlertCircle className="w-5 h-5 text-red-600 mr-3 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <h3 className="text-red-800 font-semibold mb-1">Lỗi tải dữ liệu</h3>
+              <p className="text-red-700 text-sm">{error}</p>
+              <button
+                onClick={loadTasks}
+                className="mt-2 text-red-700 hover:text-red-900 font-semibold text-sm underline"
+              >
+                Thử lại
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Statistics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <StatsCard

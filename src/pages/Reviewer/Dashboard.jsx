@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { reviewAPI } from '../../config/api';
 import Header from '../../components/common/Header';
 import StatsCard from '../../components/common/StatsCard';
 import {
@@ -27,8 +28,10 @@ import {
 
 const ReviewerDashboard = () => {
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Review history - load from localStorage
+  // Review history - load from localStorage as fallback
   const [reviewHistory, setReviewHistory] = useState(() => {
     const saved = localStorage.getItem('reviewHistory');
     return saved ? JSON.parse(saved) : [];
@@ -41,14 +44,40 @@ const ReviewerDashboard = () => {
     window.dispatchEvent(new Event('reviewHistoryUpdated'));
   }, [reviewHistory]);
 
-  // Load annotations from reviewerAnnotations localStorage
-  const [annotations, setAnnotations] = useState(() => {
-    const savedAnnotations = localStorage.getItem('reviewerAnnotations');
-    if (savedAnnotations) {
-      return JSON.parse(savedAnnotations);
-    }
-    // Default mock data if no saved annotations
-    return [
+  // Load annotations from API
+  const [annotations, setAnnotations] = useState([]);
+
+  // Load data from API on mount
+  useEffect(() => {
+    loadAnnotations();
+  }, []);
+
+  const loadAnnotations = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Load pending reviews from API
+      const response = await reviewAPI.getPendingReviews();
+      const data = response.data.data || response.data || [];
+      
+      setAnnotations(data);
+      
+      // Also save to localStorage as backup
+      localStorage.setItem('reviewerAnnotations', JSON.stringify(data));
+    } catch (err) {
+      console.error('Error loading annotations from API:', err);
+      
+      // Fallback to localStorage if API fails
+      const savedAnnotations = localStorage.getItem('reviewerAnnotations');
+      if (savedAnnotations) {
+        console.log('Using localStorage fallback data');
+        setAnnotations(JSON.parse(savedAnnotations));
+        setError(null); // Clear error since we have fallback data
+      } else {
+        // Default mock data if no saved annotations
+        console.log('Using default mock data');
+        setAnnotations([
     {
       id: '1',
       taskId: 'TASK-001',
@@ -131,13 +160,13 @@ const ReviewerDashboard = () => {
       type: 'text',
       priority: 'medium',
     },
-    ];
-  });
-
-  // Save annotations to localStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem('reviewerAnnotations', JSON.stringify(annotations));
-  }, [annotations]);
+    ]);
+        setError(null); // Clear error since we have mock data
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -188,7 +217,7 @@ const ReviewerDashboard = () => {
   });
 
   const handleRefresh = () => {
-    console.log('Refreshing data...');
+    loadAnnotations();
   };
 
   const handleClearAdvancedFilters = () => {
@@ -224,30 +253,37 @@ const ReviewerDashboard = () => {
       : 0,
   };
 
-  const handleApprove = (id) => {
-    const annotation = annotations.find(ann => ann.id === id);
-    const now = new Date().toISOString();
-    
-    // Update annotation status
-    setAnnotations(annotations.map(ann => 
-      ann.id === id ? { ...ann, status: 'approved', reviewedAt: now } : ann
-    ));
-    
-    // Update annotator task with review status
-    const annotatorTasks = JSON.parse(localStorage.getItem('annotatorTasks') || '[]');
-    const updatedTasks = annotatorTasks.map(task => 
-      task.id === annotation.taskId
-        ? { ...task, reviewStatus: 'approved', reviewedAt: now, feedback: 'Đã duyệt - Công việc xuất sắc!' }
-        : task
-    );
-    localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
-    
-    // Add to review history
-    const historyEntry = {
-      id: `REV-${Date.now()}`,
-      annotationId: annotation.id,
-      taskId: annotation.taskId,
-      taskTitle: annotation.taskTitle,
+  const handleApprove = async (id) => {
+    try {
+      const annotation = annotations.find(ann => ann.id === id);
+      const now = new Date().toISOString();
+      
+      // Call API to approve
+      await reviewAPI.approve(id, {
+        feedback: 'Đã duyệt - Công việc xuất sắc!',
+        reviewedAt: now
+      });
+      
+      // Update local state
+      setAnnotations(annotations.map(ann => 
+        ann.id === id ? { ...ann, status: 'approved', reviewedAt: now } : ann
+      ));
+      
+      // Update annotator task with review status (for localStorage compatibility)
+      const annotatorTasks = JSON.parse(localStorage.getItem('annotatorTasks') || '[]');
+      const updatedTasks = annotatorTasks.map(task => 
+        task.id === annotation.taskId
+          ? { ...task, reviewStatus: 'approved', reviewedAt: now, feedback: 'Đã duyệt - Công việc xuất sắc!' }
+          : task
+      );
+      localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
+      
+      // Add to review history
+      const historyEntry = {
+        id: `REV-${Date.now()}`,
+        annotationId: annotation.id,
+        taskId: annotation.taskId,
+        taskTitle: annotation.taskTitle,
       annotatorName: annotation.annotatorName,
       projectName: annotation.projectName,
       decision: 'approved',
@@ -258,42 +294,57 @@ const ReviewerDashboard = () => {
     };
     
     setReviewHistory([historyEntry, ...reviewHistory]);
+    } catch (err) {
+      console.error('Error approving annotation:', err);
+      alert(err.response?.data?.message || 'Không thể duyệt annotation');
+    }
   };
 
-  const handleReject = (id, feedback) => {
-    const annotation = annotations.find(ann => ann.id === id);
-    const now = new Date().toISOString();
-    
-    // Update annotation status
-    setAnnotations(annotations.map(ann => 
-      ann.id === id ? { ...ann, status: 'rejected', feedback, reviewedAt: now } : ann
-    ));
-    
-    // Update annotator task with review status and feedback
-    const annotatorTasks = JSON.parse(localStorage.getItem('annotatorTasks') || '[]');
-    const updatedTasks = annotatorTasks.map(task => 
-      task.id === annotation.taskId
-        ? { ...task, reviewStatus: 'rejected', reviewedAt: now, feedback, status: 'in_progress', progress: 50 }
-        : task
-    );
-    localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
-    
-    // Add to review history
-    const historyEntry = {
-      id: `REV-${Date.now()}`,
-      annotationId: annotation.id,
-      taskId: annotation.taskId,
-      taskTitle: annotation.taskTitle,
-      annotatorName: annotation.annotatorName,
-      projectName: annotation.projectName,
-      decision: 'rejected',
-      feedback: feedback,
-      reviewedAt: now,
-      reviewTime: Math.floor(Math.random() * 10) + 3, // Mock review time
-      type: annotation.type,
-    };
-    
-    setReviewHistory([historyEntry, ...reviewHistory]);
+  const handleReject = async (id, feedback) => {
+    try {
+      const annotation = annotations.find(ann => ann.id === id);
+      const now = new Date().toISOString();
+      
+      // Call API to reject
+      await reviewAPI.reject(id, {
+        feedback: feedback,
+        reviewedAt: now
+      });
+      
+      // Update local state
+      setAnnotations(annotations.map(ann => 
+        ann.id === id ? { ...ann, status: 'rejected', feedback, reviewedAt: now } : ann
+      ));
+      
+      // Update annotator task with review status and feedback (for localStorage compatibility)
+      const annotatorTasks = JSON.parse(localStorage.getItem('annotatorTasks') || '[]');
+      const updatedTasks = annotatorTasks.map(task => 
+        task.id === annotation.taskId
+          ? { ...task, reviewStatus: 'rejected', reviewedAt: now, feedback, status: 'in_progress', progress: 50 }
+          : task
+      );
+      localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
+      
+      // Add to review history
+      const historyEntry = {
+        id: `REV-${Date.now()}`,
+        annotationId: annotation.id,
+        taskId: annotation.taskId,
+        taskTitle: annotation.taskTitle,
+        annotatorName: annotation.annotatorName,
+        projectName: annotation.projectName,
+        decision: 'rejected',
+        feedback: feedback,
+        reviewedAt: now,
+        reviewTime: Math.floor(Math.random() * 10) + 3, // Mock review time
+        type: annotation.type,
+      };
+      
+      setReviewHistory([historyEntry, ...reviewHistory]);
+    } catch (err) {
+      console.error('Error rejecting annotation:', err);
+      alert(err.response?.data?.message || 'Không thể từ chối annotation');
+    }
   };
 
   const openRejectModal = (id) => {
@@ -318,6 +369,25 @@ const ReviewerDashboard = () => {
   const handleViewDetails = (annotationId) => {
     navigate(`/reviewer/task/${annotationId}`);
   };
+  
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Header
+          title="Reviewer Dashboard"
+          userName="Reviewer"
+          userRole="reviewer"
+          onRefresh={handleRefresh}
+        />
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Đang tải dữ liệu...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -329,6 +399,23 @@ const ReviewerDashboard = () => {
       />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start">
+            <AlertCircle className="w-5 h-5 text-red-600 mr-3 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <h3 className="text-red-800 font-semibold mb-1">Lỗi tải dữ liệu</h3>
+              <p className="text-red-700 text-sm">{error}</p>
+              <button
+                onClick={loadAnnotations}
+                className="mt-2 text-red-700 hover:text-red-900 font-semibold text-sm underline"
+              >
+                Thử lại
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Statistics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <StatsCard

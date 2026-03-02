@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { reviewAPI } from '../../config/api';
 import Header from '../../components/common/Header';
 import {
   ArrowLeft,
@@ -31,6 +32,8 @@ import {
 const ReviewerTask = () => {
   const { taskId } = useParams();
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const [task, setTask] = useState({
     id: 'TASK-001',
@@ -47,10 +50,32 @@ const ReviewerTask = () => {
   // Dynamic annotation data based on task type
   const [annotation, setAnnotation] = useState(null);
 
-  // Load appropriate annotation data based on taskId
+  // Load annotation from API
   useEffect(() => {
-    // Mock data - in real app, this would come from API
-    const mockAnnotations = {
+    loadAnnotation();
+  }, [taskId]);
+
+  const loadAnnotation = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Load annotation for review from API
+      const response = await reviewAPI.getAnnotationForReview(taskId);
+      const data = response.data.data || response.data;
+      
+      setAnnotation(data);
+      
+      // Update task info if available
+      if (data.task) {
+        setTask(data.task);
+      }
+    } catch (err) {
+      console.error('Error loading annotation from API:', err);
+      
+      // Fallback to mock data
+      console.log('Using mock data fallback');
+      const mockAnnotations = {
       '1': { // Image annotation
         id: 'ANN-001',
         annotatorId: 'Ann-001',
@@ -160,7 +185,11 @@ const ReviewerTask = () => {
     } else if (taskId === '4') {
       setTask(prev => ({ ...prev, type: 'audio', title: 'Gán nhãn âm thanh' }));
     }
-  }, [taskId]);
+    setError(null); // Clear error since we have mock data
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const [reviewData, setReviewData] = useState({
     status: 'pending',
@@ -201,24 +230,34 @@ const ReviewerTask = () => {
     setShowFeedbackModal(true);
   };
 
-  const handleSubmitReview = () => {
-    if (actionType === 'reject' && reviewData.feedback.trim() === '' && reviewData.issues.length === 0) {
-      alert('Vui lòng cung cấp feedback hoặc chọn vấn đề trước khi từ chối');
-      return;
+  const handleSubmitReview = async () => {
+    try {
+      if (actionType === 'reject' && reviewData.feedback.trim() === '' && reviewData.issues.length === 0) {
+        alert('Vui lòng cung cấp feedback hoặc chọn vấn đề trước khi từ chối');
+        return;
+      }
+
+      const reviewPayload = {
+        feedback: reviewData.feedback,
+        issues: reviewData.issues,
+        reviewedAt: new Date().toISOString()
+      };
+
+      // Call API to approve or reject
+      if (actionType === 'approve') {
+        await reviewAPI.approve(annotation.id, reviewPayload);
+      } else {
+        await reviewAPI.reject(annotation.id, reviewPayload);
+      }
+
+      console.log('Review submitted successfully');
+      
+      alert(`Annotation đã được ${actionType === 'approve' ? 'duyệt' : 'từ chối'} thành công!`);
+      navigate('/reviewer/dashboard');
+    } catch (err) {
+      console.error('Error submitting review:', err);
+      alert(err.response?.data?.message || 'Không thể submit review');
     }
-
-    const reviewResult = {
-      annotationId: annotation.id,
-      status: actionType === 'approve' ? 'approved' : 'rejected',
-      feedback: reviewData.feedback,
-      issues: reviewData.issues,
-      reviewedAt: new Date().toISOString()
-    };
-
-    console.log('Submitting review:', reviewResult);
-    
-    alert(`Annotation đã được ${actionType === 'approve' ? 'duyệt' : 'từ chối'} thành công!`);
-    navigate('/reviewer/dashboard');
   };
 
   const handleCancel = () => {
@@ -262,6 +301,81 @@ const ReviewerTask = () => {
     link.click();
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Header
+          title="Review Annotation"
+          userName="Reviewer"
+          userRole="reviewer"
+        />
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="bg-white rounded-lg shadow-sm p-12 text-center">
+            <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-xl font-semibold text-gray-500">Đang tải dữ liệu...</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Header
+          title="Review Annotation"
+          userName="Reviewer"
+          userRole="reviewer"
+        />
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <button
+            onClick={() => navigate('/reviewer/dashboard')}
+            className="mb-6 flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+          >
+            <ArrowLeft className="w-5 h-5" />
+            <span className="font-semibold">Quay lại Dashboard</span>
+          </button>
+          <div className="bg-white rounded-lg shadow-sm p-12 text-center">
+            <AlertCircle className="w-16 h-16 text-red-600 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Lỗi tải annotation</h2>
+            <p className="text-gray-600 mb-6">{error}</p>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={loadAnnotation}
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Thử lại
+              </button>
+              <button
+                onClick={() => navigate('/reviewer/dashboard')}
+                className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                Quay lại
+              </button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (!annotation) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Header
+          title="Review Annotation"
+          userName="Reviewer"
+          userRole="reviewer"
+        />
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="bg-white rounded-lg shadow-sm p-12 text-center">
+            <p className="text-xl font-semibold text-gray-500">Không tìm thấy annotation</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header
@@ -280,13 +394,7 @@ const ReviewerTask = () => {
           <span className="font-semibold">Quay lại Dashboard</span>
         </button>
 
-        {!annotation ? (
-          <div className="bg-white rounded-lg shadow-sm p-12 text-center">
-            <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-xl font-semibold text-gray-500">Đang tải dữ liệu...</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">{/* Left Column: Task and Annotator Info */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">{/* Left Column: Task and Annotator Info */}
           <div className="lg:col-span-1 space-y-6">
             {/* Task Information */}
             <div className="bg-white rounded-lg shadow-sm p-6">
@@ -903,7 +1011,6 @@ const ReviewerTask = () => {
             )}
           </div>
         </div>
-        )}
 
         {/* Feedback Modal */}
         {showFeedbackModal && (
