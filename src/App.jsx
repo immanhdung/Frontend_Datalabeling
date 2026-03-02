@@ -127,7 +127,7 @@ function App() {
           }
         />
         <Route
-          path="/manager/projects/detail"
+          path="/manager/projects/:id"
           element={
             <ProtectedRoute allowRoles={["manager"]}>
               <ManagerProjectsDetail />

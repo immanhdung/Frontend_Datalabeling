@@ -28,19 +28,19 @@ export default function Datasets() {
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
+    const [error, setError] = useState(null);
+    const [categories, setCategories] = useState([]);
 
-    // Modal Add Dataset
     const [showAddModal, setShowAddModal] = useState(false);
     const [targetProjectId, setTargetProjectId] = useState("");
     const [newDataset, setNewDataset] = useState({
-        name: "", // Vẫn giữ để hiển thị nhưng API import dùng file name
+        name: "",
         zipFile: null,
         images: [],
         labels: [],
     });
     const [currentLabel, setCurrentLabel] = useState({ name: "", color: PREDEFINED_COLORS[0].value });
 
-    // Modal Assign Project
     const [showAssignModal, setShowAssignModal] = useState(false);
     const [selectedDataset, setSelectedDataset] = useState(null);
     const [openMenuId, setOpenMenuId] = useState(null);
@@ -48,13 +48,19 @@ export default function Datasets() {
     const fetchData = async () => {
         try {
             setLoading(true);
-            const res = await api.get("/projects/mine");
-            const items = res.data?.items || [];
+            // Lấy cả Projects và Categories từ backend
+            const [projRes, catRes] = await Promise.all([
+                api.get("/projects/mine"),
+                api.get("/categories")
+            ]);
+
+            const items = projRes.data?.items || [];
             setProjects(items);
-            // Coi mỗi dự án có dữ liệu là một "Dataset" để hiển thị
             setDatasets(items);
+            setCategories(catRes.data || []);
         } catch (err) {
             console.error("Fetch data error:", err);
+            setError("Không thể tải danh sách dữ liệu.");
         } finally {
             setLoading(false);
         }
@@ -81,48 +87,47 @@ export default function Datasets() {
     };
 
     const handleAddDataset = async () => {
-        if (!targetProjectId) {
-            alert("Vui lòng chọn Dự án để import dữ liệu");
+        if (!targetProjectId && !newDataset.name) {
+            alert("Vui lòng nhập tên cho Dataset mới");
+            return;
+        }
+
+        if (!newDataset.zipFile && newDataset.images.length === 0) {
+            alert("Vui lòng chọn file ZIP hoặc danh sách ảnh để tải lên.");
             return;
         }
 
         try {
             setLoading(true);
-            const projectId = targetProjectId;
 
-            // 1. Upload files (ZIP hoặc nhiều ảnh mục tiêu)
+            // 1. Tạo một Project "container" cho Dataset này (theo yêu cầu không cần chọn project trước)
+            // Ta sẽ sử dụng CategoryId người dùng chọn (hoặc mặc định)
+            const createProjRes = await api.post("/projects", {
+                name: newDataset.name,
+                description: "Dataset uploaded via Datasets Management",
+                categoryId: targetProjectId, // Ở modal ta sẽ gán categoryId vào targetProjectId
+            });
+
+            const projectId = createProjRes.data?.id || createProjRes.data?.projectId;
+
+            if (!projectId) throw new Error("Không thể tạo container cho Dataset");
+
+            // 2. Import dữ liệu vào project vừa tạo
             if (newDataset.zipFile) {
                 const formData = new FormData();
                 formData.append("File", newDataset.zipFile);
                 formData.append("Name", newDataset.name || newDataset.zipFile.name);
-                await api.post(`/projects/${projectId}/datasets/import`, formData, {
-                    headers: { 'Content-Type': 'multipart/form-data' }
-                });
+                await api.post(`/projects/${projectId}/datasets/import`, formData);
             } else if (newDataset.images.length > 0) {
-                await Promise.all(newDataset.images.map(file => {
+                for (const file of newDataset.images) {
                     const formData = new FormData();
                     formData.append("File", file);
                     formData.append("Name", file.name);
-                    return api.post(`/projects/${projectId}/datasets/import`, formData, {
-                        headers: { 'Content-Type': 'multipart/form-data' }
-                    });
-                }));
-            }
-
-            // 2. Thêm Labels (nếu có)
-            if (newDataset.labels.length > 0) {
-                // Lấy CategoryId của project để dùng làm LabelSetId (theo logic hệ thống)
-                const project = projects.find(p => (p.id || p.projectId) === projectId);
-                const labelSetId = project?.categoryId;
-
-                if (labelSetId) {
-                    await Promise.all(newDataset.labels.map(l =>
-                        api.post(`/labelsets/${labelSetId}/labels`, { name: l.name })
-                    ));
+                    await api.post(`/projects/${projectId}/datasets/import`, formData);
                 }
             }
 
-            alert("Import dữ liệu và cấu hình thành công!");
+            alert("Tạo Dataset và tải lên dữ liệu thành công!");
             setShowAddModal(false);
             setNewDataset({ name: "", zipFile: null, images: [], labels: [] });
             setTargetProjectId("");
@@ -138,13 +143,12 @@ export default function Datasets() {
     const handleAssignProject = async (projectId) => {
         try {
             setLoading(true);
-            // Logic gọi API gán dataset cho project
-            // await api.post(`/projects/${projectId}/datasets`, { datasetId: selectedDataset.id });
-            alert(`Đã gán dataset "${selectedDataset.name}" cho project ID: ${projectId}`);
+            await api.post(`/projects/${projectId}/datasets`, { datasetId: selectedDataset.id || selectedDataset.datasetId });
+            alert(`Đã gán dataset "${selectedDataset.name}" cho project thành công!`);
             setShowAssignModal(false);
         } catch (err) {
             console.error(err);
-            alert("Gán project thất bại");
+            alert("Gán project thất bại: " + (err.response?.data?.message || err.message));
         } finally {
             setLoading(false);
         }
@@ -159,16 +163,12 @@ export default function Datasets() {
                 </div>
                 <button
                     onClick={() => {
-                        if (projects.length === 0) {
-                            alert("Bạn cần tạo dự án trước khi có thể thêm dataset");
-                            return;
-                        }
                         setShowAddModal(true);
                     }}
                     className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-all font-medium shadow-md shadow-indigo-100"
                 >
                     <Plus className="w-4 h-4" />
-                    Thêm Dataset
+                    Tạo Dataset mới
                 </button>
             </div>
 
@@ -176,7 +176,7 @@ export default function Datasets() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                     type="text"
-                    placeholder="Tìm kiếm dự án chứa dữ liệu..."
+                    placeholder="Tìm kiếm dataset..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
@@ -192,23 +192,29 @@ export default function Datasets() {
                             </div>
                             <div className="relative">
                                 <button
-                                    onClick={() => setOpenMenuId(openMenuId === (ds.id || ds.projectId) ? null : (ds.id || ds.projectId))}
+                                    onClick={() => setOpenMenuId(openMenuId === (ds.id || ds.datasetId) ? null : (ds.id || ds.datasetId))}
                                     className="p-1 hover:bg-gray-100 rounded-full transition-colors"
                                 >
                                     <MoreVertical className="w-5 h-5 text-gray-400" />
                                 </button>
-                                {openMenuId === (ds.id || ds.projectId) && (
-                                    <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-100 rounded-lg shadow-xl z-10 py-1">
+                                {openMenuId === (ds.id || ds.datasetId) && (
+                                    <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-100 rounded-lg shadow-xl z-20 py-1">
                                         <button
                                             onClick={() => {
                                                 setSelectedDataset(ds);
                                                 setShowAssignModal(true);
                                                 setOpenMenuId(null);
                                             }}
-                                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors flex items-center gap-2"
+                                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors flex items-center gap-2 font-medium"
                                         >
-                                            <Check className="w-4 h-4" />
-                                            Gán vào dự án khác
+                                            <FolderPlus className="w-4 h-4" />
+                                            Gán vào dự án
+                                        </button>
+                                        <button
+                                            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2 font-medium"
+                                        >
+                                            <X className="w-4 h-4" />
+                                            Xóa Dataset
                                         </button>
                                     </div>
                                 )}
@@ -229,18 +235,16 @@ export default function Datasets() {
                         </div>
 
                         <div className="pt-4 border-t border-gray-50 text-[10px] text-gray-400 uppercase font-bold tracking-wider">
-                            ID: {ds.id || ds.projectId}
+                            ID: {ds.id || ds.datasetId}
                         </div>
                     </div>
                 ))}
             </div>
-
-            {/* Modal Add Dataset */}
             {showAddModal && (
                 <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
                         <div className="p-6 border-b flex justify-between items-center">
-                            <h2 className="text-xl font-bold text-gray-900">Import Dataset vào Project</h2>
+                            <h2 className="text-xl font-bold text-gray-900">Thêm Dataset mới</h2>
                             <button onClick={() => setShowAddModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
                                 <X className="w-5 h-5 text-gray-400" />
                             </button>
@@ -248,30 +252,30 @@ export default function Datasets() {
 
                         <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
                             <div className="space-y-2">
-                                <label className="text-sm font-bold text-gray-700">Chọn Dự án đích *</label>
+                                <label className="text-sm font-bold text-gray-700">Tên Dataset *</label>
+                                <input
+                                    type="text"
+                                    placeholder="Ví dụ: Bộ dữ liệu xe cộ, Động vật hoang dã..."
+                                    value={newDataset.name}
+                                    onChange={(e) => setNewDataset({ ...newDataset, name: e.target.value })}
+                                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all outline-none"
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-bold text-gray-700">Phân loại (Category) *</label>
                                 <select
                                     value={targetProjectId}
                                     onChange={(e) => setTargetProjectId(e.target.value)}
                                     className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none"
                                 >
-                                    <option value="">-- Chọn dự án --</option>
-                                    {projects.map(p => (
-                                        <option key={p.id || p.projectId} value={p.id || p.projectId}>
-                                            {p.name}
+                                    <option value="">-- Chọn danh mục --</option>
+                                    {categories.map(c => (
+                                        <option key={c.id || c.categoryId} value={c.id || c.categoryId}>
+                                            {c.name}
                                         </option>
                                     ))}
                                 </select>
-                            </div>
-
-                            <div className="space-y-2">
-                                <label className="text-sm font-bold text-gray-700">Tên Dataset (Tùy chọn)</label>
-                                <input
-                                    type="text"
-                                    placeholder="Nhập tên bộ dữ liệu..."
-                                    value={newDataset.name}
-                                    onChange={(e) => setNewDataset({ ...newDataset, name: e.target.value })}
-                                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all outline-none"
-                                />
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
@@ -351,7 +355,6 @@ export default function Datasets() {
                     </div>
                 </div>
             )}
-
             {/* Modal Assign Project */}
             {showAssignModal && (
                 <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
