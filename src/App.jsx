@@ -31,7 +31,7 @@ import ReviewerDashboard from "./pages/Reviewer/Dashboard";
 function ProtectedRoute({ children, allowRoles }) {
   const { user, loading } = useAuth();
 
-  if (loading) return null; // hoặc spinner
+  if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
 
   if (allowRoles && !allowRoles.includes(user.role.toLowerCase())) {

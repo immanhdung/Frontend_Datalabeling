@@ -40,15 +40,15 @@ export default function ManagerProjects() {
   const handleAssignDataset = async (datasetId) => {
     if (!selectedProject || !datasetId) return;
     try {
-      setSubmittingLabel(true); // Reusing submitting state or use a new one
+      setSubmittingLabel(true);
       const projectId = selectedProject.id || selectedProject.projectId;
 
-      // Real API call to assign dataset to project
-      await api.post(`/projects/${projectId}/datasets`, { datasetId });
+      // Using the working endpoint pattern from Datasets.jsx with empty body
+      await api.post(`/Datasets/${datasetId}/attach/${projectId}`, {});
 
       alert(`Đã gán dataset cho dự án "${selectedProject.name}" thành công!`);
       setShowDatasetModal(false);
-      fetchProjects(); // Refresh to show updated counts if any
+      fetchProjects();
     } catch (err) {
       console.error("Assign dataset error:", err);
       alert("Gán dataset thất bại: " + (err.response?.data?.message || err.message));
@@ -60,7 +60,7 @@ export default function ManagerProjects() {
   const fetchDatasets = async () => {
     try {
       setLoadingDatasets(true);
-      const res = await api.get("/datasets");
+      const res = await api.get("/Datasets");
       const items = res.data?.items || res.data || [];
       setDatasets(items);
     } catch (err) {

@@ -42,11 +42,22 @@ export default function Categories() {
     const fetchCategoryProjects = async (categoryId) => {
         try {
             setFetchingProjects(true);
-            // API: GET /api/projects?CategoryId={id}
-            const res = await api.get(`/projects?CategoryId=${categoryId}`);
-            setCategoryProjects(res.data?.items || []);
+            // Lấy toàn bộ dự án để lọc chính xác tại Frontend
+            const res = await api.get("/projects/mine");
+
+            const allItems = res.data?.items || res.data?.data || (Array.isArray(res.data) ? res.data : []);
+
+            // Lọc các dự án có categoryId khớp với category đang chọn
+            const filtered = allItems.filter(p =>
+                String(p.categoryId) === String(categoryId) ||
+                String(p.category?.id) === String(categoryId) ||
+                String(p.category?.categoryId) === String(categoryId)
+            );
+
+            setCategoryProjects(filtered);
         } catch (err) {
-            console.error(err);
+            console.error("Fetch category projects error:", err);
+            setCategoryProjects([]);
         } finally {
             setFetchingProjects(false);
         }
