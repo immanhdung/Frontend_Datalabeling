@@ -80,6 +80,7 @@ export const taskAPI = {
   assign: (id, annotatorId) => apiClient.post(`/tasks/${id}/assign`, { annotatorId }),
   submit: (id, annotationData) => apiClient.post(`/tasks/${id}/submit`, annotationData),
   getMyTasks: () => apiClient.get('/tasks/my-tasks'),
+  checkAccess: (id) => apiClient.get(`/tasks/${id}/check-access`),
 };
 
 // ==================== ANNOTATION APIs ====================

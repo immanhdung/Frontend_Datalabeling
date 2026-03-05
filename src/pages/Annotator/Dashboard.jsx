@@ -39,91 +39,64 @@ const AnnotatorDashboard = () => {
       setLoading(true);
       setError(null);
       
-      // Load my tasks from API
-      const response = await taskAPI.getMyTasks();
-      const data = response.data.data || response.data || [];
+      // Get current user for filtering
+      const userStr = localStorage.getItem('user');
+      const currentUser = userStr ? JSON.parse(userStr) : null;
       
-      setTasks(data);
-      
-      // Save to localStorage as backup
-      localStorage.setItem('annotatorTasks', JSON.stringify(data));
-    } catch (err) {
-      console.error('Error loading tasks from API:', err);
-      
-      // Fallback to localStorage if API fails
-      const saved = localStorage.getItem('annotatorTasks');
-      if (saved) {
-        console.log('Using localStorage fallback data');
-        setTasks(JSON.parse(saved));
-        setError(null); // Clear error since we have fallback data
-      } else {
-        // Default mock data
-        console.log('Using default mock data');
-        setTasks([
-    {
-      id: 'task-1',
-      title: 'Gán nhãn hình ảnh xe hơi - Dataset 001',
-      description: 'Xác định và vẽ bounding box cho các loại xe trong ảnh',
-      type: 'image',
-      status: 'pending',
-      priority: 'high',
-      projectName: 'Autonomous Driving',
-      createdAt: '2026-01-28T10:00:00Z',
-      updatedAt: '2026-01-28T10:00:00Z',
-      dueDate: '2026-02-05T23:59:59Z',
-      progress: 0,
-      totalItems: 150,
-    },
-    {
-      id: 'task-2',
-      title: 'Phân loại văn bản tin tức',
-      description: 'Phân loại các bài báo theo danh mục: Thể thao, Kinh tế, Giải trí, Chính trị',
-      type: 'text',
-      status: 'in_progress',
-      priority: 'medium',
-      projectName: 'News Classification',
-      createdAt: '2026-01-27T14:30:00Z',
-      updatedAt: '2026-01-29T09:15:00Z',
-      dueDate: '2026-02-10T23:59:59Z',
-      progress: 45,
-      totalItems: 500,
-    },
-    {
-      id: 'task-3',
-      title: 'Transcription âm thanh cuộc gọi',
-      description: 'Chuyển đổi các file âm thanh cuộc gọi thành văn bản',
-      type: 'audio',
-      status: 'completed',
-      priority: 'low',
-      projectName: 'Call Center Analytics',
-      createdAt: '2026-01-25T08:00:00Z',
-      updatedAt: '2026-01-28T16:45:00Z',
-      completedAt: '2026-01-28T16:45:00Z',
-      dueDate: '2026-02-15T23:59:59Z',
-      progress: 100,
-      totalItems: 80,
-      reviewStatus: 'approved',
-    },
-    {
-      id: 'task-4',
-      title: 'Gán nhãn video người đi bộ',
-      description: 'Theo dõi và gán nhãn người đi bộ trong video',
-      type: 'video',
-      status: 'completed',
-      priority: 'high',
-      projectName: 'Pedestrian Detection',
-      createdAt: '2026-01-24T10:00:00Z',
-      updatedAt: '2026-01-27T18:30:00Z',
-      completedAt: '2026-01-27T18:30:00Z',
-      dueDate: '2026-02-01T23:59:59Z',
-      progress: 100,
-      totalItems: 30,
-      reviewStatus: 'rejected',
-      feedback: 'Một số frame bị thiếu annotations, vui lòng kiểm tra lại',
-    },
-    ]);
-        setError(null); // Clear error since we have mock data
+      try {
+        // Try to load MY assigned tasks from API
+        const response = await taskAPI.getMyTasks();
+        const data = response.data.data || response.data || [];
+        
+        console.log('✅ Loaded tasks from API:', data);
+        
+        // Filter to ensure only assigned tasks (extra safety check)
+        let filteredTasks = data;
+        if (currentUser) {
+          filteredTasks = data.filter(task => {
+            if (task.assignedTo) {
+              return task.assignedTo === currentUser.id || task.assignedTo === currentUser._id;
+            }
+            return true;
+          });
+        }
+        
+        setTasks(filteredTasks);
+        
+        if (filteredTasks.length === 0) {
+          setError('Bạn chưa có task nào được assign. Hãy liên hệ Manager để được giao task.');
+        }
+      } catch (apiError) {
+        // API not ready or error - use fallback data
+        console.warn('⚠️ API /tasks/my-tasks không khả dụng, sử dụng dữ liệu demo:', apiError.message);
+        
+        // Demo tasks for development
+        const demoTasks = [
+          {
+            id: 'demo-task-1',
+            title: 'Demo: Gán nhãn hình ảnh xe hơi',
+            description: 'Task demo - Xác định và vẽ bounding box cho các loại xe trong ảnh',
+            type: 'image',
+            status: 'pending',
+            priority: 'high',
+            projectName: 'Demo Project',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // +7 days
+            progress: 0,
+            totalItems: 100,
+            assignedTo: currentUser?.id || currentUser?._id,
+          }
+        ];
+        
+        setTasks(demoTasks);
+        setError('⚠️ Đang sử dụng dữ liệu demo. Backend API chưa sẵn sàng.');
       }
+      
+    } catch (err) {
+      console.error('❌ Error loading tasks:', err);
+      setError('Không thể tải danh sách task. Vui lòng kiểm tra kết nối.');
+      setTasks([]);
     } finally {
       setLoading(false);
     }
@@ -182,11 +155,6 @@ const AnnotatorDashboard = () => {
     setTasks(tasks.map(task => 
       task.id === taskId ? { ...task, status: 'in_progress', updatedAt: new Date().toISOString() } : task
     ));
-    // Also update in localStorage for compatibility
-    const updatedTasks = tasks.map(task => 
-      task.id === taskId ? { ...task, status: 'in_progress', updatedAt: new Date().toISOString() } : task
-    );
-    localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
     navigate(`/annotator/task/${taskId}`);
   };
 
@@ -274,16 +242,48 @@ const AnnotatorDashboard = () => {
       />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Error Message */}
+        {/* Error/Warning Message */}
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start">
-            <AlertCircle className="w-5 h-5 text-red-600 mr-3 mt-0.5 flex-shrink-0" />
+          <div className={`mb-6 p-4 border rounded-lg flex items-start ${
+            error.includes('demo') || error.includes('⚠️') 
+              ? 'bg-yellow-50 border-yellow-200' 
+              : error.includes('chưa có task')
+              ? 'bg-blue-50 border-blue-200'
+              : 'bg-red-50 border-red-200'
+          }`}>
+            <AlertCircle className={`w-5 h-5 mr-3 mt-0.5 flex-shrink-0 ${
+              error.includes('demo') || error.includes('⚠️')
+                ? 'text-yellow-600'
+                : error.includes('chưa có task')
+                ? 'text-blue-600'
+                : 'text-red-600'
+            }`} />
             <div className="flex-1">
-              <h3 className="text-red-800 font-semibold mb-1">Lỗi tải dữ liệu</h3>
-              <p className="text-red-700 text-sm">{error}</p>
+              <h3 className={`font-semibold mb-1 ${
+                error.includes('demo') || error.includes('⚠️')
+                  ? 'text-yellow-800'
+                  : error.includes('chưa có task')
+                  ? 'text-blue-800'
+                  : 'text-red-800'
+              }`}>
+                {error.includes('demo') || error.includes('⚠️') ? 'Chế độ Demo' : error.includes('chưa có task') ? 'Thông báo' : 'Lỗi tải dữ liệu'}
+              </h3>
+              <p className={`text-sm ${
+                error.includes('demo') || error.includes('⚠️')
+                  ? 'text-yellow-700'
+                  : error.includes('chưa có task')
+                  ? 'text-blue-700'
+                  : 'text-red-700'
+              }`}>{error}</p>
               <button
                 onClick={loadTasks}
-                className="mt-2 text-red-700 hover:text-red-900 font-semibold text-sm underline"
+                className={`mt-2 font-semibold text-sm underline ${
+                  error.includes('demo') || error.includes('⚠️')
+                    ? 'text-yellow-700 hover:text-yellow-900'
+                    : error.includes('chưa có task')
+                    ? 'text-blue-700 hover:text-blue-900'
+                    : 'text-red-700 hover:text-red-900'
+                }`}
               >
                 Thử lại
               </button>

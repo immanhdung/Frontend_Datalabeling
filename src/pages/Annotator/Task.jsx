@@ -91,61 +91,86 @@ const AnnotatorTask = () => {
       setLoading(true);
       setError(null);
       
-      // Try to load from API first
-      const response = await taskAPI.getById(taskId);
-      const taskData = response.data.data || response.data;
+      // Get current user info
+      const userStr = localStorage.getItem('user');
+      const currentUser = userStr ? JSON.parse(userStr) : null;
       
-      // Initialize mock items if not exists
-      if (!taskData.items) {
-        taskData.items = generateMockItems(taskData.type, taskData.totalItems || 10);
+      try {
+        // First, verify this task is assigned to current user by getting my tasks
+        const myTasksResponse = await taskAPI.getMyTasks();
+        const myTasks = myTasksResponse.data.data || myTasksResponse.data || [];
+        const isAssignedToMe = myTasks.some(t => t.id === taskId || t._id === taskId);
+        
+        if (!isAssignedToMe) {
+          setError('Bạn không có quyền truy cập task này. Task chưa được assign cho bạn.');
+          setLoading(false);
+          return;
+        }
+        
+        // Load the specific task
+        const response = await taskAPI.getById(taskId);
+        const taskData = response.data.data || response.data;
+        
+        // Double-check: Verify task is assigned to current user
+        if (taskData.assignedTo && currentUser && 
+            taskData.assignedTo !== currentUser.id && 
+            taskData.assignedTo !== currentUser._id) {
+          setError('Task này không được assign cho bạn.');
+          setLoading(false);
+          return;
+        }
+        
+        // Initialize mock items if not exists
+        if (!taskData.items) {
+          taskData.items = generateMockItems(taskData.type, taskData.totalItems || 10);
+        }
+        
+        setTask(taskData);
+        
+        // Load existing annotations for current item
+        if (taskData.items[0]?.annotations) {
+          setAnnotations(taskData.items[0].annotations);
+        }
+        
+      } catch (apiError) {
+        // API not ready - check if this is a demo task
+        if (taskId.startsWith('demo-')) {
+          console.warn('⚠️ API không khả dụng, tạo demo task:', apiError.message);
+          
+          // Create demo task
+          const demoTask = {
+            id: taskId,
+            title: 'Demo: Gán nhãn hình ảnh xe hơi',
+            description: 'Task demo - Xác định và vẽ bounding box cho các loại xe trong ảnh',
+            type: 'image',
+            status: 'pending',
+            priority: 'high',
+            projectName: 'Demo Project',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            progress: 0,
+            totalItems: 10,
+            assignedTo: currentUser?.id || currentUser?._id,
+          };
+          
+          demoTask.items = generateMockItems(demoTask.type, demoTask.totalItems);
+          setTask(demoTask);
+          
+        } else {
+          throw apiError; // Re-throw if not demo task
+        }
       }
       
-      setTask(taskData);
-      
-      // Load existing annotations for current item
-      if (taskData.items[0]?.annotations) {
-        setAnnotations(taskData.items[0].annotations);
-      }
-      
-      // Save to localStorage as backup
-      const savedTasks = JSON.parse(localStorage.getItem('annotatorTasks') || '[]');
-      const taskExists = savedTasks.some(t => t.id === taskId);
-      if (!taskExists) {
-        savedTasks.push(taskData);
-      } else {
-        const updatedTasks = savedTasks.map(t => t.id === taskId ? taskData : t);
-        localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
-      }
     } catch (err) {
       console.error('Error loading task from API:', err);
       
-      // Fallback to localStorage
-      const savedTasks = localStorage.getItem('annotatorTasks');
-      if (savedTasks) {
-        const tasks = JSON.parse(savedTasks);
-        const foundTask = tasks.find(t => t.id === taskId);
-        if (foundTask) {
-          console.log('Using localStorage fallback data');
-          // Initialize mock items if not exists
-          if (!foundTask.items) {
-            foundTask.items = generateMockItems(foundTask.type, foundTask.totalItems);
-            // Save back to localStorage with items
-            const updatedTasks = tasks.map(t => 
-              t.id === taskId ? { ...t, items: foundTask.items } : t
-            );
-            localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
-          }
-          setTask(foundTask);
-          // Load existing annotations for current item
-          if (foundTask.items[0]?.annotations) {
-            setAnnotations(foundTask.items[0].annotations);
-          }
-          setError(null); // Clear error since we have fallback data
-        } else {
-          setError('Task không tồn tại');
-        }
+      if (err.response?.status === 403 || err.response?.status === 401) {
+        setError('Bạn không có quyền truy cập task này.');
+      } else if (err.response?.status === 404) {
+        setError('Task không tồn tại hoặc chưa được assign cho bạn.');
       } else {
-        setError(err.response?.data?.message || 'Không thể tải task');
+        setError(err.response?.data?.message || 'Không thể tải task. Vui lòng thử lại.');
       }
     } finally {
       setLoading(false);
