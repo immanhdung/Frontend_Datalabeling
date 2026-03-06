@@ -17,4 +17,22 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+export const reviewAPI = {
+  getPendingReviews: () => api.get("/reviews/pending"),
+  getAnnotationForReview: (taskId) => api.get(`/reviews/tasks/${taskId}`),
+  approve: (annotationId, payload) =>
+    api.post(`/reviews/${annotationId}/approve`, payload),
+  reject: (annotationId, payload) =>
+    api.post(`/reviews/${annotationId}/reject`, payload),
+};
+
+export const taskAPI = {
+  getAll: () => api.get("/tasks"),
+  assign: (taskId, userId) => api.post(`/tasks/${taskId}/assign`, { userId }),
+};
+
+export const userAPI = {
+  getAll: () => api.get("/users"),
+};
+
 export default api;
