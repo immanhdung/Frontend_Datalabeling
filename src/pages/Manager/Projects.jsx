@@ -90,7 +90,8 @@ export default function ManagerProjects() {
     try {
       setLoadingUsers(true);
       const res = await api.get("/users");
-      const usersData = res.data.data || res.data || [];
+      console.log("DEBUG RAW USERS API:", res.data);
+      const usersData = res.data.data || res.data?.items || res.data || [];
       setAllUsers(usersData);
     } catch (err) {
       console.error("Fetch users error:", err);
@@ -280,13 +281,37 @@ export default function ManagerProjects() {
   }, [location.state, projects]);
 
   const getCategoryName = (categoryId) => {
-    const cat = categories.find(c => (c.id || c.categoryId || c.category_id) === categoryId);
+    // Check both passed ID and potential nested structure in selectedProject
+    const idToFind = categoryId || selectedProject?.categoryId || selectedProject?.category?.id || selectedProject?.category?.categoryId;
+    const cat = categories.find(c => String(c.id || c.categoryId || c.category_id) === String(idToFind));
     return cat?.name || "Chưa xác định";
   };
 
   const getRole = (user) => {
-    const roleValue = user.roleName || user.role || user.Role?.name || user.role?.name || "";
-    return typeof roleValue === 'string' ? roleValue.toLowerCase() : "";
+    // Ultra-robust role detection covering nesting, casing and different field naming
+    const roleValue =
+      user.roleName ||
+      user.role ||
+      user.RoleName ||
+      user.Role?.name ||
+      user.role?.name ||
+      user.role?.roleName ||
+      user.Role?.roleName ||
+      (Array.isArray(user.roles) && (user.roles[0]?.name || user.roles[0]?.roleName)) ||
+      (Array.isArray(user.userRoles) && (user.userRoles[0]?.role?.name || user.userRoles[0]?.role?.roleName)) ||
+      "";
+
+    const roleStr = typeof roleValue === 'string' ? roleValue.toLowerCase() : "";
+
+    // Nếu vẫn không tìm thấy tên quyền, thử ánh dịch qua roleId nếu có
+    if (!roleStr && user.roleId) {
+      const rid = String(user.roleId);
+      if (rid === "2" || rid.toLowerCase().includes("annotator")) return "annotator";
+      if (rid === "3" || rid.toLowerCase().includes("reviewer")) return "reviewer";
+      if (rid === "1" || rid.toLowerCase().includes("manager")) return "manager";
+    }
+
+    return roleStr;
   };
 
   const annotators = allUsers.filter(u => getRole(u) === "annotator");
@@ -540,7 +565,18 @@ export default function ManagerProjects() {
                   </div>
                   <div>
                     <p className="text-[10px] font-black uppercase text-gray-400">Quy mô</p>
-                    <p className="text-sm font-bold text-gray-800">{selectedProject?.imagesCount || 0} hình ảnh</p>
+                    <p className="text-sm font-bold text-gray-800">
+                      {(() => {
+                        const pid = selectedProject?.id || selectedProject?.projectId;
+                        const attached = projectDatasets[pid] || [];
+                        console.log(`DEBUG ATTACHED DATASETS for ${pid}:`, attached);
+                        const sum = attached.reduce((acc, ds) => {
+                          const count = ds.imagesCount || ds.numberOfItems || ds.itemCount || ds.totalImages || 0;
+                          return acc + count;
+                        }, 0);
+                        return sum || selectedProject?.imagesCount || 0;
+                      })()} hình ảnh
+                    </p>
                   </div>
                 </div>
               </div>
@@ -560,7 +596,22 @@ export default function ManagerProjects() {
                     <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
                   </div>
                 ) : annotators.length === 0 ? (
-                  <p className="text-sm text-gray-400 italic text-center py-4 bg-gray-50 rounded-xl">Không tìm thấy Annotator nào trong hệ thống</p>
+                  <div className="space-y-4">
+                    <p className="text-sm text-gray-400 italic text-center py-4 bg-gray-50 rounded-xl">Không tìm thấy Annotator nào trong hệ thống</p>
+                    {allUsers.length > 0 && (
+                      <div className="p-4 bg-amber-50 rounded-xl border border-amber-100">
+                        <p className="text-xs font-bold text-amber-800 mb-2">DEBUG: Hệ thống có {allUsers.length} người dùng nhưng không khớp quyền 'annotator'. Dưới đây là danh sách toàn bộ người dùng:</p>
+                        <div className="space-y-2 max-h-[150px] overflow-auto pr-1">
+                          {allUsers.map(u => (
+                            <div key={u.id || u.userId} onClick={() => toggleAnnotatorSelection(u.id || u.userId)} className="text-[10px] bg-white p-1.5 rounded border border-amber-200 flex justify-between cursor-pointer hover:bg-amber-100">
+                              <span>{u.displayName || u.username}</span>
+                              <span className="font-bold text-amber-600">Quyền: {getRole(u) || "N/A"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {annotators.map((u) => {
@@ -750,7 +801,11 @@ export default function ManagerProjects() {
               <div className="flex items-center justify-between text-sm text-gray-600 pt-2 border-t">
                 <div className="flex items-center gap-1">
                   <Image className="w-4 h-4" />
-                  {p.imagesCount ?? 0} ảnh
+                  {(() => {
+                    const attached = projectDatasets[id] || [];
+                    const sum = attached.reduce((acc, ds) => acc + (ds.imagesCount || ds.numberOfItems || ds.itemCount || 0), 0);
+                    return sum || p.imagesCount || 0;
+                  })()} ảnh
                 </div>
                 <div className="flex items-center gap-1">
                   <Tag className="w-4 h-4" />
