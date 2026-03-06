@@ -14,7 +14,7 @@ import ActivityLogs from "./pages/Admin/ActivityLogs";
 import ManagerDashboard from "./pages/Manager/Dashboard";
 import ManagerProjects from "./pages/Manager/Projects";
 import Categories from "./pages/Manager/Categories";
-import ManagerAssignments from "./pages/Manager/Assignments";
+import ManagerAssignments from "./pages/Manager/AssignTasks";
 import ManagerReview from "./pages/Manager/Review";
 import ManagerProjectsDetail from "./pages/Manager/ProjectDetail";
 import CreateProjectPage from "./pages/Manager/CreateProject";
@@ -23,9 +23,12 @@ import Datasets from "./pages/Manager/Datasets";
 
 // Annotator
 import AnnotatorDashboard from "./pages/Annotator/Dashboard";
+import AnnotatorTask from "./pages/Annotator/Task";
 
 // Reviewer
 import ReviewerDashboard from "./pages/Reviewer/Dashboard";
+import ReviewerHistory from "./pages/Reviewer/History";
+import ReviewerAnalytics from "./pages/Reviewer/Analytics";
 
 
 function ProtectedRoute({ children, allowRoles }) {
@@ -65,7 +68,7 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/" element={<RoleRedirect />} />
       <Route element={<DashboardLayout />}>
         {/* ADMIN */}
         <Route
@@ -177,6 +180,22 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/annotator/tasks/:taskId"
+          element={
+            <ProtectedRoute allowRoles={["annotator"]}>
+              <AnnotatorTask />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/annotator/tasks"
+          element={
+            <ProtectedRoute allowRoles={["annotator"]}>
+              <AnnotatorDashboard />
+            </ProtectedRoute>
+          }
+        />
 
         {/* REVIEWER */}
         <Route
@@ -184,6 +203,30 @@ function App() {
           element={
             <ProtectedRoute allowRoles={["reviewer"]}>
               <ReviewerDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reviewer/review"
+          element={
+            <ProtectedRoute allowRoles={["reviewer"]}>
+              <ReviewerDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reviewer/history"
+          element={
+            <ProtectedRoute allowRoles={["reviewer"]}>
+              <ReviewerHistory />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reviewer/analytics"
+          element={
+            <ProtectedRoute allowRoles={["reviewer"]}>
+              <ReviewerAnalytics />
             </ProtectedRoute>
           }
         />

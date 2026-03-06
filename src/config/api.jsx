@@ -17,6 +17,20 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+const trySequential = async (requestFactories) => {
+  let lastError;
+
+  for (const requestFactory of requestFactories) {
+    try {
+      return await requestFactory();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
+};
+
 export const reviewAPI = {
   getPendingReviews: () => api.get("/reviews/pending"),
   getAnnotationForReview: (taskId) => api.get(`/reviews/tasks/${taskId}`),
@@ -27,8 +41,39 @@ export const reviewAPI = {
 };
 
 export const taskAPI = {
-  getAll: () => api.get("/tasks"),
-  assign: (taskId, userId) => api.post(`/tasks/${taskId}/assign`, { userId }),
+  getAll: () =>
+    trySequential([
+      () => api.get("/tasks"),
+      () => api.get("/Tasks"),
+    ]),
+  assign: (taskId, userId) =>
+    trySequential([
+      () => api.post(`/tasks/${taskId}/assign`, { userId }),
+      () => api.post(`/Tasks/${taskId}/assign`, { userId }),
+      () => api.post(`/tasks/${taskId}/Assign`, { userId }),
+    ]),
+  getMyTasks: () =>
+    trySequential([
+      () => api.get("/tasks/my-tasks"),
+      () => api.get("/tasks/my"),
+      () => api.get("/tasks/assigned"),
+      () => api.get("/tasks?assignedOnly=true"),
+    ]),
+  getById: (taskId) => api.get(`/tasks/${taskId}`),
+  submit: (taskId, payload) =>
+    trySequential([
+      () => api.post(`/tasks/${taskId}/submit`, payload),
+      () => api.put(`/tasks/${taskId}/submit`, payload),
+      () => api.patch(`/tasks/${taskId}`, payload),
+    ]),
+};
+
+export const annotationAPI = {
+  create: (payload) =>
+    trySequential([
+      () => api.post("/annotations", payload),
+      () => api.post("/annotation", payload),
+    ]),
 };
 
 export const userAPI = {

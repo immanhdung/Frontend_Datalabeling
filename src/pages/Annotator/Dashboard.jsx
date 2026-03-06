@@ -1,7 +1,9 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Header from '../../components/common/Header';
 import StatsCard from '../../components/common/StatsCard';
+import { taskAPI } from '../../config/api';
 import {
   CheckCircle2,
   Clock,
@@ -20,82 +22,133 @@ import {
 } from "lucide-react";
 
 const AnnotatorDashboard = () => {
-  const [stats, setStats] = useState({
-    total: 200,
-    pending: 65,
-    inProgress: 15,
-    completed: 120,
-    approved: 95,
-    rejected: 15,
-  });
-
-  const [tasks, setTasks] = useState([
-    {
-      id: 'task-1',
-      title: 'Gán nhãn hình ảnh xe hơi - Dataset 001',
-      description: 'Xác định và vẽ bounding box cho các loại xe trong ảnh',
-      type: 'image',
-      status: 'pending',
-      priority: 'high',
-      projectName: 'Autonomous Driving',
-      createdAt: '2026-01-28T10:00:00Z',
-      updatedAt: '2026-01-28T10:00:00Z',
-      dueDate: '2026-02-05T23:59:59Z',
-      progress: 0,
-      totalItems: 150,
-    },
-    {
-      id: 'task-2',
-      title: 'Phân loại văn bản tin tức',
-      description: 'Phân loại các bài báo theo danh mục: Thể thao, Kinh tế, Giải trí, Chính trị',
-      type: 'text',
-      status: 'in_progress',
-      priority: 'medium',
-      projectName: 'News Classification',
-      createdAt: '2026-01-27T14:30:00Z',
-      updatedAt: '2026-01-29T09:15:00Z',
-      dueDate: '2026-02-10T23:59:59Z',
-      progress: 45,
-      totalItems: 500,
-    },
-    {
-      id: 'task-3',
-      title: 'Transcription âm thanh cuộc gọi',
-      description: 'Chuyển đổi các file âm thanh cuộc gọi thành văn bản',
-      type: 'audio',
-      status: 'completed',
-      priority: 'low',
-      projectName: 'Call Center Analytics',
-      createdAt: '2026-01-25T08:00:00Z',
-      updatedAt: '2026-01-28T16:45:00Z',
-      completedAt: '2026-01-28T16:45:00Z',
-      dueDate: '2026-02-15T23:59:59Z',
-      progress: 100,
-      totalItems: 80,
-      reviewStatus: 'approved',
-    },
-    {
-      id: 'task-4',
-      title: 'Gán nhãn video người đi bộ',
-      description: 'Theo dõi và gán nhãn người đi bộ trong video',
-      type: 'video',
-      status: 'completed',
-      priority: 'high',
-      projectName: 'Pedestrian Detection',
-      createdAt: '2026-01-24T10:00:00Z',
-      updatedAt: '2026-01-27T18:30:00Z',
-      completedAt: '2026-01-27T18:30:00Z',
-      dueDate: '2026-02-01T23:59:59Z',
-      progress: 100,
-      totalItems: 30,
-      reviewStatus: 'rejected',
-      feedback: 'Một số frame bị thiếu annotations, vui lòng kiểm tra lại',
-    },
-  ]);
+  const navigate = useNavigate();
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('recent');
+
+  useEffect(() => {
+    const loadMyAssignedTasks = async () => {
+      try {
+        setLoading(true);
+        setError('');
+
+        const savedUser = localStorage.getItem('user');
+        const currentUser = savedUser ? JSON.parse(savedUser) : null;
+        const currentUserId = currentUser?.id ?? currentUser?._id;
+
+        if (!currentUserId) {
+          setTasks([]);
+          setError('Không tìm thấy thông tin người dùng hiện tại. Vui lòng đăng nhập lại.');
+          return;
+        }
+
+        const getAssignedId = (task) => {
+          const directAssignee = task.assignedTo ?? task.assigned_to ?? task.assigneeId ?? task.annotatorId;
+          if (typeof directAssignee === 'object' && directAssignee !== null) {
+            return directAssignee.id ?? directAssignee._id;
+          }
+          return directAssignee;
+        };
+
+        const normalizeTasks = (rawTasks) => rawTasks.map((task) => ({
+          id: String(task.id ?? task._id ?? ''),
+          title: task.title ?? task.name ?? `Task #${task.id ?? task._id ?? ''}`,
+          description: task.description ?? '',
+          type: task.type ?? 'image',
+          status: task.status ?? 'pending',
+          priority: task.priority ?? 'medium',
+          projectName: task.projectName ?? task.project_name ?? task.project?.name ?? 'N/A',
+          createdAt: task.createdAt ?? task.created_at ?? new Date().toISOString(),
+          updatedAt: task.updatedAt ?? task.updated_at ?? task.createdAt ?? new Date().toISOString(),
+          dueDate: task.dueDate ?? task.due_date ?? task.deadline ?? task.createdAt ?? new Date().toISOString(),
+          progress: task.progress ?? 0,
+          totalItems: task.totalItems ?? task.total_items ?? task.items?.length ?? 0,
+          reviewStatus: task.reviewStatus ?? task.review_status,
+          feedback: task.feedback,
+          assignedTo: getAssignedId(task),
+        }));
+
+        const loadLocalAssignedTasks = () => {
+          const mapRaw = localStorage.getItem('assignedTasksByUser');
+          const taskMap = mapRaw ? JSON.parse(mapRaw) : {};
+          const myTasks = taskMap[String(currentUserId)] || [];
+          return Array.isArray(myTasks) ? myTasks : [];
+        };
+
+        let rawTasks = [];
+        try {
+          const response = await taskAPI.getMyTasks();
+          rawTasks = response.data?.data || response.data || [];
+        } catch (myTaskError) {
+          console.warn('getMyTasks failed, fallback to getAll + local filter:', myTaskError);
+          const response = await taskAPI.getAll();
+          rawTasks = response.data?.data || response.data || [];
+        }
+
+        const normalizedTasks = normalizeTasks(rawTasks);
+        let assignedTasks = normalizedTasks.filter(
+          (task) => String(task.assignedTo) === String(currentUserId)
+        );
+
+        if (assignedTasks.length === 0) {
+          const localAssignedTasks = loadLocalAssignedTasks();
+          if (localAssignedTasks.length > 0) {
+            assignedTasks = normalizeTasks(localAssignedTasks);
+          }
+        }
+
+        setTasks(assignedTasks);
+      } catch (loadError) {
+        console.error('Failed to load assigned tasks:', loadError);
+        const statusCode = loadError?.response?.status;
+        if (statusCode === 401) {
+          setError('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+        } else if (statusCode === 403) {
+          setError('Tài khoản chưa có quyền đọc danh sách task.');
+        } else {
+          setError('Không thể tải danh sách task được assign.');
+        }
+        const mapRaw = localStorage.getItem('assignedTasksByUser');
+        const taskMap = mapRaw ? JSON.parse(mapRaw) : {};
+        const localAssignedTasks = taskMap[String(currentUserId)] || [];
+
+        if (Array.isArray(localAssignedTasks) && localAssignedTasks.length > 0) {
+          const normalizedLocalTasks = localAssignedTasks.map((task) => ({
+            ...task,
+            id: String(task.id ?? task._id ?? ''),
+            title: task.title ?? task.name ?? `Task #${task.id ?? task._id ?? ''}`,
+            projectName: task.projectName ?? task.project_name ?? task.project?.name ?? 'N/A',
+            updatedAt: task.updatedAt ?? task.updated_at ?? task.createdAt ?? new Date().toISOString(),
+            dueDate: task.dueDate ?? task.due_date ?? task.deadline ?? task.createdAt ?? new Date().toISOString(),
+            assignedTo: String(currentUserId),
+          }));
+          setTasks(normalizedLocalTasks);
+          setError('');
+        } else {
+          setTasks([]);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadMyAssignedTasks();
+  }, []);
+
+  const stats = useMemo(() => {
+    const completedTasks = tasks.filter((task) => task.status === 'completed');
+    return {
+      total: tasks.length,
+      inProgress: tasks.filter((task) => task.status === 'in_progress').length,
+      completed: completedTasks.length,
+      approved: completedTasks.filter((task) => task.reviewStatus === 'approved').length,
+    };
+  }, [tasks]);
 
   const filteredTasks = tasks.filter((task) => {
     const matchesFilter = filter === 'all' || task.status === filter;
@@ -116,13 +169,11 @@ const AnnotatorDashboard = () => {
   });
 
   const handleRefresh = () => {
-    console.log('Refreshing data...');
+    window.location.reload();
   };
 
   const handleStartTask = (taskId) => {
-    setTasks(tasks.map(task => 
-      task.id === taskId ? { ...task, status: 'in_progress', updatedAt: new Date().toISOString() } : task
-    ));
+    navigate(`/annotator/tasks/${taskId}`);
   };
 
   const getDaysUntilDue = (dueDate) => {
@@ -146,10 +197,22 @@ const AnnotatorDashboard = () => {
       />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {loading && (
+          <div className="bg-white rounded-lg shadow-sm p-12 text-center mb-6">
+            <p className="text-gray-600 font-medium">Đang tải task được assign...</p>
+          </div>
+        )}
+
+        {error && !loading && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 text-red-700 text-sm font-medium">
+            {error}
+          </div>
+        )}
+
         {/* Statistics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <StatsCard
-            title="Tổng Tasks"
+            title="Tasks được assign"
             value={stats.total}
             icon={<CheckCircle2 className="w-6 h-6" />}
             iconBgColor="bg-blue-100"
@@ -266,12 +329,12 @@ const AnnotatorDashboard = () => {
 
         {/* Tasks List */}
         <div className="space-y-6">
-          {filteredTasks.length === 0 ? (
+          {!loading && filteredTasks.length === 0 ? (
             <div className="bg-white rounded-lg shadow-sm p-12 text-center">
               <CheckCircle2 className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <p className="text-xl font-semibold text-gray-500">Không tìm thấy task nào</p>
+              <p className="text-xl font-semibold text-gray-500">Bạn chưa có task nào được assign</p>
             </div>
-          ) : (
+          ) : !loading ? (
             filteredTasks.map((task) => {
               const daysUntilDue = getDaysUntilDue(task.dueDate);
               
@@ -389,23 +452,35 @@ const AnnotatorDashboard = () => {
                         </button>
                       )}
                       {task.status === 'in_progress' && (
-                        <button className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold transition-all">
+                        <button
+                          onClick={() => handleStartTask(task.id)}
+                          className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold transition-all"
+                        >
                           Tiếp tục
                         </button>
                       )}
                       {task.status === 'completed' && (
                         <>
-                          <button className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm font-semibold transition-all">
+                          <button
+                            onClick={() => handleStartTask(task.id)}
+                            className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm font-semibold transition-all"
+                          >
                             Xem lại
                           </button>
                           {task.reviewStatus === 'rejected' && (
-                            <button className="px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-semibold transition-all">
+                            <button
+                              onClick={() => handleStartTask(task.id)}
+                              className="px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-semibold transition-all"
+                            >
                               Sửa lại
                             </button>
                           )}
                         </>
                       )}
-                      <button className="px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-semibold transition-all">
+                      <button
+                        onClick={() => handleStartTask(task.id)}
+                        className="px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-semibold transition-all"
+                      >
                         Chi tiết
                       </button>
                     </div>
@@ -413,7 +488,7 @@ const AnnotatorDashboard = () => {
                 </div>
               );
             })
-          )}
+          ) : null}
         </div>
       </main>
     </div>

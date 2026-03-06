@@ -36,6 +36,39 @@ const AssignTasks = () => {
     }
   };
 
+  const persistAssignedTaskForUser = (task, userId) => {
+    const storageKey = 'assignedTasksByUser';
+    const rawMap = localStorage.getItem(storageKey);
+    const taskMap = rawMap ? JSON.parse(rawMap) : {};
+    const key = String(userId);
+    const currentTasks = Array.isArray(taskMap[key]) ? taskMap[key] : [];
+
+    const normalizedTask = {
+      id: String(task.id ?? task._id ?? ''),
+      title: task.title ?? task.name ?? `Task #${task.id ?? task._id ?? ''}`,
+      description: task.description ?? '',
+      type: task.type ?? 'image',
+      status: task.status ?? 'pending',
+      priority: task.priority ?? 'medium',
+      projectName: task.projectName ?? task.project_name ?? task.project?.name ?? 'N/A',
+      createdAt: task.createdAt ?? task.created_at ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      dueDate: task.dueDate ?? task.due_date ?? task.deadline ?? new Date().toISOString(),
+      progress: task.progress ?? 0,
+      totalItems: task.totalItems ?? task.total_items ?? task.items?.length ?? 0,
+      assignedTo: String(userId),
+      source: 'local-assignment-fallback',
+    };
+
+    const mergedTasks = [
+      normalizedTask,
+      ...currentTasks.filter((existingTask) => String(existingTask.id) !== String(normalizedTask.id)),
+    ];
+
+    taskMap[key] = mergedTasks;
+    localStorage.setItem(storageKey, JSON.stringify(taskMap));
+  };
+
   const handleAssignTask = async (userId) => {
     if (!selectedTask) {
       showMessage('warning', 'Vui lòng chọn một task trước');
@@ -44,6 +77,7 @@ const AssignTasks = () => {
 
     try {
       await taskAPI.assign(selectedTask.id, userId);
+      persistAssignedTaskForUser(selectedTask, userId);
       showMessage('success', 'Assign task thành công!');
       
       // Reload tasks to update assigned status
