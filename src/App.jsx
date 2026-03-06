@@ -24,6 +24,8 @@ import Datasets from "./pages/Manager/Datasets";
 // Annotator
 import AnnotatorDashboard from "./pages/Annotator/Dashboard";
 import AnnotatorTask from "./pages/Annotator/Task";
+import AnnotatorHistory from "./pages/Annotator/History";
+import AnnotatorFeedback from "./pages/Annotator/Feedback";
 
 // Reviewer
 import ReviewerDashboard from "./pages/Reviewer/Dashboard";
@@ -193,6 +195,22 @@ function App() {
           element={
             <ProtectedRoute allowRoles={["annotator"]}>
               <AnnotatorDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/annotator/history"
+          element={
+            <ProtectedRoute allowRoles={["annotator"]}>
+              <AnnotatorHistory />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/annotator/feedback"
+          element={
+            <ProtectedRoute allowRoles={["annotator"]}>
+              <AnnotatorFeedback />
             </ProtectedRoute>
           }
         />

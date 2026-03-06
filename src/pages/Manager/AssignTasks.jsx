@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { taskAPI, userAPI } from '../../config/api';
 import Header from '../../components/common/Header';
+import { resolveApiData, upsertLocalAssignedTask } from '../../utils/annotatorTaskHelpers';
 
 const AssignTasks = () => {
   const [tasks, setTasks] = useState([]);
@@ -25,48 +26,15 @@ const AssignTasks = () => {
         taskAPI.getAll(),
         userAPI.getAll()
       ]);
-      
-      setTasks(tasksRes.data.data || tasksRes.data || []);
-      setUsers(usersRes.data.data || usersRes.data || []);
+
+      setTasks(resolveApiData(tasksRes));
+      setUsers(resolveApiData(usersRes));
     } catch (error) {
       console.error('Error loading data:', error);
       showMessage('error', 'Không thể tải dữ liệu');
     } finally {
       setLoading(false);
     }
-  };
-
-  const persistAssignedTaskForUser = (task, userId) => {
-    const storageKey = 'assignedTasksByUser';
-    const rawMap = localStorage.getItem(storageKey);
-    const taskMap = rawMap ? JSON.parse(rawMap) : {};
-    const key = String(userId);
-    const currentTasks = Array.isArray(taskMap[key]) ? taskMap[key] : [];
-
-    const normalizedTask = {
-      id: String(task.id ?? task._id ?? ''),
-      title: task.title ?? task.name ?? `Task #${task.id ?? task._id ?? ''}`,
-      description: task.description ?? '',
-      type: task.type ?? 'image',
-      status: task.status ?? 'pending',
-      priority: task.priority ?? 'medium',
-      projectName: task.projectName ?? task.project_name ?? task.project?.name ?? 'N/A',
-      createdAt: task.createdAt ?? task.created_at ?? new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      dueDate: task.dueDate ?? task.due_date ?? task.deadline ?? new Date().toISOString(),
-      progress: task.progress ?? 0,
-      totalItems: task.totalItems ?? task.total_items ?? task.items?.length ?? 0,
-      assignedTo: String(userId),
-      source: 'local-assignment-fallback',
-    };
-
-    const mergedTasks = [
-      normalizedTask,
-      ...currentTasks.filter((existingTask) => String(existingTask.id) !== String(normalizedTask.id)),
-    ];
-
-    taskMap[key] = mergedTasks;
-    localStorage.setItem(storageKey, JSON.stringify(taskMap));
   };
 
   const handleAssignTask = async (userId) => {
@@ -77,12 +45,12 @@ const AssignTasks = () => {
 
     try {
       await taskAPI.assign(selectedTask.id, userId);
-      persistAssignedTaskForUser(selectedTask, userId);
+      upsertLocalAssignedTask(selectedTask, userId);
       showMessage('success', 'Assign task thành công!');
       
       // Reload tasks to update assigned status
       const tasksRes = await taskAPI.getAll();
-      setTasks(tasksRes.data.data || tasksRes.data || []);
+      setTasks(resolveApiData(tasksRes));
       
       // Clear selected task
       setSelectedTask(null);

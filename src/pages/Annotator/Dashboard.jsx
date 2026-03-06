@@ -5,6 +5,12 @@ import Header from '../../components/common/Header';
 import StatsCard from '../../components/common/StatsCard';
 import { taskAPI } from '../../config/api';
 import {
+  fetchAssignedTasksForUser,
+  getCurrentUserId,
+  getLocalAssignedTasksForUser,
+  normalizeTasks,
+} from '../../utils/annotatorTaskHelpers';
+import {
   CheckCircle2,
   Clock,
   Zap,
@@ -33,13 +39,11 @@ const AnnotatorDashboard = () => {
 
   useEffect(() => {
     const loadMyAssignedTasks = async () => {
+      const currentUserId = getCurrentUserId();
+
       try {
         setLoading(true);
         setError('');
-
-        const savedUser = localStorage.getItem('user');
-        const currentUser = savedUser ? JSON.parse(savedUser) : null;
-        const currentUserId = currentUser?.id ?? currentUser?._id;
 
         if (!currentUserId) {
           setTasks([]);
@@ -47,58 +51,12 @@ const AnnotatorDashboard = () => {
           return;
         }
 
-        const getAssignedId = (task) => {
-          const directAssignee = task.assignedTo ?? task.assigned_to ?? task.assigneeId ?? task.annotatorId;
-          if (typeof directAssignee === 'object' && directAssignee !== null) {
-            return directAssignee.id ?? directAssignee._id;
-          }
-          return directAssignee;
-        };
-
-        const normalizeTasks = (rawTasks) => rawTasks.map((task) => ({
-          id: String(task.id ?? task._id ?? ''),
-          title: task.title ?? task.name ?? `Task #${task.id ?? task._id ?? ''}`,
-          description: task.description ?? '',
-          type: task.type ?? 'image',
-          status: task.status ?? 'pending',
-          priority: task.priority ?? 'medium',
-          projectName: task.projectName ?? task.project_name ?? task.project?.name ?? 'N/A',
-          createdAt: task.createdAt ?? task.created_at ?? new Date().toISOString(),
-          updatedAt: task.updatedAt ?? task.updated_at ?? task.createdAt ?? new Date().toISOString(),
-          dueDate: task.dueDate ?? task.due_date ?? task.deadline ?? task.createdAt ?? new Date().toISOString(),
-          progress: task.progress ?? 0,
-          totalItems: task.totalItems ?? task.total_items ?? task.items?.length ?? 0,
-          reviewStatus: task.reviewStatus ?? task.review_status,
-          feedback: task.feedback,
-          assignedTo: getAssignedId(task),
-        }));
-
-        const loadLocalAssignedTasks = () => {
-          const mapRaw = localStorage.getItem('assignedTasksByUser');
-          const taskMap = mapRaw ? JSON.parse(mapRaw) : {};
-          const myTasks = taskMap[String(currentUserId)] || [];
-          return Array.isArray(myTasks) ? myTasks : [];
-        };
-
-        let rawTasks = [];
-        try {
-          const response = await taskAPI.getMyTasks();
-          rawTasks = response.data?.data || response.data || [];
-        } catch (myTaskError) {
-          console.warn('getMyTasks failed, fallback to getAll + local filter:', myTaskError);
-          const response = await taskAPI.getAll();
-          rawTasks = response.data?.data || response.data || [];
-        }
-
-        const normalizedTasks = normalizeTasks(rawTasks);
-        let assignedTasks = normalizedTasks.filter(
-          (task) => String(task.assignedTo) === String(currentUserId)
-        );
+        let assignedTasks = await fetchAssignedTasksForUser(taskAPI, currentUserId);
 
         if (assignedTasks.length === 0) {
-          const localAssignedTasks = loadLocalAssignedTasks();
+          const localAssignedTasks = getLocalAssignedTasksForUser(currentUserId);
           if (localAssignedTasks.length > 0) {
-            assignedTasks = normalizeTasks(localAssignedTasks);
+            assignedTasks = normalizeTasks(localAssignedTasks, currentUserId);
           }
         }
 
@@ -113,20 +71,10 @@ const AnnotatorDashboard = () => {
         } else {
           setError('Không thể tải danh sách task được assign.');
         }
-        const mapRaw = localStorage.getItem('assignedTasksByUser');
-        const taskMap = mapRaw ? JSON.parse(mapRaw) : {};
-        const localAssignedTasks = taskMap[String(currentUserId)] || [];
+        const localAssignedTasks = getLocalAssignedTasksForUser(currentUserId);
 
         if (Array.isArray(localAssignedTasks) && localAssignedTasks.length > 0) {
-          const normalizedLocalTasks = localAssignedTasks.map((task) => ({
-            ...task,
-            id: String(task.id ?? task._id ?? ''),
-            title: task.title ?? task.name ?? `Task #${task.id ?? task._id ?? ''}`,
-            projectName: task.projectName ?? task.project_name ?? task.project?.name ?? 'N/A',
-            updatedAt: task.updatedAt ?? task.updated_at ?? task.createdAt ?? new Date().toISOString(),
-            dueDate: task.dueDate ?? task.due_date ?? task.deadline ?? task.createdAt ?? new Date().toISOString(),
-            assignedTo: String(currentUserId),
-          }));
+          const normalizedLocalTasks = normalizeTasks(localAssignedTasks, currentUserId);
           setTasks(normalizedLocalTasks);
           setError('');
         } else {

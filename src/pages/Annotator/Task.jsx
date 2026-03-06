@@ -2,6 +2,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { taskAPI, annotationAPI } from '../../config/api';
 import {
+  fetchAssignedTasksForUser,
+  getCurrentUser,
+  getCurrentUserId,
+  getLocalAssignedTasksForUser,
+  getTaskAssigneeId,
+  normalizeTask,
+  resolveApiData,
+} from '../../utils/annotatorTaskHelpers';
+import {
   ArrowLeft,
   Save,
   Send,
@@ -90,54 +99,22 @@ const AnnotatorTask = () => {
     try {
       setLoading(true);
       setError(null);
-      
-      // Get current user info
-      const userStr = localStorage.getItem('user');
-      const currentUser = userStr ? JSON.parse(userStr) : null;
-      const currentUserId = currentUser?.id ?? currentUser?._id;
 
-      const getTaskAssigneeId = (taskData) => {
-        const assignee = taskData?.assignedTo ?? taskData?.assigned_to ?? taskData?.assigneeId ?? taskData?.annotatorId;
-        if (typeof assignee === 'object' && assignee !== null) {
-          return assignee.id ?? assignee._id;
-        }
-        return assignee;
-      };
+      const currentUser = getCurrentUser();
+      const currentUserId = getCurrentUserId();
 
       const getLocalAssignedTaskById = () => {
         if (!currentUserId) return null;
-        const mapRaw = localStorage.getItem('assignedTasksByUser');
-        const taskMap = mapRaw ? JSON.parse(mapRaw) : {};
-        const myLocalTasks = taskMap[String(currentUserId)] || [];
+        const myLocalTasks = getLocalAssignedTasksForUser(currentUserId);
         const matchedTask = myLocalTasks.find(
           (taskItem) => String(taskItem.id ?? taskItem._id) === String(taskId)
         );
         return matchedTask || null;
       };
-
-      const fetchAssignedTasks = async () => {
-        try {
-          const myTasksResponse = await taskAPI.getMyTasks();
-          return myTasksResponse.data?.data || myTasksResponse.data || [];
-        } catch (myTaskError) {
-          console.warn('getMyTasks failed, fallback to getAll + local filter:', myTaskError);
-          const allTasksResponse = await taskAPI.getAll();
-          const allTasks = allTasksResponse.data?.data || allTasksResponse.data || [];
-
-          if (!currentUserId) {
-            return [];
-          }
-
-          return allTasks.filter((taskItem) => {
-            const assigneeId = getTaskAssigneeId(taskItem);
-            return String(assigneeId) === String(currentUserId);
-          });
-        }
-      };
       
       try {
         // First, verify this task is assigned to current user by getting my tasks
-        const myTasks = await fetchAssignedTasks();
+        const myTasks = await fetchAssignedTasksForUser(taskAPI, currentUserId);
         const isAssignedToMe = myTasks.some((taskItem) => String(taskItem.id ?? taskItem._id) === String(taskId));
         
         if (!isAssignedToMe) {
@@ -148,7 +125,7 @@ const AnnotatorTask = () => {
         
         // Load the specific task
         const response = await taskAPI.getById(taskId);
-        const taskData = response.data.data || response.data;
+        const taskData = normalizeTask(resolveApiData(response));
         
         // Double-check: Verify task is assigned to current user
         const assigneeId = getTaskAssigneeId(taskData);
@@ -199,16 +176,8 @@ const AnnotatorTask = () => {
           const localTask = getLocalAssignedTaskById();
           if (localTask) {
             const hydratedLocalTask = {
-              ...localTask,
-              id: String(localTask.id ?? localTask._id ?? taskId),
-              title: localTask.title ?? localTask.name ?? `Task #${taskId}`,
-              projectName: localTask.projectName ?? localTask.project_name ?? localTask.project?.name ?? 'N/A',
-              type: localTask.type ?? 'image',
-              status: localTask.status ?? 'pending',
-              priority: localTask.priority ?? 'medium',
-              totalItems: localTask.totalItems ?? localTask.total_items ?? 10,
+              ...normalizeTask(localTask, currentUserId),
               items: localTask.items || generateMockItems(localTask.type ?? 'image', localTask.totalItems ?? 10),
-              assignedTo: String(currentUserId),
             };
 
             setTask(hydratedLocalTask);

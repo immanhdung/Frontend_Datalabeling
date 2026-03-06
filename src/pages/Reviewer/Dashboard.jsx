@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { reviewAPI } from '../../config/api';
 import Header from '../../components/common/Header';
 import StatsCard from '../../components/common/StatsCard';
+import useReviewHistory from '../../hooks/useReviewHistory';
 import {
   FileText,
   Clock,
@@ -32,11 +33,7 @@ const ReviewerDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Review history - load from localStorage as fallback
-  const [reviewHistory, setReviewHistory] = useState(() => {
-    const saved = localStorage.getItem('reviewHistory');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const { reviewHistory, setReviewHistory } = useReviewHistory();
 
   // Save review history to localStorage whenever it changes
   useEffect(() => {

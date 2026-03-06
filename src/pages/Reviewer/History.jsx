@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/common/Header';
+import useReviewHistory from '../../hooks/useReviewHistory';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -23,29 +24,7 @@ import {
 
 const ReviewHistory = () => {
   const navigate = useNavigate();
-
-  // Load review history from localStorage - sync with Dashboard
-  const [reviewHistory, setReviewHistory] = useState(() => {
-    const saved = localStorage.getItem('reviewHistory');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  // Reload data when component mounts or when localStorage changes
-  useEffect(() => {
-    const handleStorageChange = () => {
-      const saved = localStorage.getItem('reviewHistory');
-      if (saved) {
-        setReviewHistory(JSON.parse(saved));
-      }
-    };
-
-    // Listen for custom event from other components
-    window.addEventListener('reviewHistoryUpdated', handleStorageChange);
-    
-    return () => {
-      window.removeEventListener('reviewHistoryUpdated', handleStorageChange);
-    };
-  }, []);
+  const { reviewHistory } = useReviewHistory();
 
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
