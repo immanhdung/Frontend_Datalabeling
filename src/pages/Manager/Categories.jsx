@@ -43,7 +43,7 @@ export default function Categories() {
         try {
             setFetchingProjects(true);
             // Lấy toàn bộ dự án để lọc chính xác tại Frontend
-            const res = await api.get("/projects/mine");
+            const res = await api.get("/projects");
 
             const allItems = res.data?.items || res.data?.data || (Array.isArray(res.data) ? res.data : []);
 

@@ -10,6 +10,7 @@ export default function ManagerProjectDetail() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [labelSets, setLabelSets] = useState([]);
+    const [attachedImages, setAttachedImages] = useState([]);
 
     useEffect(() => {
         const fetchProjectDetail = async () => {
@@ -17,13 +18,30 @@ export default function ManagerProjectDetail() {
                 setLoading(true);
                 setError(null);
 
-                const [projectRes, labelSetsRes] = await Promise.all([
+                const [projectRes, labelSetsRes, attachedDatasetsRes] = await Promise.all([
                     api.get(`/projects/${id}`),
-                    api.get(`/projects/${id}/label-sets`).catch(() => ({ data: [] }))
+                    api.get(`/projects/${id}/label-sets`).catch(() => ({ data: [] })),
+                    api.get(`/projects/${id}/datasets`).catch(() => ({ data: [] }))
                 ]);
 
                 setProject(projectRes.data);
                 setLabelSets(Array.isArray(labelSetsRes.data) ? labelSetsRes.data : []);
+
+                // Fetch images from attached datasets
+                const datasets = attachedDatasetsRes.data || [];
+                if (datasets.length > 0) {
+                    const allImages = [];
+                    for (const ds of datasets) {
+                        try {
+                            const itemsRes = await api.get(`/datasets/${ds.id || ds.datasetId}/items`);
+                            const items = itemsRes.data?.items || itemsRes.data || [];
+                            allImages.push(...items);
+                        } catch (err) {
+                            console.warn(`Failed to fetch items for dataset ${ds.id}:`, err);
+                        }
+                    }
+                    setAttachedImages(allImages);
+                }
             } catch (err) {
                 console.error("Fetch project detail error:", err);
                 setError("Không thể tải thông tin chi tiết dự án. Vui lòng thử lại sau.");
@@ -89,7 +107,10 @@ export default function ManagerProjectDetail() {
                         <Download className="w-4 h-4" />
                         Xuất dữ liệu
                     </button>
-                    <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    <button
+                        onClick={() => navigate("/manager/projects", { state: { openAssignModal: true, projectId: id } })}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    >
                         <Plus className="w-4 h-4" />
                         Giao việc
                     </button>
@@ -154,17 +175,17 @@ export default function ManagerProjectDetail() {
             </div>
 
             <div className="bg-white rounded-xl p-5 shadow">
-                <h3 className="font-semibold mb-1">Hình ảnh ({project.totalImages || 0})</h3>
+                <h3 className="font-semibold mb-1">Hình ảnh ({project.totalImages || attachedImages.length || 0})</h3>
                 <p className="text-sm text-gray-500 mb-4">
                     Hình ảnh đang được xử lý trong dự án
                 </p>
 
-                {project.images && project.images.length > 0 ? (
+                {(project.images && project.images.length > 0) || attachedImages.length > 0 ? (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                        {project.images.map((img, idx) => (
+                        {(project.images || []).concat(attachedImages).map((img, idx) => (
                             <div key={img.id || idx} className="relative group">
                                 <img
-                                    src={img.url || "https://placehold.co/400x300?text=No+Image"}
+                                    src={img.storageUri || img.url || "https://placehold.co/400x300?text=No+Image"}
                                     alt=""
                                     className="w-full h-32 object-cover rounded-lg border"
                                 />
