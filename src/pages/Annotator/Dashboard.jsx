@@ -7,6 +7,7 @@ import { taskAPI } from '../../config/api';
 import {
   fetchAssignedTasksForUser,
   getCurrentUserId,
+  getCurrentUserIdentifiers,
   getLocalAssignedTasksForUser,
   normalizeTasks,
 } from '../../utils/annotatorTaskHelpers';
@@ -40,6 +41,7 @@ const AnnotatorDashboard = () => {
   useEffect(() => {
     const loadMyAssignedTasks = async () => {
       const currentUserId = getCurrentUserId();
+      const currentUserIdentifiers = getCurrentUserIdentifiers();
 
       try {
         setLoading(true);
@@ -54,7 +56,7 @@ const AnnotatorDashboard = () => {
         let assignedTasks = await fetchAssignedTasksForUser(taskAPI, currentUserId);
 
         if (assignedTasks.length === 0) {
-          const localAssignedTasks = getLocalAssignedTasksForUser(currentUserId);
+          const localAssignedTasks = getLocalAssignedTasksForUser(currentUserIdentifiers);
           if (localAssignedTasks.length > 0) {
             assignedTasks = normalizeTasks(localAssignedTasks, currentUserId);
           }
@@ -71,7 +73,7 @@ const AnnotatorDashboard = () => {
         } else {
           setError('Không thể tải danh sách task được assign.');
         }
-        const localAssignedTasks = getLocalAssignedTasksForUser(currentUserId);
+        const localAssignedTasks = getLocalAssignedTasksForUser(currentUserIdentifiers);
 
         if (Array.isArray(localAssignedTasks) && localAssignedTasks.length > 0) {
           const normalizedLocalTasks = normalizeTasks(localAssignedTasks, currentUserId);

@@ -18,7 +18,27 @@ export const getCurrentUser = () => {
 
 export const getCurrentUserId = () => {
   const currentUser = getCurrentUser();
-  return currentUser?.id ?? currentUser?._id ?? null;
+  return (
+    currentUser?.id ??
+    currentUser?._id ??
+    currentUser?.userId ??
+    currentUser?.username ??
+    currentUser?.email ??
+    null
+  );
+};
+
+export const getCurrentUserIdentifiers = () => {
+  const currentUser = getCurrentUser();
+  const candidates = [
+    currentUser?.id,
+    currentUser?._id,
+    currentUser?.userId,
+    currentUser?.username,
+    currentUser?.email,
+  ];
+
+  return [...new Set(candidates.filter(Boolean).map((value) => String(value)))];
 };
 
 export const getTaskAssigneeId = (task) => {
@@ -62,13 +82,31 @@ export const getAssignedTasksByUserMap = () => {
   return readJsonStorage('assignedTasksByUser', {});
 };
 
-export const getLocalAssignedTasksForUser = (userId) => {
-  if (!userId) {
+export const getLocalAssignedTasksForUser = (userIdOrIds) => {
+  if (!userIdOrIds) {
     return [];
   }
+
+  const userIds = Array.isArray(userIdOrIds)
+    ? userIdOrIds
+    : [userIdOrIds];
+
   const taskMap = getAssignedTasksByUserMap();
-  const tasks = taskMap[String(userId)] || [];
-  return Array.isArray(tasks) ? tasks : [];
+  const safeTasks = userIds.flatMap((userId) => {
+    const tasks = taskMap[String(userId)] || [];
+    return Array.isArray(tasks) ? tasks : [];
+  });
+  const taskById = {};
+
+  safeTasks.forEach((task) => {
+    const taskId = String(task?.id ?? task?._id ?? '');
+    if (!taskId) {
+      return;
+    }
+    taskById[taskId] = task;
+  });
+
+  return Object.values(taskById);
 };
 
 export const upsertLocalAssignedTask = (task, userId) => {

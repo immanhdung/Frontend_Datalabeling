@@ -49,6 +49,12 @@ export const taskAPI = {
   assign: (taskId, userId) =>
     trySequential([
       () => api.post(`/tasks/${taskId}/assign`, { userId }),
+      () => api.post(`/tasks/${taskId}/assign`, { annotatorId: userId }),
+      () => api.post(`/tasks/${taskId}/assign`, { assignedTo: userId }),
+      () => api.post(`/tasks/${taskId}/assign`, { assigned_to: userId }),
+      () => api.post(`/tasks/${taskId}/assign`, { assigneeId: userId }),
+      () => api.put(`/tasks/${taskId}/assign`, { userId }),
+      () => api.patch(`/tasks/${taskId}/assign`, { userId }),
       () => api.post(`/Tasks/${taskId}/assign`, { userId }),
       () => api.post(`/tasks/${taskId}/Assign`, { userId }),
     ]),

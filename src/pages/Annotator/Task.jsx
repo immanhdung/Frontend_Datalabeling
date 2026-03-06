@@ -5,6 +5,7 @@ import {
   fetchAssignedTasksForUser,
   getCurrentUser,
   getCurrentUserId,
+  getCurrentUserIdentifiers,
   getLocalAssignedTasksForUser,
   getTaskAssigneeId,
   normalizeTask,
@@ -102,10 +103,11 @@ const AnnotatorTask = () => {
 
       const currentUser = getCurrentUser();
       const currentUserId = getCurrentUserId();
+      const currentUserIdentifiers = getCurrentUserIdentifiers();
 
       const getLocalAssignedTaskById = () => {
-        if (!currentUserId) return null;
-        const myLocalTasks = getLocalAssignedTasksForUser(currentUserId);
+        if (!currentUserId && currentUserIdentifiers.length === 0) return null;
+        const myLocalTasks = getLocalAssignedTasksForUser(currentUserIdentifiers);
         const matchedTask = myLocalTasks.find(
           (taskItem) => String(taskItem.id ?? taskItem._id) === String(taskId)
         );
