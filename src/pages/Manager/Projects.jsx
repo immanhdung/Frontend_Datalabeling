@@ -26,6 +26,7 @@ export default function ManagerProjects() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
+  const [projectDatasets, setProjectDatasets] = useState({}); // { projectId: [dataset1, dataset2] }
 
   // Modal Thêm nhãn state
   const [showLabelModal, setShowLabelModal] = useState(false);
@@ -108,8 +109,22 @@ export default function ManagerProjects() {
         api.get("/categories").catch(() => ({ data: [] })),
       ]);
 
-      setProjects(Array.isArray(projRes.data?.items) ? projRes.data.items : []);
+      const projectList = Array.isArray(projRes.data?.items) ? projRes.data.items : [];
+      setProjects(projectList);
       setCategories(Array.isArray(catRes.data) ? catRes.data : []);
+
+      // Fetch datasets for each project
+      const dsMap = {};
+      await Promise.all(projectList.map(async (p) => {
+        const pid = p.id || p.projectId;
+        try {
+          const dsRes = await api.get(`/projects/${pid}/datasets`);
+          dsMap[pid] = dsRes.data || [];
+        } catch (e) {
+          console.warn(`Failed to fetch datasets for project ${pid}`, e);
+        }
+      }));
+      setProjectDatasets(dsMap);
     } catch (err) {
       console.error("Fetch projects error:", err);
       if (err.response?.status === 401) {
@@ -719,9 +734,17 @@ export default function ManagerProjects() {
 
               <p className="text-sm text-gray-500">{p.description || "Chưa có mô tả"}</p>
 
-              <div className="flex items-center gap-2 text-sm text-indigo-600">
-                <Tag className="w-4 h-4" />
-                {getCategoryName(p.categoryId)}
+              <div className="flex flex-col gap-1 text-sm pt-1">
+                <div className="flex items-center gap-2 text-indigo-600">
+                  <Tag className="w-4 h-4" />
+                  {getCategoryName(p.categoryId)}
+                </div>
+                {projectDatasets[id] && projectDatasets[id].length > 0 && (
+                  <div className="flex items-center gap-2 text-emerald-600">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span className="font-medium">Dataset: {projectDatasets[id].map(d => d.name).join(", ")}</span>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-between text-sm text-gray-600 pt-2 border-t">

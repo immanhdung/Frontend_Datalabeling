@@ -53,10 +53,20 @@ export default function Datasets() {
     const [uploadType, setUploadType] = useState("images"); // "images" or "zip"
     const fileInputRef = useRef(null);
 
+    // Quality Check State
+    const [qualityWarnings, setQualityWarnings] = useState([]);
+    const [showQualityModal, setShowQualityModal] = useState(false);
+
     // Edit State
     const [editName, setEditName] = useState("");
 
     const [openMenuId, setOpenMenuId] = useState(null);
+
+    // Edit Enhanced States
+    const [editImages, setEditImages] = useState([]);
+    const [editLabels, setEditLabels] = useState([]);
+    const [isUpdating, setIsUpdating] = useState(false);
+    const [editLabelInput, setEditLabelInput] = useState("");
 
     // ================= FETCH DATA =================
     const fetchData = async () => {
@@ -116,12 +126,48 @@ export default function Datasets() {
         }));
     };
 
-    const handleFileChange = (e) => {
+    const handleFileChange = async (e) => {
         const files = Array.from(e.target.files);
         if (uploadType === "zip") {
             setNewDataset(prev => ({ ...prev, zipFile: files[0] }));
         } else {
-            setNewDataset(prev => ({ ...prev, images: [...prev.images, ...files] }));
+            // Process images quality check
+            setLoading(true);
+            const checkResults = [];
+            for (const file of files) {
+                if (!file.type.startsWith('image/')) {
+                    checkResults.push({ file, isLow: false });
+                    continue;
+                }
+                const res = await new Promise((resolve) => {
+                    const img = new Image();
+                    const url = URL.createObjectURL(file);
+                    img.onload = () => {
+                        const isLow = img.width < 640 || img.height < 480;
+                        resolve({ file, isLow, width: img.width, height: img.height });
+                        URL.revokeObjectURL(url);
+                    };
+                    img.onerror = () => {
+                        URL.revokeObjectURL(url);
+                        resolve({ file, isLow: false });
+                    };
+                    img.src = url;
+                });
+                checkResults.push(res);
+            }
+            setLoading(false);
+
+            const lowQuality = checkResults.filter(r => r.isLow);
+            const goodQuality = checkResults.filter(r => !r.isLow).map(r => r.file);
+
+            if (lowQuality.length > 0) {
+                setQualityWarnings(prev => [...prev, ...lowQuality]);
+                setShowQualityModal(true);
+            }
+
+            if (goodQuality.length > 0) {
+                setNewDataset(prev => ({ ...prev, images: [...prev.images, ...goodQuality] }));
+            }
         }
     };
 
@@ -129,6 +175,7 @@ export default function Datasets() {
         setNewDataset({ name: "", zipFile: null, images: [], labels: [] });
         setLabelInput("");
         setUploadType("images");
+        setQualityWarnings([]);
     };
 
     const handleCreateDataset = async () => {
@@ -262,6 +309,103 @@ export default function Datasets() {
         }
     };
 
+    const handleOpenEditModal = async (ds) => {
+        const id = ds.id || ds.datasetId;
+        setSelectedDataset(ds);
+        setEditName(ds.name);
+        setShowEditModal(true);
+        setLoadingDetail(true);
+        try {
+            const [infoRes, itemsRes] = await Promise.all([
+                api.get(`/datasets/${id}`),
+                api.get(`/datasets/${id}/items`)
+            ]);
+            setSelectedDataset(infoRes.data);
+            setEditName(infoRes.data.name);
+            setEditImages(itemsRes.data?.items || itemsRes.data || []);
+
+            // Handle labels from infoRes
+            const labelsFound = infoRes.data.labels || infoRes.data.labelSet?.labels || [];
+            setEditLabels(labelsFound);
+        } catch (err) {
+            console.error("Fetch edit info error:", err);
+        } finally {
+            setLoadingDetail(false);
+        }
+    };
+
+    const handleDeleteImage = async (itemId) => {
+        if (!window.confirm("Xóa ảnh này khỏi dataset?")) return;
+        try {
+            await api.delete(`/datasets/items/${itemId}`);
+            setEditImages(prev => prev.filter(img => img.id !== itemId && img.itemId !== itemId));
+        } catch (err) {
+            console.error(err);
+            alert("Xóa ảnh thất bại");
+        }
+    };
+
+    const handleEditAddImage = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const dsId = selectedDataset.id || selectedDataset.datasetId;
+        try {
+            setIsUpdating(true);
+            const formData = new FormData();
+            formData.append("File", file);
+            formData.append("Name", file.name);
+            await api.post(`/datasets/${dsId}/items`, formData);
+            // Refresh images
+            const res = await api.get(`/datasets/${dsId}/items`);
+            setEditImages(res.data?.items || res.data || []);
+        } catch (err) {
+            console.error(err);
+            alert("Thêm ảnh thất bại");
+        } finally {
+            setIsUpdating(false);
+        }
+    };
+
+    const handleAddEditLabel = async () => {
+        if (!editLabelInput.trim()) return;
+        const color = PRESET_COLORS[editLabels.length % PRESET_COLORS.length];
+        const labelSetId = selectedDataset.labelSetId || selectedDataset.labelSet?.id;
+
+        if (!labelSetId) {
+            alert("Dataset này chưa có LabelSet để thêm nhãn trực tiếp.");
+            return;
+        }
+
+        try {
+            setIsUpdating(true);
+            await api.post(`/labelsets/${labelSetId}/labels`, {
+                name: editLabelInput.trim(),
+                color: color
+            });
+            setEditLabelInput("");
+            // Refresh dataset info for labels
+            const dsId = selectedDataset.id || selectedDataset.datasetId;
+            const res = await api.get(`/datasets/${dsId}`);
+            setEditLabels(res.data.labels || res.data.labelSet?.labels || []);
+        } catch (err) {
+            console.error(err);
+            alert("Thêm nhãn thất bại");
+        } finally {
+            setIsUpdating(false);
+        }
+    };
+
+    const handleDeleteLabel = async (labelId) => {
+        if (!window.confirm("Xóa nhãn này?")) return;
+        try {
+            await api.delete(`/labels/${labelId}`);
+            setEditLabels(prev => prev.filter(l => l.id !== labelId));
+        } catch (err) {
+            console.error(err);
+            alert("Xóa nhãn thất bại");
+        }
+    };
+
     // ================= RENDER =================
     const filteredDatasets = datasets.filter(d =>
         d.name?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -349,6 +493,17 @@ export default function Datasets() {
                                                 >
                                                     <Eye className="w-4 h-4" />
                                                     Xem chi tiết
+                                                </button>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleOpenEditModal(ds);
+                                                        setOpenMenuId(null);
+                                                    }}
+                                                    className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-amber-600 hover:bg-amber-50 transition-colors"
+                                                >
+                                                    <Edit2 className="w-4 h-4" />
+                                                    Chỉnh sửa
                                                 </button>
                                                 <button
                                                     onClick={(e) => {
@@ -563,25 +718,107 @@ export default function Datasets() {
             {/* EDIT MODAL */}
             {showEditModal && (
                 <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in duration-200">
+                    <div className="bg-white rounded-[32px] w-full max-w-4xl max-h-[90vh] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in duration-200">
                         <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                            <h2 className="text-xl font-bold text-gray-900">Chỉnh sửa Dataset</h2>
+                            <div>
+                                <h2 className="text-xl font-bold text-gray-900">Chỉnh sửa Dataset</h2>
+                                <p className="text-sm text-gray-500">{selectedDataset?.name}</p>
+                            </div>
                             <button onClick={() => setShowEditModal(false)} className="p-2 hover:bg-white rounded-full transition-all">
                                 <X className="w-5 h-5 text-gray-400" />
                             </button>
                         </div>
-                        <div className="p-8 space-y-4">
-                            <label className="text-sm font-bold text-gray-700 ml-1">Đổi tên Dataset</label>
-                            <input
-                                type="text"
-                                value={editName}
-                                onChange={(e) => setEditName(e.target.value)}
-                                className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 focus:bg-white transition-all text-lg font-bold"
-                            />
+
+                        <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+                            {/* General Info */}
+                            <div className="space-y-4">
+                                <label className="text-sm font-black uppercase tracking-widest text-gray-400">Tên Dataset</label>
+                                <input
+                                    type="text"
+                                    value={editName}
+                                    onChange={(e) => setEditName(e.target.value)}
+                                    className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 focus:bg-white transition-all text-lg font-bold"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                {/* Images Section */}
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-sm font-black uppercase tracking-widest text-gray-400">Hình ảnh ({editImages.length})</label>
+                                        <label className="cursor-pointer bg-indigo-50 text-indigo-600 px-3 py-1 rounded-lg text-xs font-bold hover:bg-indigo-100 transition-colors">
+                                            <Plus className="w-3 h-3 inline mr-1" /> Thêm ảnh
+                                            <input type="file" className="hidden" onChange={handleEditAddImage} accept="image/*" />
+                                        </label>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                                        {editImages.map((img, idx) => (
+                                            <div key={idx} className="aspect-square rounded-xl bg-gray-100 relative group overflow-hidden border">
+                                                <img src={img.storageUri || img.url} alt="" className="w-full h-full object-cover" />
+                                                <button
+                                                    onClick={() => handleDeleteImage(img.id || img.itemId)}
+                                                    className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                                                >
+                                                    <Trash2 className="w-3 h-3" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                        {loadingDetail && <div className="col-span-3 py-10 text-center text-gray-400">Đang tải ảnh...</div>}
+                                    </div>
+                                </div>
+
+                                {/* Labels Section */}
+                                <div className="space-y-4">
+                                    <label className="text-sm font-black uppercase tracking-widest text-gray-400">Nhãn dán ({editLabels.length})</label>
+
+                                    <div className="space-y-3">
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={editLabelInput}
+                                                onChange={(e) => setEditLabelInput(e.target.value)}
+                                                onKeyPress={(e) => e.key === 'Enter' && handleAddEditLabel()}
+                                                placeholder="Tên nhãn mới..."
+                                                className="flex-1 px-4 py-2 bg-gray-50 border rounded-xl text-sm"
+                                            />
+                                            <button
+                                                onClick={handleAddEditLabel}
+                                                className="bg-gray-900 text-white px-4 rounded-xl text-xs font-bold hover:bg-black transition-colors"
+                                            >
+                                                Thêm
+                                            </button>
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
+                                            {editLabels.map((label, idx) => (
+                                                <div key={idx} className="flex items-center gap-2 px-3 py-1.5 bg-white border rounded-full group">
+                                                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: label.color }} />
+                                                    <span className="text-xs font-bold text-gray-700">{label.name}</span>
+                                                    <button
+                                                        onClick={() => handleDeleteLabel(label.id)}
+                                                        className="p-0.5 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded-full"
+                                                    >
+                                                        <X className="w-3 h-3" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                            {editLabels.length === 0 && <p className="text-xs text-gray-400 italic">Chưa có nhãn</p>}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
+
                         <div className="p-6 border-t bg-gray-50/50 flex justify-end gap-3">
+                            {(isUpdating || loadingDetail) && <Loader2 className="w-5 h-5 animate-spin text-indigo-600 mr-auto ml-4" />}
                             <button onClick={() => setShowEditModal(false)} className="px-5 py-2.5 text-sm font-bold text-gray-500">Đóng</button>
-                            <button onClick={handleEditDataset} className="px-8 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100">Lưu thay đổi</button>
+                            <button
+                                onClick={handleEditDataset}
+                                className="px-8 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100"
+                            >
+                                Lưu thay đổi
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -710,7 +947,7 @@ export default function Datasets() {
                                         {detailItems.slice(0, 20).map((item, idx) => (
                                             <div key={idx} className="aspect-square bg-gray-100 rounded-2xl overflow-hidden border border-gray-100 relative group cursor-zoom-in">
                                                 <img
-                                                    src={item.url || item.thumbnailUrl}
+                                                    src={item.storageUri || item.url || item.thumbnailUrl}
                                                     alt="ds-item"
                                                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                                                 />
@@ -741,6 +978,99 @@ export default function Datasets() {
                     </div>
                 </div>
             )}
-        </div>
+
+            {/* QUALITY WARNING MODAL */}
+            {showQualityModal && (
+                <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md flex items-center justify-center z-[70] p-4 animate-in fade-in duration-300">
+                    <div className="bg-white rounded-[40px] w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col border-4 border-amber-100/50">
+                        <div className="p-8 border-b border-amber-50 flex justify-between items-center bg-amber-50/50">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 bg-amber-500 rounded-2xl text-white shadow-lg shadow-amber-200 animate-pulse">
+                                    <AlertCircle className="w-6 h-6" />
+                                </div>
+                                <div>
+                                    <h2 className="text-2xl font-black text-amber-900 leading-tight">Cảnh báo chất lượng</h2>
+                                    <p className="text-sm font-bold text-amber-600 mt-0.5">Một số ảnh có độ phân giải thấp (dưới 640x480)</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setShowQualityModal(false)}
+                                className="p-2 hover:bg-white rounded-full transition-all border border-transparent hover:border-amber-200"
+                            >
+                                <X className="w-6 h-6 text-amber-400" />
+                            </button>
+                        </div>
+
+                        <div className="p-8 overflow-y-auto space-y-4 max-h-[50vh] custom-scrollbar">
+                            <p className="text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Danh sách ảnh cần kiểm tra ({qualityWarnings.length})</p>
+                            {qualityWarnings.map((item, idx) => (
+                                <div key={idx} className="flex items-center justify-between p-5 bg-gray-50/50 rounded-3xl border border-gray-100 group hover:bg-white hover:shadow-xl hover:shadow-gray-100 transition-all duration-300">
+                                    <div className="flex items-center gap-5 min-w-0">
+                                        <div className="w-14 h-14 bg-amber-100 rounded-2xl flex items-center justify-center text-amber-600 shrink-0 group-hover:bg-amber-500 group-hover:text-white transition-colors duration-300">
+                                            <ImageIcon className="w-6 h-6" />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="font-bold text-gray-900 text-sm truncate max-w-[200px]">{item.file.name}</p>
+                                            <div className="flex items-center gap-2 mt-1">
+                                                <span className="px-2 py-0.5 bg-red-50 text-red-600 text-[10px] font-black rounded-lg border border-red-100">
+                                                    {item.width} x {item.height}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => {
+                                                setNewDataset(prev => ({ ...prev, images: [...prev.images, item.file] }));
+                                                const newWarnings = qualityWarnings.filter((_, i) => i !== idx);
+                                                setQualityWarnings(newWarnings);
+                                                if (newWarnings.length === 0) setShowQualityModal(false);
+                                            }}
+                                            className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                                        >
+                                            GIỮ LẠI
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                const newWarnings = qualityWarnings.filter((_, i) => i !== idx);
+                                                setQualityWarnings(newWarnings);
+                                                if (newWarnings.length === 0) setShowQualityModal(false);
+                                            }}
+                                            className="px-5 py-2.5 bg-white border-2 border-red-100 text-red-600 rounded-xl text-[11px] font-black hover:border-red-500 hover:text-red-700 transition-all"
+                                        >
+                                            XÓA BỎ
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="p-8 border-t bg-gray-50/50 flex justify-end gap-4">
+                            <button
+                                onClick={() => {
+                                    setQualityWarnings([]);
+                                    setShowQualityModal(false);
+                                }}
+                                className="px-6 py-3 text-sm font-black text-gray-400 hover:text-gray-600 transition-colors uppercase tracking-wider"
+                            >
+                                Xóa tất cả cảnh báo
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const allFiles = qualityWarnings.map(q => q.file);
+                                    setNewDataset(prev => ({ ...prev, images: [...prev.images, ...allFiles] }));
+                                    setQualityWarnings([]);
+                                    setShowQualityModal(false);
+                                }}
+                                className="px-10 py-4 bg-amber-500 text-white rounded-[20px] text-sm font-black hover:bg-amber-600 shadow-xl shadow-amber-100 transition-all active:scale-95"
+                            >
+                                GIỮ LẠI TẤT CẢ ({qualityWarnings.length})
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )
+            }
+        </div >
     );
 }

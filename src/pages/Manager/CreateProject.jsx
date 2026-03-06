@@ -7,6 +7,7 @@ import {
     Check,
     FileText,
     FolderOpen,
+    X,
 } from "lucide-react";
 
 export default function CreateProjectPage() {
@@ -22,6 +23,10 @@ export default function CreateProjectPage() {
     const [loadingCategories, setLoadingCategories] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState("");
+
+    // Labels State
+    const [projectLabels, setProjectLabels] = useState([]);
+    const [labelInput, setLabelInput] = useState("");
     const selectedCategory = useMemo(() => {
         return categories.find(
             (c) => String(c.categoryId || c.id) === String(selectedCategoryId)
@@ -66,11 +71,58 @@ export default function CreateProjectPage() {
                 name: projectName.trim(),
                 description: projectDescription.trim(),
                 categoryId: selectedCategoryId,
+                templateId: "e841b523-8215-4952-b3dc-8c9bc60f8a7d",
             };
 
-            console.log("CREATE PROJECT PAYLOAD:", payload);
+            const createRes = await api.post("/projects", payload);
+            const projectId = createRes.data?.id || createRes.data?.projectId;
 
-            await api.post("/projects", payload);
+            if (projectId) {
+                // 1. Check if a LabelSet already exists (created by template)
+                let labelSetId = null;
+                try {
+                    const lsRes = await api.get(`/projects/${projectId}/label-sets`);
+                    const labelSets = lsRes.data || [];
+                    labelSetId = labelSets[0]?.id || labelSets[0]?.labelSetId;
+                } catch (err) {
+                    console.log("No existing LabelSet found, will try to create one");
+                }
+
+                // 2. Create LabelSet if not found
+                if (!labelSetId) {
+                    try {
+                        const createLsRes = await api.post(`/projects/${projectId}/label-sets`, {
+                            name: `Default LabelSet for ${projectName}`,
+                            description: `Automatic label set for ${projectName}`,
+                            projectId: projectId
+                        });
+                        // Some APIs return the object on create
+                        labelSetId = createLsRes.data?.id || createLsRes.data?.labelSetId;
+
+                        // If still no ID, fetch again
+                        if (!labelSetId) {
+                            const refreshLs = await api.get(`/projects/${projectId}/label-sets`);
+                            const freshSets = refreshLs.data || [];
+                            labelSetId = freshSets[0]?.id || freshSets[0]?.labelSetId;
+                        }
+                    } catch (lsErr) {
+                        console.error("Failed to create labelSet:", lsErr.response?.data || lsErr);
+                    }
+                }
+
+                // 3. Add labels one by one if we have a labelSetId
+                if (labelSetId) {
+                    for (const labelName of projectLabels) {
+                        try {
+                            await api.post(`/labelsets/${labelSetId}/labels`, {
+                                name: labelName
+                            });
+                        } catch (labelErr) {
+                            console.error(`Failed to add label ${labelName}:`, labelErr.response?.data || labelErr);
+                        }
+                    }
+                }
+            }
 
             alert("Tạo dự án thành công!");
             navigate("/manager/projects");
@@ -78,7 +130,7 @@ export default function CreateProjectPage() {
             console.error(err.response?.data || err);
             setError(
                 err.response?.data?.message ||
-                "Tạo dự án thất bại (400 Bad Request)"
+                "Tạo dự án thất bại. Vui lòng kiểm tra lại thông tin."
             );
         } finally {
             setSubmitting(false);
@@ -88,7 +140,8 @@ export default function CreateProjectPage() {
     const steps = [
         { number: 1, title: "Thông tin", icon: FileText },
         { number: 2, title: "Category", icon: FolderOpen },
-        { number: 3, title: "Xác nhận", icon: Check },
+        { number: 3, title: "Nhãn dự án", icon: Check },
+        { number: 4, title: "Xác nhận", icon: Check },
     ];
 
     return (
@@ -214,12 +267,83 @@ export default function CreateProjectPage() {
                     </div>
                 )}
                 {step === 3 && (
+                    <div className="space-y-6">
+                        <div className="flex justify-between items-center">
+                            <h2 className="text-xl font-semibold">Thêm nhãn cho dự án</h2>
+                            <span className="text-sm text-gray-400">Đã thêm: {projectLabels.length}</span>
+                        </div>
+
+                        <div className="flex gap-2">
+                            <input
+                                className="flex-1 border rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+                                placeholder="Nhập tên nhãn (ví dụ: Chó, Mèo, Xe...)"
+                                value={labelInput}
+                                onChange={(e) => setLabelInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        if (labelInput.trim() && !projectLabels.includes(labelInput.trim())) {
+                                            setProjectLabels([...projectLabels, labelInput.trim()]);
+                                            setLabelInput("");
+                                        }
+                                    }
+                                }}
+                            />
+                            <button
+                                onClick={() => {
+                                    if (labelInput.trim() && !projectLabels.includes(labelInput.trim())) {
+                                        setProjectLabels([...projectLabels, labelInput.trim()]);
+                                        setLabelInput("");
+                                    }
+                                }}
+                                className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all"
+                            >
+                                Thêm
+                            </button>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 min-h-[100px] p-4 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                            {projectLabels.map((l, i) => (
+                                <div key={i} className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-1.5 rounded-full group hover:border-red-200 transition-all shadow-sm">
+                                    <span className="text-sm font-bold text-gray-700">{l}</span>
+                                    <button
+                                        onClick={() => setProjectLabels(projectLabels.filter(x => x !== l))}
+                                        className="text-gray-400 hover:text-red-500 transition-colors"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            ))}
+                            {projectLabels.length === 0 && (
+                                <div className="w-full flex flex-col items-center justify-center text-gray-400 py-4">
+                                    <p className="text-sm">Chưa có nhãn nào được thêm</p>
+                                    <p className="text-xs italic">Nhấn Enter hoặc bấm Thêm để lưu nhãn</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+                {step === 4 && (
                     <div className="space-y-4">
                         <h2 className="text-xl font-semibold">Xác nhận</h2>
-                        <div className="bg-gray-50 border rounded p-4 space-y-2">
-                            <p><b>Tên:</b> {projectName}</p>
-                            <p><b>Category:</b> {selectedCategory?.name}</p>
-                            <p><b>Mô tả:</b> {projectDescription}</p>
+                        <div className="bg-gray-50 border rounded-2xl p-6 space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <p className="text-xs font-black uppercase tracking-widest text-gray-400">Tên dự án</p>
+                                    <p className="font-bold text-gray-900">{projectName}</p>
+                                </div>
+                                <div>
+                                    <p className="text-xs font-black uppercase tracking-widest text-gray-400">Category</p>
+                                    <p className="font-bold text-gray-900">{selectedCategory?.name}</p>
+                                </div>
+                            </div>
+                            <div>
+                                <p className="text-xs font-black uppercase tracking-widest text-gray-400">Nhãn dán ({projectLabels.length})</p>
+                                <p className="text-sm font-medium text-gray-600 mt-1">{projectLabels.join(", ") || "Không có nhãn"}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs font-black uppercase tracking-widest text-gray-400">Mô tả</p>
+                                <p className="text-sm text-gray-600">{projectDescription}</p>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -234,7 +358,7 @@ export default function CreateProjectPage() {
                     Quay lại
                 </button>
 
-                {step < 3 ? (
+                {step < 4 ? (
                     <button
                         className="bg-indigo-600 text-white px-4 py-2 rounded disabled:opacity-50"
                         onClick={() => setStep(step + 1)}
