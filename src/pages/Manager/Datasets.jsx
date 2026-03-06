@@ -65,8 +65,8 @@ export default function Datasets() {
             setError(null);
 
             const [datasetRes, projRes] = await Promise.all([
-                api.get("/Datasets"),
-                api.get("/projects/mine"),
+                api.get("/datasets"),
+                api.get("/projects"),
             ]);
 
             const datasetList =
@@ -151,7 +151,7 @@ export default function Datasets() {
             setLoading(true);
 
             // 1. Create Dataset
-            const createRes = await api.post("/Datasets", {
+            const createRes = await api.post("/datasets", {
                 name: newDataset.name,
                 labels: newDataset.labels // Persist labels if backend supports it
             });
@@ -164,13 +164,13 @@ export default function Datasets() {
                 const formData = new FormData();
                 formData.append("File", newDataset.zipFile);
                 formData.append("Name", newDataset.zipFile.name);
-                await api.post(`/Datasets/${datasetId}/items`, formData);
+                await api.post(`/datasets/${datasetId}/items`, formData);
             } else {
                 for (const file of newDataset.images) {
                     const formData = new FormData();
                     formData.append("File", file);
                     formData.append("Name", file.name);
-                    await api.post(`/Datasets/${datasetId}/items`, formData);
+                    await api.post(`/datasets/${datasetId}/items`, formData);
                 }
             }
 
@@ -191,7 +191,7 @@ export default function Datasets() {
         try {
             setLoading(true);
             const id = selectedDataset.id || selectedDataset.datasetId;
-            await api.put(`/Datasets/${id}`, { name: editName });
+            await api.put(`/datasets/${id}`, { name: editName });
             alert("Cập nhật thành công!");
             setShowEditModal(false);
             fetchData();
@@ -209,7 +209,7 @@ export default function Datasets() {
         try {
             setLoading(true);
             // Standarizing to uppercase for this resource
-            await api.delete(`/Datasets/${id}`);
+            await api.delete(`/datasets/${id}`);
             setDatasets(prev => prev.filter(d => (d.id || d.datasetId) !== id));
             alert("Đã xóa dataset thành công!");
         } catch (err) {
@@ -229,7 +229,7 @@ export default function Datasets() {
         try {
             setLoading(true);
             const dsId = selectedDataset.id || selectedDataset.datasetId;
-            await api.post(`/Datasets/${dsId}/attach/${projectId}`, {});
+            await api.post(`/datasets/${dsId}/attach/${projectId}`, {});
             alert("Gán vào project thành công!");
             setShowAssignModal(false);
             fetchData();
@@ -248,8 +248,8 @@ export default function Datasets() {
         try {
             // Fetch fresh dataset info AND items
             const [infoRes, itemsRes] = await Promise.all([
-                api.get(`/Datasets/${id}`),
-                api.get(`/Datasets/${id}/items`)
+                api.get(`/datasets/${id}`),
+                api.get(`/datasets/${id}/items`)
             ]);
             setSelectedDataset(infoRes.data);
             setDetailItems(itemsRes.data?.items || itemsRes.data || []);

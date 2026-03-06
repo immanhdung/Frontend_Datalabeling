@@ -77,7 +77,7 @@ export default function ManagerProjects() {
       setError(null);
 
       const [projRes, catRes] = await Promise.all([
-        api.get("/projects/mine"),
+        api.get("/projects"),
         api.get("/categories").catch(() => ({ data: [] })),
       ]);
 
