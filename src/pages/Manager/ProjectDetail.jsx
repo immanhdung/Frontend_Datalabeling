@@ -89,7 +89,10 @@ export default function ManagerProjectDetail() {
                         <Download className="w-4 h-4" />
                         Xuất dữ liệu
                     </button>
-                    <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    <button
+                        onClick={() => navigate("/manager/projects", { state: { openAssignModal: true, projectId: id } })}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    >
                         <Plus className="w-4 h-4" />
                         Giao việc
                     </button>

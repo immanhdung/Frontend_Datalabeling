@@ -10,10 +10,15 @@ import {
   Eye,
   Trash2,
   X,
+  UserCheck,
+  CheckCircle2,
+  Loader2,
+  Calendar,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import api from "../../config/api";
 import { useAuth } from "../../context/AuthContext";
+
 
 export default function ManagerProjects() {
   const [projects, setProjects] = useState([]);
@@ -34,7 +39,16 @@ export default function ManagerProjects() {
   const [datasets, setDatasets] = useState([]);
   const [loadingDatasets, setLoadingDatasets] = useState(false);
 
+  // Modal Giao việc (Assign Work) state
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [allUsers, setAllUsers] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [selectedAnnotators, setSelectedAnnotators] = useState([]);
+  const [selectedReviewer, setSelectedReviewer] = useState("");
+  const [submittingAssign, setSubmittingAssign] = useState(false);
+
   const navigate = useNavigate();
+  const location = useLocation();
   const { logout } = useAuth();
 
   const handleAssignDataset = async (datasetId) => {
@@ -44,7 +58,7 @@ export default function ManagerProjects() {
       const projectId = selectedProject.id || selectedProject.projectId;
 
       // Using the working endpoint pattern from Datasets.jsx with empty body
-      await api.post(`/Datasets/${datasetId}/attach/${projectId}`, {});
+      await api.post(`/datasets/${datasetId}/attach/${projectId}`, {});
 
       alert(`Đã gán dataset cho dự án "${selectedProject.name}" thành công!`);
       setShowDatasetModal(false);
@@ -60,7 +74,7 @@ export default function ManagerProjects() {
   const fetchDatasets = async () => {
     try {
       setLoadingDatasets(true);
-      const res = await api.get("/Datasets");
+      const res = await api.get("/datasets");
       const items = res.data?.items || res.data || [];
       setDatasets(items);
     } catch (err) {
@@ -68,6 +82,19 @@ export default function ManagerProjects() {
       // Fallback or keep empty
     } finally {
       setLoadingDatasets(false);
+    }
+  };
+
+  const fetchUsers = async () => {
+    try {
+      setLoadingUsers(true);
+      const res = await api.get("/users");
+      const usersData = res.data.data || res.data || [];
+      setAllUsers(usersData);
+    } catch (err) {
+      console.error("Fetch users error:", err);
+    } finally {
+      setLoadingUsers(false);
     }
   };
 
@@ -142,8 +169,56 @@ export default function ManagerProjects() {
     }
   };
 
+  const handleAssignWork = async () => {
+    if (!selectedProject) return;
+    if (selectedAnnotators.length === 0) {
+      alert("Vui lòng chọn ít nhất một Annotator");
+      return;
+    }
+    if (!selectedReviewer) {
+      alert("Vui lòng chọn một Reviewer");
+      return;
+    }
+
+    try {
+      setSubmittingAssign(true);
+      const projectId = selectedProject.id || selectedProject.projectId;
+
+      const membersToAssign = [
+        ...selectedAnnotators.map(id => ({ userId: id, role: "Annotator" })),
+        { userId: selectedReviewer, role: "Reviewer" }
+      ];
+
+      for (const member of membersToAssign) {
+        await api.post(`/projects/${projectId}/members`, {
+          userId: member.userId,
+          roleName: member.role
+        }).catch(err => {
+          console.warn(`Failed to add member ${member.userId}:`, err.response?.data || err.message);
+        });
+      }
+
+      alert(`Đã giao việc cho dự án "${selectedProject.name}" thành công!`);
+      setShowAssignModal(false);
+      setSelectedAnnotators([]);
+      setSelectedReviewer("");
+      fetchProjects();
+    } catch (err) {
+      console.error("Assign work error:", err);
+      alert("Giao việc thất bại: " + (err.response?.data?.message || err.message));
+    } finally {
+      setSubmittingAssign(false);
+    }
+  };
+
   const toggleProjectSelection = (id) => {
     setSelectedProjectIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const toggleAnnotatorSelection = (id) => {
+    setSelectedAnnotators((prev) =>
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
     );
   };
@@ -170,11 +245,37 @@ export default function ManagerProjects() {
   useEffect(() => {
     fetchProjects();
     fetchDatasets();
+    fetchUsers();
 
     const handleClickOutside = () => setOpenMenuId(null);
     window.addEventListener("click", handleClickOutside);
     return () => window.removeEventListener("click", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (location.state?.openAssignModal && location.state?.projectId && projects.length > 0) {
+      const proj = projects.find(p => (p.id || p.projectId) === location.state.projectId);
+      if (proj) {
+        setSelectedProject(proj);
+        setShowAssignModal(true);
+        // Clear state to avoid reopening on refresh
+        window.history.replaceState({}, document.title);
+      }
+    }
+  }, [location.state, projects]);
+
+  const getCategoryName = (categoryId) => {
+    const cat = categories.find(c => (c.id || c.categoryId || c.category_id) === categoryId);
+    return cat?.name || "Chưa xác định";
+  };
+
+  const getRole = (user) => {
+    const roleValue = user.roleName || user.role || user.Role?.name || user.role?.name || "";
+    return typeof roleValue === 'string' ? roleValue.toLowerCase() : "";
+  };
+
+  const annotators = allUsers.filter(u => getRole(u) === "annotator");
+  const reviewers = allUsers.filter(u => getRole(u) === "reviewer");
 
   return (
     <div className="space-y-6">
@@ -379,6 +480,170 @@ export default function ManagerProjects() {
         </div>
       )}
 
+      {/* Modal Giao việc (Assign Work) */}
+      {showAssignModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col border border-gray-100">
+            <div className="p-8 border-b flex justify-between items-start bg-indigo-50/30">
+              <div>
+                <h2 className="text-2xl font-black text-gray-900 leading-tight">Giao việc cho dự án</h2>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-sm font-bold text-indigo-600 bg-white px-3 py-1 rounded-full border border-indigo-100">
+                    {selectedProject?.name}
+                  </span>
+                  <span className="text-xs font-black uppercase text-gray-400 tracking-widest">
+                    ID: {(selectedProject?.id || selectedProject?.projectId)?.substring(0, 8)}...
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAssignModal(false);
+                  setSelectedAnnotators([]);
+                  setSelectedReviewer("");
+                }}
+                className="p-2 hover:bg-white rounded-2xl transition-all border border-transparent hover:border-gray-200"
+              >
+                <X className="w-6 h-6 text-gray-400" />
+              </button>
+            </div>
+
+            <div className="p-8 space-y-8 overflow-y-auto max-h-[65vh] custom-scrollbar">
+              <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-white rounded-xl text-indigo-600 shadow-sm">
+                    <Tag className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-gray-400">Loại dự án</p>
+                    <p className="text-sm font-bold text-gray-800">{getCategoryName(selectedProject?.categoryId)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-white rounded-xl text-indigo-600 shadow-sm">
+                    <Image className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-gray-400">Quy mô</p>
+                    <p className="text-sm font-bold text-gray-800">{selectedProject?.imagesCount || 0} hình ảnh</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm font-black text-gray-700 uppercase tracking-widest flex items-center gap-2">
+                    <Users className="w-4 h-4 text-indigo-500" />
+                    Annotators ({selectedAnnotators.length})
+                  </label>
+                  <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-md uppercase">
+                    Chọn một hoặc nhiều
+                  </span>
+                </div>
+                {loadingUsers ? (
+                  <div className="flex justify-center py-6">
+                    <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+                  </div>
+                ) : annotators.length === 0 ? (
+                  <p className="text-sm text-gray-400 italic text-center py-4 bg-gray-50 rounded-xl">Không tìm thấy Annotator nào trong hệ thống</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {annotators.map((u) => {
+                      const userId = u.userId || u.id || u._id;
+                      const isSelected = selectedAnnotators.includes(userId);
+                      return (
+                        <div
+                          key={userId}
+                          onClick={() => toggleAnnotatorSelection(userId)}
+                          className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all cursor-pointer ${isSelected
+                            ? "border-indigo-500 bg-indigo-50/50 shadow-md translate-y-[-2px]"
+                            : "border-gray-100 hover:border-gray-300 hover:bg-gray-50"
+                            }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm ${isSelected ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-500"}`}>
+                              {(u.displayName || u.username || "U").charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-gray-900 truncate">{u.displayName || u.username}</p>
+                              <p className="text-[10px] text-gray-400 truncate">{u.email}</p>
+                            </div>
+                          </div>
+                          {isSelected && <CheckCircle2 className="w-5 h-5 text-indigo-600 shrink-0" />}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <label className="text-sm font-black text-gray-700 uppercase tracking-widest flex items-center gap-2">
+                  <UserCheck className="w-4 h-4 text-indigo-500" />
+                  Reviewer Phụ trách
+                </label>
+                {loadingUsers ? (
+                  <div className="flex justify-center py-6">
+                    <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+                  </div>
+                ) : reviewers.length === 0 ? (
+                  <p className="text-sm text-gray-400 italic text-center py-4 bg-gray-50 rounded-xl">Không tìm thấy Reviewer nào trong hệ thống</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {reviewers.map((u) => {
+                      const userId = u.userId || u.id || u._id;
+                      const isSelected = selectedReviewer === userId;
+                      return (
+                        <div
+                          key={userId}
+                          onClick={() => setSelectedReviewer(userId)}
+                          className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all cursor-pointer ${isSelected
+                            ? "border-indigo-500 bg-indigo-50/50 shadow-md translate-y-[-2px]"
+                            : "border-gray-100 hover:border-gray-300 hover:bg-gray-50"
+                            }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm ${isSelected ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-500"}`}>
+                              {(u.displayName || u.username || "U").charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-gray-900 truncate">{u.displayName || u.username}</p>
+                              <p className="text-[10px] text-gray-400 truncate">{u.email}</p>
+                            </div>
+                          </div>
+                          {isSelected && <CheckCircle2 className="w-5 h-5 text-indigo-600 shrink-0" />}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-8 border-t bg-gray-50 flex justify-end gap-4">
+              <button
+                onClick={() => {
+                  setShowAssignModal(false);
+                  setSelectedAnnotators([]);
+                  setSelectedReviewer("");
+                }}
+                className="px-6 py-3 text-sm font-bold text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                onClick={handleAssignWork}
+                disabled={submittingAssign || selectedAnnotators.length === 0 || !selectedReviewer}
+                className="px-10 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-black hover:bg-indigo-700 shadow-xl shadow-indigo-100 disabled:opacity-50 flex items-center gap-2 transition-all active:scale-95"
+              >
+                {submittingAssign ? <Loader2 className="w-5 h-5 animate-spin" /> : <UserCheck className="w-5 h-5" />}
+                {submittingAssign ? "Đang xử lý..." : "Xác nhận giao việc"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {!loading && !error && projects.length === 0 && (
         <p className="text-gray-500">Chưa có dự án nào</p>
       )}
@@ -429,6 +694,18 @@ export default function ManagerProjects() {
                         Gán Datasets
                       </button>
                       <button
+                        onClick={() => {
+                          setSelectedProject(p);
+                          setShowAssignModal(true);
+                          setOpenMenuId(null);
+                        }}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        <Users className="w-4 h-4 text-green-500" />
+                        Giao việc
+                      </button>
+                      <div className="h-px bg-gray-100 my-1" />
+                      <button
                         onClick={() => handleDelete(id)}
                         className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                       >
@@ -444,7 +721,7 @@ export default function ManagerProjects() {
 
               <div className="flex items-center gap-2 text-sm text-indigo-600">
                 <Tag className="w-4 h-4" />
-                {p.type || "Chưa xác định"}
+                {getCategoryName(p.categoryId)}
               </div>
 
               <div className="flex items-center justify-between text-sm text-gray-600 pt-2 border-t">
@@ -460,6 +737,7 @@ export default function ManagerProjects() {
 
               <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t">
                 <span>
+                  <Calendar className="w-3 h-3 inline mr-1" />
                   {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : ""}
                 </span>
                 <div className="flex items-center gap-1">
