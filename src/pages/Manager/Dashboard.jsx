@@ -1,250 +1,267 @@
-import { Link } from 'react-router-dom';
-import { useState, useEffect } from 'react';
-import { projectAPI, taskAPI, userAPI } from '../../config/api';
-import Header from '../../components/common/Header';
-import StatsCard from '../../components/common/StatsCard';
+import { useNavigate } from "react-router-dom";
+import {
+    LayoutDashboard,
+    Plus,
+    FolderOpen,
+    Clock,
+    CheckCircle2,
+    Users,
+    BarChart3,
+    ArrowRight,
+    MoreVertical,
+    Calendar,
+    Image as ImageIcon
+} from "lucide-react";
 
-const ManagerDashboard = () => {
-  const [stats, setStats] = useState({
-    totalProjects: 0,
-    totalTasks: 0,
-    completedTasks: 0,
-    pendingTasks: 0,
-    totalAnnotators: 0,
-    totalReviewers: 0,
-  });
-  const [loading, setLoading] = useState(true);
+export default function ManagerDashboard() {
+    const navigate = useNavigate();
+    const stats = [
+        {
+            label: "Tổng dự án",
+            value: 4,
+            icon: FolderOpen,
+            color: "text-blue-600",
+            bgColor: "bg-blue-50",
+            trend: "+2 tháng này"
+        },
+        {
+            label: "Đang hoạt động",
+            value: 2,
+            icon: Clock,
+            color: "text-amber-600",
+            bgColor: "bg-amber-50",
+            trend: "1 dự án ưu tiên"
+        },
+        {
+            label: "Hoàn thành",
+            value: 1,
+            icon: CheckCircle2,
+            color: "text-emerald-600",
+            bgColor: "bg-emerald-50",
+            trend: "98% độ chính xác"
+        },
+        {
+            label: "Annotators",
+            value: 3,
+            icon: Users,
+            color: "text-indigo-600",
+            bgColor: "bg-indigo-50",
+            trend: "2 người mới"
+        },
+    ];
 
-  useEffect(() => {
-    loadStats();
-  }, []);
+    const projects = [
+        {
+            name: "Phân loại chó mèo",
+            type: "Phân loại",
+            images: 5,
+            status: "Đang hoạt động",
+            statusType: "active",
+            updated: "2 giờ trước"
+        },
+        {
+            name: "Nhận dạng phương tiện",
+            type: "Đánh dấu",
+            images: 120,
+            status: "Đang hoạt động",
+            statusType: "active",
+            updated: "5 giờ trước"
+        },
+        {
+            name: "Cảm xúc khuôn mặt",
+            type: "Phân loại",
+            images: 450,
+            status: "Hoàn thành",
+            statusType: "completed",
+            updated: "Hôm qua"
+        },
+    ];
 
-  const loadStats = async () => {
-    try {
-      setLoading(true);
-      const [projectsRes, tasksRes, usersRes] = await Promise.all([
-        projectAPI.getAll(),
-        taskAPI.getAll(),
-        userAPI.getAll(),
-      ]);
+    const progress = [
+        {
+            name: "Phân loại chó mèo",
+            done: 2,
+            total: 5,
+            percent: 40,
+            status: "Đang thực hiện",
+            color: "bg-blue-500"
+        },
+        {
+            name: "Nhận dạng phương tiện",
+            done: 0,
+            total: 3,
+            percent: 0,
+            status: "Chờ xử lý",
+            color: "bg-slate-300"
+        },
+        {
+            name: "Dữ liệu y tế X-Ray",
+            done: 3,
+            total: 3,
+            percent: 100,
+            status: "Đã xong",
+            color: "bg-emerald-500"
+        },
+    ];
 
-      const projects = projectsRes.data.data || projectsRes.data || [];
-      const tasks = tasksRes.data.data || tasksRes.data || [];
-      const users = usersRes.data.data || usersRes.data || [];
-
-      setStats({
-        totalProjects: projects.length,
-        totalTasks: tasks.length,
-        completedTasks: tasks.filter(t => t.status === 'completed').length,
-        pendingTasks: tasks.filter(t => t.status === 'pending').length,
-        totalAnnotators: users.filter(u => u.role === 'annotator').length,
-        totalReviewers: users.filter(u => u.role === 'reviewer').length,
-      });
-    } catch (error) {
-      console.error('Error loading stats:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const quickActions = [
-    {
-      title: 'Assign Tasks',
-      description: 'Chia task cho annotators và reviewers',
-      icon: (
-        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-        </svg>
-      ),
-      link: '/manager/assign-tasks',
-      color: 'purple',
-      badge: stats.pendingTasks || null,
-    },
-    {
-      title: 'Projects',
-      description: 'Quản lý tất cả các projects',
-      icon: (
-        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-        </svg>
-      ),
-      link: '/manager/projects',
-      color: 'blue',
-      badge: stats.totalProjects || null,
-    },
-    {
-      title: 'Datasets',
-      description: 'Quản lý datasets và data sources',
-      icon: (
-        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
-        </svg>
-      ),
-      link: '/manager/datasets',
-      color: 'green',
-      badge: null,
-    },
-    {
-      title: 'Create Project',
-      description: 'Tạo project mới',
-      icon: (
-        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-        </svg>
-      ),
-      link: '/manager/create-project',
-      color: 'indigo',
-      badge: null,
-    },
-  ];
-
-  const getColorClasses = (color) => {
-    const colors = {
-      purple: 'from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700',
-      blue: 'from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700',
-      green: 'from-green-500 to-green-600 hover:from-green-600 hover:to-green-700',
-      indigo: 'from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700',
-    };
-    return colors[color] || colors.purple;
-  };
-
-  if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <Header title="Manager Dashboard" role="Manager" />
-        <div className="flex items-center justify-center h-96">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+        <div className="min-h-screen bg-[#fcfdfe] p-4 md:p-10 font-sans text-slate-900">
+            <div className="max-w-7xl mx-auto space-y-10">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                    <div>
+                        <h1 className="text-4xl font-display font-extrabold tracking-tight">
+                            Quản lý Dự án
+                        </h1>
+                        <p className="text-slate-500 text-lg font-medium mt-2">
+                            Giám sát tiến độ và điều phối annotators hiệu quả.
+                        </p>
+                    </div>
+
+                    <button
+                        onClick={() => navigate("/manager/projects/create")}
+                        className="inline-flex items-center gap-3 px-8 py-4 bg-blue-600 text-white text-lg rounded-[20px] font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 hover:-translate-y-0.5 transition-all duration-300"
+                    >
+                        <Plus className="w-6 h-6" />
+                        Tạo dự án mới
+                    </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                    {stats.map((s, i) => (
+                        <div key={i} className="bg-white p-8 rounded-[28px] border border-slate-100 shadow-premium hover:shadow-premium-hover transition-all duration-300 group">
+                            <div className="flex justify-between items-start mb-5">
+                                <div className={`p-4 rounded-2xl ${s.bgColor} ${s.color} group-hover:scale-110 transition-transform`}>
+                                    <s.icon className="w-8 h-8" />
+                                </div>
+                            </div>
+                            <div>
+                                <h3 className="text-3xl font-display font-extrabold mt-1">{s.value}</h3>
+                                <p className="text-slate-600 text-base font-bold uppercase tracking-wide mt-1">{s.label}</p>
+                                <p className="text-sm text-slate-400 font-medium mt-3 flex items-center gap-2">
+                                    <TrendingUp className="w-4 h-4" />
+                                    {s.trend}
+                                </p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+                    <div className="lg:col-span-2 space-y-8">
+                        <div className="bg-white rounded-[32px] border border-slate-100 shadow-premium p-10">
+                            <div className="flex items-center justify-between mb-10">
+                                <div>
+                                    <h2 className="text-2xl font-display font-extrabold">Dự án gần đây</h2>
+                                    <p className="text-base text-slate-500 font-medium mt-1">Danh sách các dự án đang quản lý</p>
+                                </div>
+                                <button className="p-3 text-slate-400 hover:text-slate-900 transition-colors">
+                                    <MoreVertical className="w-6 h-6" />
+                                </button>
+                            </div>
+
+                            <div className="space-y-6">
+                                {projects.map((p, i) => (
+                                    <div key={i} className="group flex items-center justify-between p-6 border border-slate-50 rounded-[24px] hover:border-blue-100 hover:bg-blue-50/10 transition-all duration-300 cursor-pointer">
+                                        <div className="flex items-center gap-6">
+                                            <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center group-hover:bg-blue-100 transition-colors">
+                                                <ImageIcon className="w-7 h-7 text-slate-400 group-hover:text-blue-600" />
+                                            </div>
+                                            <div>
+                                                <h4 className="text-xl font-bold group-hover:text-blue-700 transition-colors">{p.name}</h4>
+                                                <div className="flex items-center gap-4 text-sm text-slate-500 font-medium mt-1.5">
+                                                    <span className="flex items-center gap-1.5"><BarChart3 className="w-4 h-4" />{p.type}</span>
+                                                    <span>•</span>
+                                                    <span>{p.images} ảnh</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-8">
+                                            <div className="hidden md:block text-right">
+                                                <span className={`text-xs font-extrabold px-4 py-1.5 rounded-full uppercase tracking-wider ${p.statusType === 'active' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
+                                                    }`}>
+                                                    {p.status}
+                                                </span>
+                                                <p className="text-xs text-slate-400 font-bold mt-2 uppercase flex items-center justify-end gap-1.5">
+                                                    <Clock className="w-4 h-4" />
+                                                    {p.updated}
+                                                </p>
+                                            </div>
+                                            <div className="p-3 rounded-2xl bg-slate-50 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-sm">
+                                                <ArrowRight className="w-6 h-6" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <button className="w-full mt-10 py-4.5 bg-slate-50 text-slate-600 rounded-2xl font-bold text-base hover:bg-blue-50 hover:text-blue-700 transition-all border border-transparent hover:border-blue-100">
+                                Xem tất cả dự án
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="space-y-10">
+                        <div className="bg-white rounded-[32px] border border-slate-100 shadow-premium p-10">
+                            <div className="flex items-center justify-between mb-10">
+                                <h2 className="text-2xl font-display font-extrabold">Tiến độ gán nhãn</h2>
+                                <BarChart3 className="w-6 h-6 text-blue-600" />
+                            </div>
+
+                            <div className="space-y-10">
+                                {progress.map((p, i) => (
+                                    <div key={i} className="space-y-4">
+                                        <div className="flex justify-between items-start">
+                                            <div className="max-w-[180px]">
+                                                <p className="text-lg font-bold text-slate-800 leading-tight truncate">{p.name}</p>
+                                                <p className="text-sm text-slate-500 font-medium mt-1.5">{p.done}/{p.total} hoàn thành</p>
+                                            </div>
+                                            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{p.status}</span>
+                                        </div>
+                                        <div className="relative h-3 w-full bg-slate-100 rounded-full overflow-hidden">
+                                            <div
+                                                className={`absolute left-0 top-0 h-full transition-all duration-1000 ease-out rounded-full ${p.color}`}
+                                                style={{ width: `${p.percent}%` }}
+                                            />
+                                        </div>
+                                        <div className="flex justify-between items-center text-xs">
+                                            <span className="font-bold text-slate-500 uppercase tracking-wider">{p.percent}% HOÀN TẤT</span>
+                                            {p.percent < 100 && <span className="text-blue-600 font-extrabold text-sm cursor-pointer hover:underline uppercase">Hối thúc →</span>}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[32px] p-10 text-white shadow-lg shadow-blue-200 relative overflow-hidden group">
+                            <div className="absolute -right-8 -top-8 w-40 h-40 bg-white/10 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-700" />
+                            <div className="relative border-b border-white/20 pb-6 mb-6">
+                                <Calendar className="w-8 h-8 mb-4" />
+                                <h3 className="text-2xl font-display font-extrabold">Báo cáo hàng tuần</h3>
+                                <p className="text-blue-100 text-base font-medium mt-2 underline decoration-blue-300 underline-offset-4 cursor-pointer">Sẵn sàng để xem</p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-6">
+                                <div>
+                                    <p className="text-sm text-blue-100 font-bold uppercase tracking-wider">Hôm nay</p>
+                                    <p className="text-3xl font-display font-bold">+24 nhãn</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-sm text-blue-100 font-bold uppercase tracking-wider">Hiệu suất</p>
+                                    <p className="text-3xl font-display font-bold">96.4%</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
-      </div>
     );
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <Header title="Manager Dashboard" role="Manager" />
-      
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Welcome Section */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Chào mừng, Manager! 👋
-          </h1>
-          <p className="text-gray-600">
-            Quản lý projects, tasks và team của bạn
-          </p>
-        </div>
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-          <StatsCard
-            title="Total Projects"
-            value={stats.totalProjects}
-            icon="📁"
-            color="blue"
-          />
-          <StatsCard
-            title="Total Tasks"
-            value={stats.totalTasks}
-            icon="📋"
-            color="purple"
-          />
-          <StatsCard
-            title="Completed Tasks"
-            value={stats.completedTasks}
-            icon="✅"
-            color="green"
-          />
-          <StatsCard
-            title="Pending Tasks"
-            value={stats.pendingTasks}
-            icon="⏳"
-            color="yellow"
-          />
-          <StatsCard
-            title="Annotators"
-            value={stats.totalAnnotators}
-            icon="👥"
-            color="green"
-          />
-          <StatsCard
-            title="Reviewers"
-            value={stats.totalReviewers}
-            icon="🔍"
-            color="blue"
-          />
-        </div>
-
-        {/* Quick Actions */}
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">Quick Actions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {quickActions.map((action, index) => (
-              <Link
-                key={index}
-                to={action.link}
-                className={`relative bg-gradient-to-br ${getColorClasses(action.color)} rounded-xl shadow-lg p-6 text-white hover:shadow-2xl transform hover:scale-105 transition-all duration-200`}
-              >
-                {action.badge && (
-                  <div className="absolute top-4 right-4 bg-white text-gray-900 rounded-full w-8 h-8 flex items-center justify-center font-bold text-sm shadow-lg">
-                    {action.badge}
-                  </div>
-                )}
-                <div className="mb-4">
-                  {action.icon}
-                </div>
-                <h3 className="text-xl font-bold mb-2">{action.title}</h3>
-                <p className="text-white/90 text-sm">{action.description}</p>
-                <div className="mt-4 flex items-center text-sm font-semibold">
-                  Đi đến →
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-
-        {/* Recent Activity / Info */}
-        <div className="bg-white rounded-lg shadow-lg p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">📊 Tổng quan</h2>
-          <div className="space-y-3 text-gray-600">
-            <div className="flex items-center justify-between p-3 bg-gray-50 rounded">
-              <span>Tỷ lệ hoàn thành tasks</span>
-              <span className="font-bold text-green-600">
-                {stats.totalTasks > 0 
-                  ? Math.round((stats.completedTasks / stats.totalTasks) * 100) 
-                  : 0}%
-              </span>
-            </div>
-            <div className="flex items-center justify-between p-3 bg-gray-50 rounded">
-              <span>Tasks đang chờ</span>
-              <span className="font-bold text-yellow-600">{stats.pendingTasks}</span>
-            </div>
-            <div className="flex items-center justify-between p-3 bg-gray-50 rounded">
-              <span>Tổng số team members</span>
-              <span className="font-bold text-purple-600">
-                {stats.totalAnnotators + stats.totalReviewers}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Tips */}
-        <div className="mt-8 bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <p className="text-sm text-blue-700">
-                <strong>💡 Tip:</strong> Sử dụng trang "Assign Tasks" để nhanh chóng phân công công việc cho team members của bạn.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default ManagerDashboard;
+}
+function TrendingUp({ className }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+            <polyline points="17 6 23 6 23 12"></polyline>
+        </svg>
+    );
+}

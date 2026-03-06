@@ -1,187 +1,237 @@
-import React, { useState, useEffect } from 'react';
-import Header from '../../components/common/Header';
-import { Search, Filter, UserPlus, Edit2, Trash2, X, ChevronUp, ChevronDown } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import Header from "../../components/common/Header";
+import api from "../../config/api";
+import {
+  Search,
+  Edit2,
+  Trash2,
+  Plus,
+  X,
+  ChevronUp,
+  ChevronDown,
+} from "lucide-react";
 
 const Users = () => {
   const [users, setUsers] = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterRole, setFilterRole] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [sortField, setSortField] = useState('name');
-  const [sortOrder, setSortOrder] = useState('asc');
+
+  const [roles, setRoles] = useState([]);
+
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterRole, setFilterRole] = useState("all");
+
+  const [sortField, setSortField] = useState("username");
+  const [sortOrder, setSortOrder] = useState("asc");
+
   const [showModal, setShowModal] = useState(false);
-  const [modalMode, setModalMode] = useState('add'); // 'add' or 'edit'
+  const [modalMode, setModalMode] = useState("add");
   const [currentUser, setCurrentUser] = useState(null);
+
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
 
-  // Form state
   const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    role: 'annotator',
-    status: 'active',
-    phone: '',
-    department: ''
+    username: "",
+    password: "",
+    displayName: "",
+    email: "",
+    phoneNumber: "",
+    roleName: "annotator",
   });
 
-  // Mock data - thay thế bằng API call thực tế
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const fetchUsers = async () => {
+    try {
+      setLoading(true);
+      const res = await api.get("/users");
+      setUsers(res.data.data || res.data);
+    } catch (err) {
+      console.error("Fetch users error:", err);
+      setError("Không thể tải danh sách người dùng");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchRoles = async () => {
+    try {
+      const res = await api.get("/roles");
+      setRoles(res.data.data || res.data);
+    } catch (err) {
+      console.error("Fetch roles error:", err);
+    }
+  };
+
   useEffect(() => {
-    const mockUsers = [
-      { id: 1, name: 'Nguyễn Văn A', email: 'nguyenvana@example.com', role: 'admin', status: 'active', phone: '0901234567', department: 'IT', createdAt: '2024-01-15' },
-      { id: 2, name: 'Trần Thị B', email: 'tranthib@example.com', role: 'manager', status: 'active', phone: '0912345678', department: 'Operations', createdAt: '2024-01-20' },
-      { id: 3, name: 'Lê Văn C', email: 'levanc@example.com', role: 'reviewer', status: 'active', phone: '0923456789', department: 'Quality', createdAt: '2024-02-01' },
-      { id: 4, name: 'Phạm Thị D', email: 'phamthid@example.com', role: 'annotator', status: 'active', phone: '0934567890', department: 'Operations', createdAt: '2024-02-05' },
-      { id: 5, name: 'Hoàng Văn E', email: 'hoangvane@example.com', role: 'annotator', status: 'inactive', phone: '0945678901', department: 'Operations', createdAt: '2024-01-10' },
-      { id: 6, name: 'Đỗ Thị F', email: 'dothif@example.com', role: 'reviewer', status: 'active', phone: '0956789012', department: 'Quality', createdAt: '2024-01-25' },
-      { id: 7, name: 'Vũ Văn G', email: 'vuvang@example.com', role: 'annotator', status: 'active', phone: '0967890123', department: 'Operations', createdAt: '2024-02-10' },
-      { id: 8, name: 'Bùi Thị H', email: 'buithih@example.com', role: 'manager', status: 'inactive', phone: '0978901234', department: 'IT', createdAt: '2024-01-05' },
-    ];
-    setUsers(mockUsers);
+    fetchUsers();
+    fetchRoles();
   }, []);
 
-  // Filter and search
   useEffect(() => {
     let result = [...users];
 
-    // Search
     if (searchTerm) {
-      result = result.filter(user =>
-        user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.department.toLowerCase().includes(searchTerm.toLowerCase())
+      result = result.filter(
+        (u) =>
+          u.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          u.displayName?.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
-    // Filter by role
-    if (filterRole !== 'all') {
-      result = result.filter(user => user.role === filterRole);
+    if (filterRole !== "all") {
+      result = result.filter(
+        (u) => u.roleName?.toLowerCase() === filterRole.toLowerCase()
+      );
     }
 
-    // Filter by status
-    if (filterStatus !== 'all') {
-      result = result.filter(user => user.status === filterStatus);
-    }
-
-    // Sort
     result.sort((a, b) => {
-      let aValue = a[sortField];
-      let bValue = b[sortField];
+      let aVal = a[sortField] || "";
+      let bVal = b[sortField] || "";
 
-      if (typeof aValue === 'string') {
-        aValue = aValue.toLowerCase();
-        bValue = bValue.toLowerCase();
+      if (typeof aVal === "string") {
+        aVal = aVal.toLowerCase();
+        bVal = bVal.toLowerCase();
       }
 
-      if (sortOrder === 'asc') {
-        return aValue > bValue ? 1 : -1;
-      } else {
-        return aValue < bValue ? 1 : -1;
-      }
+      return sortOrder === "asc"
+        ? aVal > bVal
+          ? 1
+          : -1
+        : aVal < bVal
+          ? 1
+          : -1;
     });
 
     setFilteredUsers(result);
-  }, [users, searchTerm, filterRole, filterStatus, sortField, sortOrder]);
+  }, [users, searchTerm, filterRole, sortField, sortOrder]);
 
   const handleSort = (field) => {
     if (sortField === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
     } else {
       setSortField(field);
-      setSortOrder('asc');
+      setSortOrder("asc");
     }
   };
 
   const openAddModal = () => {
-    setModalMode('add');
+    setModalMode("add");
     setFormData({
-      name: '',
-      email: '',
-      role: 'annotator',
-      status: 'active',
-      phone: '',
-      department: ''
+      username: "",
+      password: "",
+      displayName: "",
+      email: "",
+      phoneNumber: "",
+      roleName: "annotator",
     });
+    setError("");
     setShowModal(true);
   };
 
   const openEditModal = (user) => {
-    setModalMode('edit');
+    setModalMode("edit");
     setCurrentUser(user);
     setFormData({
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      status: user.status,
-      phone: user.phone,
-      department: user.department
+      username: user.username || "",
+      password: "",
+      displayName: user.displayName || "",
+      email: user.email || "",
+      phoneNumber: user.phoneNumber || "",
+      roleName: user.roleName || "annotator",
     });
+    setError("");
     setShowModal(true);
   };
-
-  const closeModal = () => {
-    setShowModal(false);
-    setCurrentUser(null);
+  const getRoleIdByName = (roleName) => {
+    const role = roles.find(
+      (r) => r.roleName?.toLowerCase() === roleName.toLowerCase()
+    );
+    return role?.id || role?.roleId;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (modalMode === 'add') {
-      const newUser = {
-        id: users.length + 1,
-        ...formData,
-        createdAt: new Date().toISOString().split('T')[0]
+    setError("");
+
+    try {
+      const roleId = getRoleIdByName(formData.roleName);
+
+      if (!roleId) {
+        setError("Không tìm thấy role phù hợp. Vui lòng kiểm tra lại roles!");
+        return;
+      }
+
+      const payload = {
+        username: formData.username,
+        displayName: formData.displayName,
+        email: formData.email,
+        phoneNumber: formData.phoneNumber,
+        roleId: roleId,
       };
-      setUsers([...users, newUser]);
-    } else {
-      setUsers(users.map(user =>
-        user.id === currentUser.id ? { ...user, ...formData } : user
-      ));
+
+      if (modalMode === "add") {
+        payload.password = formData.password;
+        await api.post("/users", payload);
+      } else {
+        if (formData.password) {
+          payload.password = formData.password;
+        }
+        await api.put(`/users/${currentUser.userId || currentUser.id || currentUser._id}`, payload);
+      }
+
+      await fetchUsers();
+      setShowModal(false);
+      alert(
+        modalMode === "add"
+          ? "Thêm người dùng thành công!"
+          : "Cập nhật thành công!"
+      );
+    } catch (err) {
+      console.error("Save user error:", err);
+      setError(err.response?.data?.message || "Có lỗi xảy ra khi lưu người dùng");
     }
-    
-    closeModal();
   };
 
-  const handleDeleteClick = (user) => {
-    setUserToDelete(user);
-    setShowDeleteConfirm(true);
-  };
-
-  const confirmDelete = () => {
-    setUsers(users.filter(user => user.id !== userToDelete.id));
-    setShowDeleteConfirm(false);
-    setUserToDelete(null);
+  const confirmDelete = async () => {
+    try {
+      await api.delete(`/users/${userToDelete.userId || userToDelete.id || userToDelete._id}`);
+      await fetchUsers();
+      alert("Đã xóa người dùng!");
+    } catch (err) {
+      console.error("Delete user error:", err);
+      alert("Xóa thất bại!");
+    } finally {
+      setShowDeleteConfirm(false);
+      setUserToDelete(null);
+    }
   };
 
   const getRoleBadgeColor = (role) => {
-    const colors = {
-      admin: 'bg-red-100 text-red-800',
-      manager: 'bg-purple-100 text-purple-800',
-      reviewer: 'bg-blue-100 text-blue-800',
-      annotator: 'bg-green-100 text-green-800'
-    };
-    return colors[role] || 'bg-gray-100 text-gray-800';
+    const r = role?.toLowerCase();
+    return (
+      {
+        admin: "bg-rose-100 text-rose-700 border-rose-200",
+        manager: "bg-purple-100 text-purple-700 border-purple-200",
+        reviewer: "bg-blue-100 text-blue-700 border-blue-200",
+        annotator: "bg-emerald-100 text-emerald-700 border-emerald-200",
+      }[r] || "bg-gray-100 text-gray-700 border-gray-200"
+    );
   };
 
-  const getRoleLabel = (role) => {
-    const labels = {
-      admin: 'Quản trị viên',
-      manager: 'Quản lý',
-      reviewer: 'Kiểm duyệt viên',
-      annotator: 'Gán nhãn viên'
-    };
-    return labels[role] || role;
-  };
-
-  const SortIcon = ({ field }) => {
-    if (sortField !== field) return null;
-    return sortOrder === 'asc' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />;
-  };
+  const SortIcon = ({ field }) =>
+    sortField === field ? (
+      sortOrder === "asc" ? (
+        <ChevronUp className="w-4 h-4" />
+      ) : (
+        <ChevronDown className="w-4 h-4" />
+      )
+    ) : null;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-[#F8FAFC]">
       <Header
         title="Quản lý người dùng"
         userName="Admin"
@@ -189,194 +239,103 @@ const Users = () => {
         actionButton={
           <button
             onClick={openAddModal}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all shadow-lg shadow-indigo-200 active:scale-95 text-sm font-bold"
           >
-            <UserPlus className="w-4 h-4" />
+            <Plus className="w-4 h-4" />
             Thêm người dùng
           </button>
         }
       />
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Filters and Search */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {/* Search */}
-            <div className="md:col-span-2">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <input
-                  type="text"
-                  placeholder="Tìm kiếm theo tên, email, phòng ban..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-
-            {/* Role Filter */}
-            <div>
-              <select
-                value={filterRole}
-                onChange={(e) => setFilterRole(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="all">Tất cả vai trò</option>
-                <option value="admin">Quản trị viên</option>
-                <option value="manager">Quản lý</option>
-                <option value="reviewer">Kiểm duyệt viên</option>
-                <option value="annotator">Gán nhãn viên</option>
-              </select>
-            </div>
-
-            {/* Status Filter */}
-            <div>
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="all">Tất cả trạng thái</option>
-                <option value="active">Đang hoạt động</option>
-                <option value="inactive">Không hoạt động</option>
-              </select>
-            </div>
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        <div className="bg-white p-6 rounded-[24px] shadow-sm border border-slate-100 mb-8 flex flex-col md:flex-row gap-6">
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <input
+              className="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 transition-all text-slate-700 text-sm"
+              placeholder="Tìm theo tên, username hoặc email..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
 
-          {/* Stats */}
-          <div className="mt-4 flex items-center justify-between text-sm text-gray-600">
-            <div>
-              Hiển thị <span className="font-semibold text-gray-900">{filteredUsers.length}</span> / <span className="font-semibold text-gray-900">{users.length}</span> người dùng
-            </div>
-          </div>
+          <select
+            value={filterRole}
+            onChange={(e) => setFilterRole(e.target.value)}
+            className="bg-slate-50 border-none rounded-2xl px-4 py-3 text-slate-700 focus:ring-2 focus:ring-indigo-500 text-sm font-medium min-w-[200px]"
+          >
+            <option value="all">Tất cả vai trò</option>
+            <option value="admin">Admin</option>
+            <option value="manager">Manager</option>
+            <option value="reviewer">Reviewer</option>
+            <option value="annotator">Annotator</option>
+          </select>
         </div>
 
-        {/* Users Table */}
-        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+        {/* TABLE */}
+        <div className="bg-white rounded-[24px] shadow-sm border border-slate-100 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th
-                    onClick={() => handleSort('name')}
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  >
-                    <div className="flex items-center gap-2">
-                      Tên
-                      <SortIcon field="name" />
-                    </div>
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-slate-50/50 border-b border-slate-100">
+                  <th onClick={() => handleSort("username")} className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-400 cursor-pointer hover:text-indigo-600 transition-colors">
+                    <div className="flex items-center gap-2">Tên đăng nhập <SortIcon field="username" /></div>
                   </th>
-                  <th
-                    onClick={() => handleSort('email')}
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  >
-                    <div className="flex items-center gap-2">
-                      Email
-                      <SortIcon field="email" />
-                    </div>
+                  <th onClick={() => handleSort("displayName")} className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-400 cursor-pointer hover:text-indigo-600 transition-colors">
+                    <div className="flex items-center gap-2">Họ tên <SortIcon field="displayName" /></div>
                   </th>
-                  <th
-                    onClick={() => handleSort('role')}
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  >
-                    <div className="flex items-center gap-2">
-                      Vai trò
-                      <SortIcon field="role" />
-                    </div>
+                  <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-400">Liên hệ</th>
+                  <th onClick={() => handleSort("roleName")} className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-400 cursor-pointer hover:text-indigo-600 transition-colors">
+                    <div className="flex items-center gap-2">Vai trò <SortIcon field="roleName" /></div>
                   </th>
-                  <th
-                    onClick={() => handleSort('department')}
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  >
-                    <div className="flex items-center gap-2">
-                      Phòng ban
-                      <SortIcon field="department" />
-                    </div>
-                  </th>
-                  <th
-                    onClick={() => handleSort('status')}
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  >
-                    <div className="flex items-center gap-2">
-                      Trạng thái
-                      <SortIcon field="status" />
-                    </div>
-                  </th>
-                  <th
-                    onClick={() => handleSort('createdAt')}
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  >
-                    <div className="flex items-center gap-2">
-                      Ngày tạo
-                      <SortIcon field="createdAt" />
-                    </div>
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Thao tác
-                  </th>
+                  <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-400 text-right">Thao tác</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredUsers.length === 0 ? (
-                  <tr>
-                    <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
-                      Không tìm thấy người dùng nào
+              <tbody className="divide-y divide-slate-50">
+                {loading ? (
+                  <tr key="loading">
+                    <td colSpan="5" className="px-6 py-12 text-center text-slate-400 font-medium italic">
+                      Đang tải danh sách...
                     </td>
                   </tr>
-                ) : (
-                  filteredUsers.map((user) => (
-                    <tr key={user.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <div className="flex-shrink-0 h-10 w-10">
-                            <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-semibold">
-                              {user.name.charAt(0)}
-                            </div>
-                          </div>
-                          <div className="ml-4">
-                            <div className="text-sm font-medium text-gray-900">{user.name}</div>
-                            <div className="text-sm text-gray-500">{user.phone}</div>
-                          </div>
+                ) : filteredUsers.length > 0 ? (
+                  filteredUsers.map((u) => (
+                    <tr key={u.userId || u.id || u._id || u.username} className="hover:bg-slate-50/50 transition-colors group">
+                      <td className="px-6 py-4 font-semibold text-slate-900 text-sm">{u.username}</td>
+                      <td className="px-6 py-4 text-slate-600 text-sm">{u.displayName || "---"}</td>
+                      <td className="px-6 py-4">
+                        <div className="text-sm text-slate-900">{u.email}</div>
+                        <div className="text-[11px] text-slate-400 font-medium">{u.phoneNumber || "---"}</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide border ${getRoleBadgeColor(u.roleName)}`}>
+                          {u.roleName}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => openEditModal(u)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" title="Chỉnh sửa">
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setUserToDelete(u);
+                              setShowDeleteConfirm(true);
+                            }}
+                            className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                            title="Xóa"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{user.email}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getRoleBadgeColor(user.role)}`}>
-                          {getRoleLabel(user.role)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{user.department}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          user.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {user.status === 'active' ? 'Hoạt động' : 'Không hoạt động'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {user.createdAt}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button
-                          onClick={() => openEditModal(user)}
-                          className="text-blue-600 hover:text-blue-900 mr-4"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteClick(user)}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
                       </td>
                     </tr>
                   ))
+                ) : (
+                  <tr key="empty-row">
+                    <td colSpan="5" className="px-6 py-12 text-center text-slate-400 font-medium italic">
+                      Không tìm thấy người dùng nào.
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
@@ -384,131 +343,118 @@ const Users = () => {
         </div>
       </main>
 
-      {/* Add/Edit Modal */}
+      {/* MODAL */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-gray-900">
-                {modalMode === 'add' ? 'Thêm người dùng mới' : 'Chỉnh sửa người dùng'}
-              </h2>
-              <button
-                onClick={closeModal}
-                className="text-gray-400 hover:text-gray-600"
-              >
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-lg overflow-hidden animate-in slide-in-from-bottom-8 duration-300">
+            <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
+              <h3 className="text-xl font-bold text-slate-900">
+                {modalMode === "add" ? "Thêm tài khoản mới" : "Chỉnh sửa thông tin"}
+              </h3>
+              <button onClick={() => setShowModal(false)} className="p-2 text-slate-400 hover:text-rose-600 transition-colors">
                 <X className="w-6 h-6" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Name */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Họ và tên <span className="text-red-500">*</span>
-                  </label>
+            <form onSubmit={handleSubmit} className="p-8 space-y-6">
+              {error && (
+                <div className="p-3 bg-rose-50 text-rose-600 text-xs font-bold rounded-xl border border-rose-100">
+                  {error}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">Username *</label>
                   <input
-                    type="text"
                     required
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Nhập họ và tên"
+                    disabled={modalMode === "edit"}
+                    placeholder="Tên đăng nhập"
+                    className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all text-sm disabled:opacity-50"
+                    value={formData.username}
+                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                   />
                 </div>
-
-                {/* Email */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Email <span className="text-red-500">*</span>
+                <div className="space-y-2">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">
+                    Mật khẩu {modalMode === "add" ? "*" : "(để trống nếu không đổi)"}
                   </label>
                   <input
-                    type="email"
-                    required
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="example@company.com"
+                    type="password"
+                    required={modalMode === "add"}
+                    placeholder="••••••••"
+                    className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all text-sm"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                   />
-                </div>
-
-                {/* Phone */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Số điện thoại
-                  </label>
-                  <input
-                    type="tel"
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="0901234567"
-                  />
-                </div>
-
-                {/* Department */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Phòng ban
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.department}
-                    onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Nhập phòng ban"
-                  />
-                </div>
-
-                {/* Role */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Vai trò <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    required
-                    value={formData.role}
-                    onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="annotator">Gán nhãn viên</option>
-                    <option value="reviewer">Kiểm duyệt viên</option>
-                    <option value="manager">Quản lý</option>
-                    <option value="admin">Quản trị viên</option>
-                  </select>
-                </div>
-
-                {/* Status */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Trạng thái <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    required
-                    value={formData.status}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="active">Hoạt động</option>
-                    <option value="inactive">Không hoạt động</option>
-                  </select>
                 </div>
               </div>
 
-              {/* Form Actions */}
-              <div className="mt-8 flex items-center justify-end gap-4">
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">Tên hiển thị (Display Name)</label>
+                <input
+                  placeholder="Nguyễn Văn A"
+                  className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all text-sm"
+                  value={formData.displayName}
+                  onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">Email *</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="example@mail.com"
+                    className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all text-sm"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">Số điện thoại</label>
+                  <input
+                    placeholder="0987.xxx.xxx"
+                    className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all text-sm"
+                    value={formData.phoneNumber}
+                    onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">Vai trò</label>
+                <div className="grid grid-cols-3 gap-3">
+                  {["manager", "annotator", "reviewer"].map((role) => (
+                    <button
+                      key={role}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, roleName: role })}
+                      className={`py-2 px-3 rounded-xl border-2 text-[10px] font-bold uppercase tracking-wider transition-all ${formData.roleName === role
+                        ? "border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm"
+                        : "border-slate-100 text-slate-400 hover:border-slate-200"
+                        }`}
+                    >
+                      {role}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-6">
                 <button
                   type="button"
-                  onClick={closeModal}
-                  className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                  onClick={() => setShowModal(false)}
+                  className="flex-1 px-4 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all text-sm"
                 >
-                  Hủy
+                  Hủy bỏ
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  className="flex-[2] px-4 py-3.5 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-[0.98] text-sm"
                 >
-                  {modalMode === 'add' ? 'Thêm người dùng' : 'Lưu thay đổi'}
+                  {modalMode === "add" ? "Tạo tài khoản" : "Cập nhật ngay"}
                 </button>
               </div>
             </form>
@@ -516,32 +462,29 @@ const Users = () => {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* DELETE CONFIRM */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
-            <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full mb-4">
-              <Trash2 className="w-6 h-6 text-red-600" />
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-sm p-8 text-center animate-in zoom-in duration-300">
+            <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Trash2 className="w-8 h-8" />
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 text-center mb-2">
-              Xác nhận xóa người dùng
-            </h3>
-            <p className="text-gray-600 text-center mb-6">
-              Bạn có chắc chắn muốn xóa người dùng <span className="font-semibold">{userToDelete?.name}</span>? 
-              Hành động này không thể hoàn tác.
+            <h3 className="text-xl font-bold text-slate-900 mb-2">Xác nhận xóa?</h3>
+            <p className="text-slate-500 text-sm leading-relaxed mb-8 px-2">
+              Bạn có chắc chắn muốn xóa người dùng <span className="font-bold text-slate-900">@{userToDelete?.username}</span>? Hành động này không thể hoàn tác.
             </p>
-            <div className="flex items-center justify-center gap-4">
+            <div className="flex gap-3">
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all text-sm"
               >
                 Hủy
               </button>
               <button
                 onClick={confirmDelete}
-                className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                className="flex-1 px-4 py-3 bg-rose-600 text-white font-bold rounded-2xl hover:bg-rose-700 transition-all shadow-lg shadow-rose-200 text-sm"
               >
-                Xóa người dùng
+                Xóa ngay
               </button>
             </div>
           </div>

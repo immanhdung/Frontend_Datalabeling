@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { taskAPI } from '../../config/api';
+
+import React, { useState } from 'react';
 import Header from '../../components/common/Header';
 import StatsCard from '../../components/common/StatsCard';
 import {
@@ -17,116 +16,86 @@ import {
   Search,
   Folder,
   Calendar,
-  Play,
-  X
+  Play
 } from "lucide-react";
 
 const AnnotatorDashboard = () => {
-  const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [stats, setStats] = useState({
+    total: 200,
+    pending: 65,
+    inProgress: 15,
+    completed: 120,
+    approved: 95,
+    rejected: 15,
+  });
 
-  // Load tasks from API
-  const [tasks, setTasks] = useState([]);
-
-  // Load tasks on mount
-  useEffect(() => {
-    loadTasks();
-  }, []);
-
-  const loadTasks = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // Get current user for filtering
-      const userStr = localStorage.getItem('user');
-      const currentUser = userStr ? JSON.parse(userStr) : null;
-      
-      try {
-        // Try to load MY assigned tasks from API
-        const response = await taskAPI.getMyTasks();
-        const data = response.data.data || response.data || [];
-        
-        console.log('✅ Loaded tasks from API:', data);
-        
-        // Filter to ensure only assigned tasks (extra safety check)
-        let filteredTasks = data;
-        if (currentUser) {
-          filteredTasks = data.filter(task => {
-            if (task.assignedTo) {
-              return task.assignedTo === currentUser.id || task.assignedTo === currentUser._id;
-            }
-            return true;
-          });
-        }
-        
-        setTasks(filteredTasks);
-        
-        if (filteredTasks.length === 0) {
-          setError('Bạn chưa có task nào được assign. Hãy liên hệ Manager để được giao task.');
-        }
-      } catch (apiError) {
-        // API not ready or error - use fallback data
-        console.warn('⚠️ API /tasks/my-tasks không khả dụng, sử dụng dữ liệu demo:', apiError.message);
-        
-        // Demo tasks for development
-        const demoTasks = [
-          {
-            id: 'demo-task-1',
-            title: 'Demo: Gán nhãn hình ảnh xe hơi',
-            description: 'Task demo - Xác định và vẽ bounding box cho các loại xe trong ảnh',
-            type: 'image',
-            status: 'pending',
-            priority: 'high',
-            projectName: 'Demo Project',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // +7 days
-            progress: 0,
-            totalItems: 100,
-            assignedTo: currentUser?.id || currentUser?._id,
-          }
-        ];
-        
-        setTasks(demoTasks);
-        setError('⚠️ Đang sử dụng dữ liệu demo. Backend API chưa sẵn sàng.');
-      }
-      
-    } catch (err) {
-      console.error('❌ Error loading tasks:', err);
-      setError('Không thể tải danh sách task. Vui lòng kiểm tra kết nối.');
-      setTasks([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Calculate stats dynamically from tasks
-  const stats = {
-    total: tasks.length,
-    pending: tasks.filter(t => t.status === 'pending').length,
-    inProgress: tasks.filter(t => t.status === 'in_progress').length,
-    completed: tasks.filter(t => t.status === 'completed').length,
-    approved: tasks.filter(t => t.reviewStatus === 'approved').length,
-    rejected: tasks.filter(t => t.reviewStatus === 'rejected').length,
-  };
+  const [tasks, setTasks] = useState([
+    {
+      id: 'task-1',
+      title: 'Gán nhãn hình ảnh xe hơi - Dataset 001',
+      description: 'Xác định và vẽ bounding box cho các loại xe trong ảnh',
+      type: 'image',
+      status: 'pending',
+      priority: 'high',
+      projectName: 'Autonomous Driving',
+      createdAt: '2026-01-28T10:00:00Z',
+      updatedAt: '2026-01-28T10:00:00Z',
+      dueDate: '2026-02-05T23:59:59Z',
+      progress: 0,
+      totalItems: 150,
+    },
+    {
+      id: 'task-2',
+      title: 'Phân loại văn bản tin tức',
+      description: 'Phân loại các bài báo theo danh mục: Thể thao, Kinh tế, Giải trí, Chính trị',
+      type: 'text',
+      status: 'in_progress',
+      priority: 'medium',
+      projectName: 'News Classification',
+      createdAt: '2026-01-27T14:30:00Z',
+      updatedAt: '2026-01-29T09:15:00Z',
+      dueDate: '2026-02-10T23:59:59Z',
+      progress: 45,
+      totalItems: 500,
+    },
+    {
+      id: 'task-3',
+      title: 'Transcription âm thanh cuộc gọi',
+      description: 'Chuyển đổi các file âm thanh cuộc gọi thành văn bản',
+      type: 'audio',
+      status: 'completed',
+      priority: 'low',
+      projectName: 'Call Center Analytics',
+      createdAt: '2026-01-25T08:00:00Z',
+      updatedAt: '2026-01-28T16:45:00Z',
+      completedAt: '2026-01-28T16:45:00Z',
+      dueDate: '2026-02-15T23:59:59Z',
+      progress: 100,
+      totalItems: 80,
+      reviewStatus: 'approved',
+    },
+    {
+      id: 'task-4',
+      title: 'Gán nhãn video người đi bộ',
+      description: 'Theo dõi và gán nhãn người đi bộ trong video',
+      type: 'video',
+      status: 'completed',
+      priority: 'high',
+      projectName: 'Pedestrian Detection',
+      createdAt: '2026-01-24T10:00:00Z',
+      updatedAt: '2026-01-27T18:30:00Z',
+      completedAt: '2026-01-27T18:30:00Z',
+      dueDate: '2026-02-01T23:59:59Z',
+      progress: 100,
+      totalItems: 30,
+      reviewStatus: 'rejected',
+      feedback: 'Một số frame bị thiếu annotations, vui lòng kiểm tra lại',
+    },
+  ]);
 
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('recent');
-  
-  // Create task modal
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newTask, setNewTask] = useState({
-    title: '',
-    description: '',
-    type: 'image',
-    priority: 'medium',
-    projectName: '',
-    dueDate: '',
-    totalItems: 100,
-  });
 
   const filteredTasks = tasks.filter((task) => {
     const matchesFilter = filter === 'all' || task.status === filter;
@@ -147,82 +116,19 @@ const AnnotatorDashboard = () => {
   });
 
   const handleRefresh = () => {
-    loadTasks();
+    console.log('Refreshing data...');
   };
 
   const handleStartTask = (taskId) => {
-    // Update task status locally
     setTasks(tasks.map(task => 
       task.id === taskId ? { ...task, status: 'in_progress', updatedAt: new Date().toISOString() } : task
     ));
-    navigate(`/annotator/task/${taskId}`);
-  };
-
-  const handleContinueTask = (taskId) => {
-    navigate(`/annotator/task/${taskId}`);
-  };
-
-  const handleViewTask = (taskId) => {
-    navigate(`/annotator/task/${taskId}`);
-  };
-
-  const handleCreateTask = () => {
-    if (!newTask.title || !newTask.projectName || !newTask.dueDate) {
-      alert('Vui lòng điền đầy đủ thông tin bắt buộc!');
-      return;
-    }
-
-    const task = {
-      id: `task-${Date.now()}`,
-      title: newTask.title,
-      description: newTask.description,
-      type: newTask.type,
-      status: 'pending',
-      priority: newTask.priority,
-      projectName: newTask.projectName,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      dueDate: new Date(newTask.dueDate).toISOString(),
-      progress: 0,
-      totalItems: newTask.totalItems,
-    };
-
-    setTasks([task, ...tasks]);
-    setShowCreateModal(false);
-    setNewTask({
-      title: '',
-      description: '',
-      type: 'image',
-      priority: 'medium',
-      projectName: '',
-      dueDate: '',
-      totalItems: 100,
-    });
   };
 
   const getDaysUntilDue = (dueDate) => {
     const days = Math.ceil((new Date(dueDate) - new Date()) / (1000 * 60 * 60 * 24));
     return days;
   };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <Header
-          title="Annotator Dashboard"
-          userName="Annotator"
-          userRole="annotator"
-          onRefresh={handleRefresh}
-        />
-        <div className="flex items-center justify-center h-96">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Đang tải dữ liệu...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -232,9 +138,7 @@ const AnnotatorDashboard = () => {
         userRole="annotator"
         onRefresh={handleRefresh}
         actionButton={
-          <button 
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+          <button className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
             <Plus className="w-4 h-4" />
             Task mới
           </button>
@@ -242,55 +146,6 @@ const AnnotatorDashboard = () => {
       />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Error/Warning Message */}
-        {error && (
-          <div className={`mb-6 p-4 border rounded-lg flex items-start ${
-            error.includes('demo') || error.includes('⚠️') 
-              ? 'bg-yellow-50 border-yellow-200' 
-              : error.includes('chưa có task')
-              ? 'bg-blue-50 border-blue-200'
-              : 'bg-red-50 border-red-200'
-          }`}>
-            <AlertCircle className={`w-5 h-5 mr-3 mt-0.5 flex-shrink-0 ${
-              error.includes('demo') || error.includes('⚠️')
-                ? 'text-yellow-600'
-                : error.includes('chưa có task')
-                ? 'text-blue-600'
-                : 'text-red-600'
-            }`} />
-            <div className="flex-1">
-              <h3 className={`font-semibold mb-1 ${
-                error.includes('demo') || error.includes('⚠️')
-                  ? 'text-yellow-800'
-                  : error.includes('chưa có task')
-                  ? 'text-blue-800'
-                  : 'text-red-800'
-              }`}>
-                {error.includes('demo') || error.includes('⚠️') ? 'Chế độ Demo' : error.includes('chưa có task') ? 'Thông báo' : 'Lỗi tải dữ liệu'}
-              </h3>
-              <p className={`text-sm ${
-                error.includes('demo') || error.includes('⚠️')
-                  ? 'text-yellow-700'
-                  : error.includes('chưa có task')
-                  ? 'text-blue-700'
-                  : 'text-red-700'
-              }`}>{error}</p>
-              <button
-                onClick={loadTasks}
-                className={`mt-2 font-semibold text-sm underline ${
-                  error.includes('demo') || error.includes('⚠️')
-                    ? 'text-yellow-700 hover:text-yellow-900'
-                    : error.includes('chưa có task')
-                    ? 'text-blue-700 hover:text-blue-900'
-                    : 'text-red-700 hover:text-red-900'
-                }`}
-              >
-                Thử lại
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Statistics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <StatsCard
@@ -534,31 +389,23 @@ const AnnotatorDashboard = () => {
                         </button>
                       )}
                       {task.status === 'in_progress' && (
-                        <button 
-                          onClick={() => handleContinueTask(task.id)}
-                          className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold transition-all">
+                        <button className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold transition-all">
                           Tiếp tục
                         </button>
                       )}
                       {task.status === 'completed' && (
                         <>
-                          <button 
-                            onClick={() => handleViewTask(task.id)}
-                            className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm font-semibold transition-all">
+                          <button className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm font-semibold transition-all">
                             Xem lại
                           </button>
                           {task.reviewStatus === 'rejected' && (
-                            <button 
-                              onClick={() => handleContinueTask(task.id)}
-                              className="px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-semibold transition-all">
+                            <button className="px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-semibold transition-all">
                               Sửa lại
                             </button>
                           )}
                         </>
                       )}
-                      <button 
-                        onClick={() => handleViewTask(task.id)}
-                        className="px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-semibold transition-all">
+                      <button className="px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-semibold transition-all">
                         Chi tiết
                       </button>
                     </div>
@@ -569,143 +416,9 @@ const AnnotatorDashboard = () => {
           )}
         </div>
       </main>
-
-      {/* Create Task Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold text-gray-900">Tạo Task Mới</h3>
-                <button
-                  onClick={() => setShowCreateModal(false)}
-                  className="text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-            </div>
-
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Tiêu đề task *
-                </label>
-                <input
-                  type="text"
-                  value={newTask.title}
-                  onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-                  placeholder="VD: Gán nhãn hình ảnh xe hơi"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Mô tả
-                </label>
-                <textarea
-                  value={newTask.description}
-                  onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
-                  placeholder="Mô tả chi tiết về task"
-                  rows="3"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Loại task *
-                  </label>
-                  <select
-                    value={newTask.type}
-                    onChange={(e) => setNewTask({ ...newTask, type: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                  >
-                    <option value="image">Image</option>
-                    <option value="text">Text</option>
-                    <option value="audio">Audio</option>
-                    <option value="video">Video</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Độ ưu tiên *
-                  </label>
-                  <select
-                    value={newTask.priority}
-                    onChange={(e) => setNewTask({ ...newTask, priority: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                  >
-                    <option value="high">Cao</option>
-                    <option value="medium">Trung bình</option>
-                    <option value="low">Thấp</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Tên project *
-                </label>
-                <input
-                  type="text"
-                  value={newTask.projectName}
-                  onChange={(e) => setNewTask({ ...newTask, projectName: e.target.value })}
-                  placeholder="VD: Autonomous Driving"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Deadline *
-                  </label>
-                  <input
-                    type="date"
-                    value={newTask.dueDate}
-                    onChange={(e) => setNewTask({ ...newTask, dueDate: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Số lượng items
-                  </label>
-                  <input
-                    type="number"
-                    value={newTask.totalItems}
-                    onChange={(e) => setNewTask({ ...newTask, totalItems: parseInt(e.target.value) || 0 })}
-                    min="1"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="p-6 border-t border-gray-200 flex gap-3">
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition-all"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={handleCreateTask}
-                className="flex-1 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-all"
-              >
-                Tạo Task
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
 
 export default AnnotatorDashboard;
+
