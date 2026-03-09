@@ -10,6 +10,7 @@ import {
   getTaskAssigneeId,
   normalizeTask,
   resolveApiData,
+  upsertLocalAssignedTask,
 } from '../../utils/annotatorTaskHelpers';
 import {
   ArrowLeft,
@@ -50,6 +51,25 @@ const AnnotatorTask = () => {
   const canvasRef = useRef(null);
   const imageRef = useRef(null);
   const [imageScale, setImageScale] = useState(1);
+
+  const readAnnotatorTasks = () => {
+    try {
+      const raw = localStorage.getItem('annotatorTasks');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      return [];
+    }
+  };
+
+  const upsertAnnotatorTask = (nextTask) => {
+    const existing = readAnnotatorTasks();
+    const merged = [
+      nextTask,
+      ...existing.filter((item) => String(item?.id ?? item?._id) !== String(nextTask?.id ?? nextTask?._id)),
+    ];
+    localStorage.setItem('annotatorTasks', JSON.stringify(merged));
+  };
 
   const generateMockItems = (type, total) => {
     const items = [];
@@ -104,10 +124,13 @@ const AnnotatorTask = () => {
       const currentUser = getCurrentUser();
       const currentUserId = getCurrentUserId();
       const currentUserIdentifiers = getCurrentUserIdentifiers();
+      const myLocalTasks = getLocalAssignedTasksForUser(currentUserIdentifiers);
+      const localTask = myLocalTasks.find(
+        (taskItem) => String(taskItem.id ?? taskItem._id) === String(taskId)
+      );
 
       const getLocalAssignedTaskById = () => {
         if (!currentUserId && currentUserIdentifiers.length === 0) return null;
-        const myLocalTasks = getLocalAssignedTasksForUser(currentUserIdentifiers);
         const matchedTask = myLocalTasks.find(
           (taskItem) => String(taskItem.id ?? taskItem._id) === String(taskId)
         );
@@ -117,7 +140,9 @@ const AnnotatorTask = () => {
       try {
         // First, verify this task is assigned to current user by getting my tasks
         const myTasks = await fetchAssignedTasksForUser(taskAPI, currentUserId);
-        const isAssignedToMe = myTasks.some((taskItem) => String(taskItem.id ?? taskItem._id) === String(taskId));
+        const isAssignedToMe =
+          myTasks.some((taskItem) => String(taskItem.id ?? taskItem._id) === String(taskId)) ||
+          Boolean(localTask);
         
         if (!isAssignedToMe) {
           setError('Bạn không có quyền truy cập task này. Task chưa được assign cho bạn.');
@@ -131,7 +156,7 @@ const AnnotatorTask = () => {
         
         // Double-check: Verify task is assigned to current user
         const assigneeId = getTaskAssigneeId(taskData);
-        if (assigneeId && currentUserId && String(assigneeId) !== String(currentUserId)) {
+        if (assigneeId && currentUserId && String(assigneeId) !== String(currentUserId) && !localTask) {
           setError('Task này không được assign cho bạn.');
           setLoading(false);
           return;
@@ -300,6 +325,7 @@ const AnnotatorTask = () => {
     try {
       // Save annotations to current item
       if (task && task.items) {
+        const currentUserId = getCurrentUserId();
         const updatedItems = [...task.items];
         updatedItems[currentItemIndex] = {
           ...updatedItems[currentItemIndex],
@@ -319,18 +345,19 @@ const AnnotatorTask = () => {
           console.warn('API save failed, using localStorage fallback:', apiErr);
         }
 
-        // Update task in localStorage (fallback)
-        const savedTasks = localStorage.getItem('annotatorTasks');
-        if (savedTasks) {
-          const tasks = JSON.parse(savedTasks);
-          const updatedTasks = tasks.map(t => 
-            t.id === taskId 
-              ? { ...t, items: updatedItems, progress: calculateProgress(updatedItems) }
-              : t
-          );
-          localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
-          setTask({ ...task, items: updatedItems });
+        const updatedTask = {
+          ...task,
+          status: calculateProgress(updatedItems) >= 100 ? 'completed' : 'in_progress',
+          items: updatedItems,
+          progress: calculateProgress(updatedItems),
+          updatedAt: new Date().toISOString(),
+        };
+
+        upsertAnnotatorTask(updatedTask);
+        if (currentUserId) {
+          upsertLocalAssignedTask(updatedTask, currentUserId);
         }
+        setTask(updatedTask);
       }
       alert('Đã lưu annotations!');
     } catch (err) {
@@ -366,40 +393,42 @@ const AnnotatorTask = () => {
         }
         
         // Mark task as completed (localStorage fallback)
-        const savedTasks = localStorage.getItem('annotatorTasks');
-        if (savedTasks) {
-          const tasks = JSON.parse(savedTasks);
-          const completedTask = tasks.find(t => t.id === taskId);
-          const updatedTasks = tasks.map(t => 
-            t.id === taskId 
-              ? { ...t, status: 'completed', completedAt: new Date().toISOString(), progress: 100, reviewStatus: 'pending_review' }
-              : t
-          );
-          localStorage.setItem('annotatorTasks', JSON.stringify(updatedTasks));
+        const currentUser = getCurrentUser();
+        const currentUserId = getCurrentUserId();
+        const completedTask = {
+          ...task,
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+          progress: 100,
+          reviewStatus: 'pending_review',
+          updatedAt: new Date().toISOString(),
+        };
 
-          // Create annotation for reviewer (localStorage compatibility)
-          if (completedTask) {
-            const reviewerAnnotations = JSON.parse(localStorage.getItem('reviewerAnnotations') || '[]');
-            const newAnnotation = {
-              id: `ann-${Date.now()}`,
-              taskId: completedTask.id,
-              taskTitle: completedTask.title,
-              annotatorName: 'Annotator User', // You can replace with actual user name
-              projectName: completedTask.projectName,
-              type: completedTask.type,
-              status: 'pending_review',
-              priority: completedTask.priority,
-              createdAt: new Date().toISOString(),
-              data: {
-                totalItems: completedTask.totalItems,
-                completedItems: completedTask.items?.length || 0,
-                annotations: completedTask.items?.map(item => item.annotations).flat() || [],
-              },
-            };
-            reviewerAnnotations.unshift(newAnnotation);
-            localStorage.setItem('reviewerAnnotations', JSON.stringify(reviewerAnnotations));
-          }
+        upsertAnnotatorTask(completedTask);
+        if (currentUserId) {
+          upsertLocalAssignedTask(completedTask, currentUserId);
         }
+
+        // Create annotation for reviewer (localStorage compatibility)
+        const reviewerAnnotations = JSON.parse(localStorage.getItem('reviewerAnnotations') || '[]');
+        const newAnnotation = {
+          id: `ann-${Date.now()}`,
+          taskId: completedTask.id,
+          taskTitle: completedTask.title,
+          annotatorName: currentUser?.username || 'Annotator User',
+          projectName: completedTask.projectName,
+          type: completedTask.type,
+          status: 'pending_review',
+          priority: completedTask.priority,
+          createdAt: new Date().toISOString(),
+          data: {
+            totalItems: completedTask.totalItems,
+            completedItems: completedTask.items?.length || 0,
+            annotations: completedTask.items?.map(item => item.annotations).flat() || [],
+          },
+        };
+        reviewerAnnotations.unshift(newAnnotation);
+        localStorage.setItem('reviewerAnnotations', JSON.stringify(reviewerAnnotations));
         navigate('/annotator/dashboard');
       }
     } catch (err) {

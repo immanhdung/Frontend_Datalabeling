@@ -7,7 +7,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'https://datalabel-project-be-production.up.railway.app',
+        target: 'https://labelhub-backend.onrender.com',
         changeOrigin: true,
       }
     }

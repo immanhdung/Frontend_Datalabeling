@@ -3,6 +3,33 @@ import api from "../config/api";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
+const DEV_FALLBACK_USERS = {
+  admin1: { id: "dev-admin-1", username: "admin1", role: "admin" },
+  manager1: { id: "dev-manager-1", username: "manager1", role: "manager" },
+  annotator1: { id: "dev-annotator-1", username: "annotator1", role: "annotator" },
+  reviewer1: { id: "dev-reviewer-1", username: "reviewer1", role: "reviewer" },
+};
+
+const ENABLE_DEV_FALLBACK = import.meta.env.VITE_ENABLE_DEV_FALLBACK === "true";
+const DEV_USERS_KEY = "devAdminUsers";
+
+const findLocalDevUser = (usernameOrEmail) => {
+  try {
+    const raw = localStorage.getItem(DEV_USERS_KEY);
+    const users = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(users)) return null;
+
+    const normalized = String(usernameOrEmail || "").trim().toLowerCase();
+    return users.find((user) => {
+      const byUsername = String(user?.username || "").toLowerCase() === normalized;
+      const byEmail = String(user?.email || "").toLowerCase() === normalized;
+      return byUsername || byEmail;
+    }) || null;
+  } catch (error) {
+    return null;
+  }
+};
+
 export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [usernameOrEmail, setUsernameOrEmail] = useState("");
@@ -20,7 +47,7 @@ export default function Login() {
 
     try {
       const res = await api.post(
-        "/Auth/login",
+        "/auth/login",
         {
           usernameOrEmail: usernameOrEmail.trim(),
           password: password,
@@ -33,16 +60,37 @@ export default function Login() {
       );
 
       console.log("Login response data:", res.data);
-      const {
-        userId,
-        username,
-        roleName,
-        token,
-      } = res.data;
+      const responseData = res.data ?? {};
+      const nestedUser = responseData.user ?? {};
+
+      const token =
+        responseData.token ??
+        responseData.accessToken ??
+        responseData.jwt ??
+        responseData.jwtToken;
+
+      const resolvedRole =
+        responseData.roleName ??
+        responseData.role ??
+        nestedUser.roleName ??
+        nestedUser.role;
+
+      const roleName =
+        typeof resolvedRole === "string"
+          ? resolvedRole
+          : resolvedRole?.name ?? resolvedRole?.roleName;
+
+      const userId = responseData.userId ?? responseData.id ?? nestedUser.id;
+      const username =
+        responseData.username ??
+        responseData.userName ??
+        nestedUser.username ??
+        usernameOrEmail.trim();
 
       if (!token || !roleName) {
-        throw new Error("Invalid response from server");
+        throw new Error("Phan hoi dang nhap khong day du token hoac role");
       }
+
       login(
         {
           id: userId,
@@ -71,8 +119,86 @@ export default function Login() {
       }
     } catch (err) {
       console.error("Login error:", err);
+
+      if (import.meta.env.DEV && ENABLE_DEV_FALLBACK) {
+        const localDevUser = findLocalDevUser(usernameOrEmail);
+        if (localDevUser) {
+          const demoPassword = localDevUser.demoPassword || "123456";
+          if (password === demoPassword) {
+            const role = String(localDevUser.roleName || localDevUser.role || "annotator").toLowerCase();
+            login(
+              {
+                id: localDevUser.userId || localDevUser.id,
+                username: localDevUser.username,
+                role,
+              },
+              "dev-fallback-token"
+            );
+
+            switch (role) {
+              case "admin":
+                navigate("/admin/dashboard");
+                return;
+              case "manager":
+                navigate("/manager/dashboard");
+                return;
+              case "annotator":
+                navigate("/annotator/dashboard");
+                return;
+              case "reviewer":
+                navigate("/reviewer/dashboard");
+                return;
+              default:
+                break;
+            }
+          }
+        }
+
+        const fallbackUser = DEV_FALLBACK_USERS[usernameOrEmail.trim().toLowerCase()];
+        if (fallbackUser && password === "123456") {
+          login(fallbackUser, "dev-fallback-token");
+
+          switch (fallbackUser.role) {
+            case "admin":
+              navigate("/admin/dashboard");
+              return;
+            case "manager":
+              navigate("/manager/dashboard");
+              return;
+            case "annotator":
+              navigate("/annotator/dashboard");
+              return;
+            case "reviewer":
+              navigate("/reviewer/dashboard");
+              return;
+            default:
+              break;
+          }
+        }
+      }
+
+      const networkMessage =
+        err.code === "ERR_NETWORK"
+          ? "Khong the ket noi toi may chu. Hay kiem tra backend/proxy va thu lai."
+          : "";
+
+      const serverErrorMessage =
+        err.response?.status === 500
+          ? "May chu dang loi (500), hien tai khong the dang nhap. Vui long lien he team backend hoac thu lai sau."
+          : "";
+
+      const server500Message =
+        err.response?.status === 500 && ENABLE_DEV_FALLBACK
+          ? "Server dang loi (500). Neu dang test local, thu dang nhap bang manager1/admin1/annotator1/reviewer1 voi mat khau 123456."
+          : "";
+
       setError(
+        serverErrorMessage ||
+        server500Message ||
+        networkMessage ||
         err.response?.data?.message ||
+        err.response?.data?.title ||
+        err.message ||
         "Đăng nhập thất bại. Sai username hoặc mật khẩu!"
       );
     } finally {

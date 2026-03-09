@@ -129,6 +129,43 @@ export const upsertLocalAssignedTask = (task, userId) => {
   localStorage.setItem('assignedTasksByUser', JSON.stringify(taskMap));
 };
 
+export const assignLocalTaskToUser = (task, userId) => {
+  if (!task || !userId) {
+    return;
+  }
+
+  const taskMap = getAssignedTasksByUserMap();
+  const targetUserKey = String(userId);
+  const targetTasks = Array.isArray(taskMap[targetUserKey]) ? taskMap[targetUserKey] : [];
+  const existingTask = targetTasks.find(
+    (item) => String(item?.id ?? item?._id) === String(task?.id ?? task?._id)
+  );
+
+  const normalizedTask = normalizeTask(
+    {
+      ...task,
+      // New assignment for this annotator starts as pending.
+      status: existingTask?.status ?? 'pending',
+      progress: existingTask?.progress ?? 0,
+      reviewStatus: existingTask?.reviewStatus,
+      items: existingTask?.items ?? task?.items,
+      assigned_to: userId,
+      assignedTo: userId,
+      updatedAt: new Date().toISOString(),
+    },
+    userId
+  );
+
+  taskMap[targetUserKey] = [
+    normalizedTask,
+    ...targetTasks.filter(
+      (item) => String(item?.id ?? item?._id) !== String(normalizedTask.id)
+    ),
+  ];
+
+  localStorage.setItem('assignedTasksByUser', JSON.stringify(taskMap));
+};
+
 export const fetchAssignedTasksForUser = async (taskApi, userId) => {
   if (!userId) {
     return [];

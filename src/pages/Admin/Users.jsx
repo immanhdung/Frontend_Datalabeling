@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import Header from "../../components/common/Header";
 import api from "../../config/api";
+import { useAuth } from "../../context/AuthContext";
 import {
   Search,
   Edit2,
@@ -12,6 +13,86 @@ import {
 } from "lucide-react";
 
 const Users = () => {
+  const { token } = useAuth();
+  const enableDevFallback = import.meta.env.VITE_ENABLE_DEV_FALLBACK === "true";
+  const enableDevBypass = import.meta.env.VITE_BYPASS_LOGIN === "true";
+  const isDevLocalToken = token === "dev-fallback-token" || token === "dev-bypass-token";
+  const isDevFallbackSession =
+    import.meta.env.DEV &&
+    (enableDevFallback || enableDevBypass) &&
+    isDevLocalToken;
+
+  const DEV_USERS_KEY = "devAdminUsers";
+  const DEV_ROLE_OPTIONS = [
+    { roleId: "role-manager", roleName: "manager", name: "manager" },
+    { roleId: "role-annotator", roleName: "annotator", name: "annotator" },
+    { roleId: "role-reviewer", roleName: "reviewer", name: "reviewer" },
+    { roleId: "role-admin", roleName: "admin", name: "admin" },
+  ];
+
+  const getDefaultDevUsers = () => [
+    {
+      userId: "dev-admin-1",
+      username: "admin1",
+      demoPassword: "123456",
+      displayName: "Admin Demo",
+      email: "admin1@local.dev",
+      phoneNumber: "",
+      roleName: "admin",
+      roleId: "role-admin",
+    },
+    {
+      userId: "dev-manager-1",
+      username: "manager1",
+      demoPassword: "123456",
+      displayName: "Manager Demo",
+      email: "manager1@local.dev",
+      phoneNumber: "",
+      roleName: "manager",
+      roleId: "role-manager",
+    },
+    {
+      userId: "dev-annotator-1",
+      username: "annotator1",
+      demoPassword: "123456",
+      displayName: "Annotator Demo",
+      email: "annotator1@local.dev",
+      phoneNumber: "",
+      roleName: "annotator",
+      roleId: "role-annotator",
+    },
+    {
+      userId: "dev-reviewer-1",
+      username: "reviewer1",
+      demoPassword: "123456",
+      displayName: "Reviewer Demo",
+      email: "reviewer1@local.dev",
+      phoneNumber: "",
+      roleName: "reviewer",
+      roleId: "role-reviewer",
+    },
+  ];
+
+  const getDevUsers = () => {
+    try {
+      const raw = localStorage.getItem(DEV_USERS_KEY);
+      if (!raw) {
+        const defaults = getDefaultDevUsers();
+        localStorage.setItem(DEV_USERS_KEY, JSON.stringify(defaults));
+        return defaults;
+      }
+
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : getDefaultDevUsers();
+    } catch {
+      return getDefaultDevUsers();
+    }
+  };
+
+  const setDevUsers = (nextUsers) => {
+    localStorage.setItem(DEV_USERS_KEY, JSON.stringify(nextUsers));
+  };
+
   const [users, setUsers] = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
 
@@ -43,6 +124,11 @@ const Users = () => {
   const [error, setError] = useState("");
 
   const fetchUsers = async () => {
+    if (isDevFallbackSession) {
+      setUsers(getDevUsers());
+      return;
+    }
+
     try {
       setLoading(true);
       const res = await api.get("/users");
@@ -56,6 +142,11 @@ const Users = () => {
   };
 
   const fetchRoles = async () => {
+    if (isDevFallbackSession) {
+      setRoles(DEV_ROLE_OPTIONS);
+      return;
+    }
+
     try {
       const res = await api.get("/roles");
       setRoles(res.data.data || res.data);
@@ -146,9 +237,12 @@ const Users = () => {
     setShowModal(true);
   };
   const getRoleIdByName = (roleName) => {
-    const role = roles.find(
-      (r) => r.roleName?.toLowerCase() === roleName.toLowerCase()
-    );
+    const normalizedRoleName = String(roleName || "").toLowerCase();
+    const role = roles.find((r) => {
+      const candidateName = String(r?.roleName ?? r?.name ?? "").toLowerCase();
+      return candidateName === normalizedRoleName;
+    });
+
     return role?.id || role?.roleId;
   };
 
@@ -171,6 +265,54 @@ const Users = () => {
         phoneNumber: formData.phoneNumber,
         roleId: roleId,
       };
+
+      if (isDevFallbackSession) {
+        const currentId = currentUser?.userId || currentUser?.id || currentUser?._id;
+        const nextUsers = [...users];
+
+        if (modalMode === "add") {
+          const existed = nextUsers.some(
+            (u) => String(u.username || "").toLowerCase() === formData.username.toLowerCase()
+          );
+          if (existed) {
+            setError("Username da ton tai trong che do demo.");
+            return;
+          }
+
+          nextUsers.unshift({
+            userId: `dev-user-${Date.now()}`,
+            username: formData.username,
+            demoPassword: formData.password || "123456",
+            displayName: formData.displayName,
+            email: formData.email,
+            phoneNumber: formData.phoneNumber,
+            roleName: formData.roleName,
+            roleId,
+          });
+        } else {
+          const idx = nextUsers.findIndex(
+            (u) => (u.userId || u.id || u._id) === currentId
+          );
+
+          if (idx >= 0) {
+            nextUsers[idx] = {
+              ...nextUsers[idx],
+              displayName: formData.displayName,
+              email: formData.email,
+              phoneNumber: formData.phoneNumber,
+              roleName: formData.roleName,
+              roleId,
+              ...(formData.password ? { demoPassword: formData.password } : {}),
+            };
+          }
+        }
+
+        setDevUsers(nextUsers);
+        setUsers(nextUsers);
+        setShowModal(false);
+        alert(modalMode === "add" ? "Tao nguoi dung demo thanh cong!" : "Cap nhat demo thanh cong!");
+        return;
+      }
 
       if (modalMode === "add") {
         payload.password = formData.password;
@@ -196,6 +338,17 @@ const Users = () => {
   };
 
   const confirmDelete = async () => {
+    if (isDevFallbackSession) {
+      const idToDelete = userToDelete.userId || userToDelete.id || userToDelete._id;
+      const nextUsers = users.filter((u) => (u.userId || u.id || u._id) !== idToDelete);
+      setDevUsers(nextUsers);
+      setUsers(nextUsers);
+      setShowDeleteConfirm(false);
+      setUserToDelete(null);
+      alert("Da xoa nguoi dung demo!");
+      return;
+    }
+
     try {
       await api.delete(`/users/${userToDelete.userId || userToDelete.id || userToDelete._id}`);
       await fetchUsers();
@@ -247,6 +400,12 @@ const Users = () => {
         }
       />
       <main className="max-w-7xl mx-auto px-6 py-8">
+        {isDevFallbackSession && (
+          <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Ban dang o che do demo local. Tao/sua/xoa user se luu tam trong trinh duyet, khong dong bo len backend.
+          </div>
+        )}
+
         <div className="bg-white p-6 rounded-[24px] shadow-sm border border-slate-100 mb-8 flex flex-col md:flex-row gap-6">
           <div className="relative flex-1">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />

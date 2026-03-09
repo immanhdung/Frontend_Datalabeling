@@ -1,437 +1,594 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "../../config/api";
-import { Plus, Folder, ChevronRight, Tag, X, FileUp, Upload, Image as ImageIcon } from "lucide-react";
+import { Plus, Folder, ChevronRight, Tag, X, Layers3 } from "lucide-react";
+
+const DEV_CATEGORIES_KEY = "devManagerCategories";
+
+const readArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.items)) return value.items;
+  if (Array.isArray(value?.data)) return value.data;
+  return [];
+};
+
+const requestSequential = async (requestFactories) => {
+  let lastError;
+  for (const requestFactory of requestFactories) {
+    try {
+      return await requestFactory();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+};
+
+const normalizeLabels = (category) => {
+  const labelCandidates =
+    category?.labels ??
+    category?.labelSets ??
+    category?.labelSet?.labels ??
+    category?.labelset?.labels ??
+    category?.tags ??
+    [];
+
+  const normalized = labelCandidates
+    .map((item, index) => {
+      if (typeof item === "string") {
+        return {
+          id: `label-${index}-${item}`,
+          name: item,
+        };
+      }
+
+      const name = item?.name ?? item?.labelName ?? item?.title;
+      if (!name) return null;
+
+      return {
+        id: item?.id ?? item?.labelId ?? `label-${index}-${name}`,
+        name,
+      };
+    })
+    .filter(Boolean);
+
+  const byName = new Map();
+  normalized.forEach((label) => {
+    const key = String(label.name).trim().toLowerCase();
+    if (!key) return;
+    byName.set(key, label);
+  });
+
+  return Array.from(byName.values());
+};
+
+const normalizeCategory = (category, index) => {
+  const id = category?.categoryId ?? category?.id ?? `category-${index}`;
+  const labels = normalizeLabels(category);
+
+  return {
+    ...category,
+    id,
+    categoryId: id,
+    name: category?.name ?? `Category ${index + 1}`,
+    description: category?.description ?? "",
+    labels,
+    labelsCount: labels.length,
+  };
+};
 
 export default function Categories() {
-    const [categories, setCategories] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [selected, setSelected] = useState(null);
+  const [categories, setCategories] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedCategoryId, setSelectedCategoryId] = useState("");
 
-    const [showModal, setShowModal] = useState(false);
-    const [newName, setNewName] = useState("");
-    const [newDesc, setNewDesc] = useState("");
+  const [showModal, setShowModal] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newDesc, setNewDesc] = useState("");
 
-    const [showLabelModal, setShowLabelModal] = useState(false);
-    const [labelName, setLabelName] = useState("");
-    const [selectedCategoryIds, setSelectedCategoryIds] = useState([]);
-    const [categoryProjects, setCategoryProjects] = useState([]);
-    const [fetchingProjects, setFetchingProjects] = useState(false);
+  const [labelName, setLabelName] = useState("");
+  const [addingLabel, setAddingLabel] = useState(false);
+  const [searchKeyword, setSearchKeyword] = useState("");
+  const [activeLabelFilter, setActiveLabelFilter] = useState("");
 
-    const fetchCategories = async (updateSelectedId) => {
-        try {
-            setLoading(true);
-            const res = await api.get("/Categories");
-            const data = res.data || [];
-            setCategories(data);
-            const targetId = updateSelectedId || selected?.categoryId || selected?.id;
-            if (targetId) {
-                const refreshed = data.find(c => (c.categoryId || c.id) === targetId);
-                if (refreshed) {
-                    setSelected(refreshed);
-                    fetchCategoryProjects(targetId);
-                }
-            }
-        } catch (err) {
-            console.error(err);
-            alert("Không tải được danh sách category");
-        } finally {
-            setLoading(false);
-        }
-    };
+  const [categoryProjects, setCategoryProjects] = useState([]);
+  const [fetchingProjects, setFetchingProjects] = useState(false);
 
-    const fetchCategoryProjects = async (categoryId) => {
-        try {
-            setFetchingProjects(true);
-            // Lấy toàn bộ dự án để lọc chính xác tại Frontend
-            const res = await api.get("/projects");
+  const token = localStorage.getItem("accessToken");
+  const enableDevFallback = import.meta.env.VITE_ENABLE_DEV_FALLBACK === "true";
+  const enableDevBypass = import.meta.env.VITE_BYPASS_LOGIN === "true";
+  const isDevLocalToken = token === "dev-fallback-token" || token === "dev-bypass-token";
+  const isDevLocalSession =
+    import.meta.env.DEV &&
+    (enableDevFallback || enableDevBypass) &&
+    isDevLocalToken;
 
-            const allItems = res.data?.items || res.data?.data || (Array.isArray(res.data) ? res.data : []);
+  const selectedCategory = useMemo(
+    () => categories.find((item) => String(item.id) === String(selectedCategoryId)) || null,
+    [categories, selectedCategoryId]
+  );
 
-            // Lọc các dự án có categoryId khớp với category đang chọn
-            const filtered = allItems.filter(p =>
-                String(p.categoryId) === String(categoryId) ||
-                String(p.category?.id) === String(categoryId) ||
-                String(p.category?.categoryId) === String(categoryId)
-            );
+  const persistLocalCategories = (nextCategories) => {
+    if (!isDevLocalSession) return;
+    localStorage.setItem(DEV_CATEGORIES_KEY, JSON.stringify(nextCategories));
+  };
 
-            setCategoryProjects(filtered);
-        } catch (err) {
-            console.error("Fetch category projects error:", err);
-            setCategoryProjects([]);
-        } finally {
-            setFetchingProjects(false);
-        }
-    };
+  const readLocalCategories = () => {
+    try {
+      const raw = localStorage.getItem(DEV_CATEGORIES_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.map(normalizeCategory) : [];
+    } catch (error) {
+      return [];
+    }
+  };
 
-    useEffect(() => {
-        fetchCategories();
-    }, []);
+  const syncCategoriesState = (nextCategories, preferredId) => {
+    setCategories(nextCategories);
+    persistLocalCategories(nextCategories);
 
-    const handleSelectCategory = (c) => {
-        setSelected(c);
-        fetchCategoryProjects(c.categoryId || c.id);
-    };
+    if (nextCategories.length === 0) {
+      setSelectedCategoryId("");
+      return;
+    }
 
-    const handleCreate = async () => {
-        if (!newName.trim()) {
-            alert("Vui lòng nhập tên category");
-            return;
-        }
-        try {
-            await api.post("/Categories", {
-                name: newName,
-                description: newDesc,
-            });
-            setShowModal(false);
-            setNewName("");
-            setNewDesc("");
-            fetchCategories();
-        } catch (err) {
-            console.error(err);
-            alert("Tạo category thất bại");
-        }
-    };
+    const targetId =
+      preferredId && nextCategories.some((item) => String(item.id) === String(preferredId))
+        ? preferredId
+        : nextCategories[0].id;
 
-    const handleCreateLabel = async () => {
-        if (!labelName.trim() || selectedCategoryIds.length === 0) {
-            alert("Vui lòng nhập tên nhãn và chọn ít nhất một category");
-            return;
-        }
-        try {
-            setLoading(true);
-            await Promise.all(
-                selectedCategoryIds.map(id =>
-                    api.post(`/labelsets/${id}/labels`, {
-                        name: labelName
-                    })
-                )
-            );
+    setSelectedCategoryId(String(targetId));
+  };
 
-            setShowLabelModal(false);
-            setLabelName("");
-            setSelectedCategoryIds([]);
-            const currentId = selected?.categoryId || selected?.id;
-            await fetchCategories(currentId);
+  const fetchCategories = async (preferredId) => {
+    try {
+      setLoading(true);
+      const response = await requestSequential([
+        () => api.get("/Categories"),
+        () => api.get("/categories"),
+      ]);
 
-            alert("Thêm nhãn thành công!");
-        } catch (err) {
-            console.error("Error creating label:", err);
-            alert("Thêm nhãn thất bại: " + (err.response?.data?.message || err.message));
-        } finally {
-            setLoading(false);
-        }
-    };
+      const nextCategories = readArray(response?.data).map(normalizeCategory);
+      if (nextCategories.length > 0) {
+        syncCategoriesState(nextCategories, preferredId || selectedCategoryId);
+      } else if (isDevLocalSession) {
+        const localCategories = readLocalCategories();
+        syncCategoriesState(localCategories, preferredId || selectedCategoryId);
+      } else {
+        syncCategoriesState([], "");
+      }
+    } catch (error) {
+      if (isDevLocalSession) {
+        const localCategories = readLocalCategories();
+        syncCategoriesState(localCategories, preferredId || selectedCategoryId);
+      } else {
+        alert("Khong tai duoc danh sach category");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    const toggleCategorySelection = (id) => {
-        setSelectedCategoryIds(prev =>
-            prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+  const fetchCategoryProjects = async (categoryId) => {
+    if (!categoryId) {
+      setCategoryProjects([]);
+      return;
+    }
+
+    try {
+      setFetchingProjects(true);
+      const response = await api.get("/projects/mine");
+      const allProjects = readArray(response?.data);
+
+      const filtered = allProjects.filter((project) => {
+        const pid = String(categoryId);
+        return (
+          String(project?.categoryId ?? "") === pid ||
+          String(project?.category?.id ?? "") === pid ||
+          String(project?.category?.categoryId ?? "") === pid
         );
+      });
+
+      setCategoryProjects(filtered);
+    } catch (error) {
+      setCategoryProjects([]);
+    } finally {
+      setFetchingProjects(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCategories();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedCategoryId) return;
+    fetchCategoryProjects(selectedCategoryId);
+  }, [selectedCategoryId]);
+
+  const applyLabelToState = (categoryId, nextLabelName) => {
+    const normalizedName = String(nextLabelName || "").trim();
+    if (!normalizedName) return;
+
+    const nextCategories = categories.map((category) => {
+      if (String(category.id) !== String(categoryId)) {
+        return category;
+      }
+
+      const exists = category.labels.some(
+        (label) => String(label.name).toLowerCase() === normalizedName.toLowerCase()
+      );
+
+      if (exists) {
+        return category;
+      }
+
+      const nextLabels = [
+        ...category.labels,
+        {
+          id: `label-${Date.now()}`,
+          name: normalizedName,
+        },
+      ];
+
+      return {
+        ...category,
+        labels: nextLabels,
+        labelsCount: nextLabels.length,
+      };
+    });
+
+    syncCategoriesState(nextCategories, categoryId);
+  };
+
+  const handleCreateCategory = async () => {
+    const name = newName.trim();
+    if (!name) {
+      alert("Vui long nhap ten category");
+      return;
+    }
+
+    const payload = {
+      name,
+      description: newDesc.trim(),
     };
 
-    const handleUploadAction = async (e, isZip = false) => {
-        const files = e.target.files;
-        if (!files || files.length === 0) return;
+    try {
+      await requestSequential([
+        () => api.post("/Categories", payload),
+        () => api.post("/categories", payload),
+      ]);
 
-        const currentId = selected?.categoryId || selected?.id;
-        if (!currentId) {
-            alert("Vui lòng chọn Category trước");
-            return;
-        }
+      setShowModal(false);
+      setNewName("");
+      setNewDesc("");
+      await fetchCategories();
+    } catch (error) {
+      if (!isDevLocalSession) {
+        alert("Tao category that bai");
+        return;
+      }
 
-        try {
-            setLoading(true);
-            if (categoryProjects.length === 0) {
-                alert("Category này hiện chưa có Project nào. Hãy tạo dự án trước khi upload ảnh.");
-                return;
-            }
+      const localCategory = normalizeCategory(
+        {
+          id: `local-category-${Date.now()}`,
+          name,
+          description: newDesc.trim(),
+          labels: [],
+        },
+        categories.length
+      );
 
-            const projectId = categoryProjects[0].id || categoryProjects[0].projectId;
+      const nextCategories = [localCategory, ...categories];
+      syncCategoriesState(nextCategories, localCategory.id);
+      setShowModal(false);
+      setNewName("");
+      setNewDesc("");
+      alert("Da tao category local (che do demo)");
+    }
+  };
 
-            if (isZip) {
-                const formData = new FormData();
-                formData.append("File", files[0]);
-                formData.append("Name", files[0].name);
-                await api.post(`/projects/${projectId}/datasets/import`, formData, {
-                    headers: { 'Content-Type': 'multipart/form-data' }
-                });
-            } else {
-                await Promise.all(Array.from(files).map(file => {
-                    const formData = new FormData();
-                    formData.append("File", file);
-                    formData.append("Name", file.name);
-                    return api.post(`/projects/${projectId}/datasets/import`, formData, {
-                        headers: { 'Content-Type': 'multipart/form-data' }
-                    });
-                }));
-            }
+  const handleAddLabel = async () => {
+    const nextLabelName = labelName.trim();
+    if (!selectedCategory || !nextLabelName) {
+      alert("Vui long chon category va nhap ten nhan");
+      return;
+    }
 
-            alert("Upload thành công!");
-            fetchCategoryProjects(currentId);
-        } catch (err) {
-            console.error("Upload error:", err);
-            alert("Upload thất bại: " + (err.response?.data?.message || err.message));
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleFileUpload = (e) => handleUploadAction(e, false);
-    const handleZipUpload = (e) => handleUploadAction(e, true);
-
-    return (
-        <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
-            <div className="flex justify-between items-center">
-                <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Phân loại theo Category</h1>
-                    <p className="text-gray-500">
-                        Quản lý các dự án theo từng danh mục
-                    </p>
-                </div>
-                <div className="flex gap-3">
-                    <button
-                        onClick={() => {
-                            setSelectedCategoryIds([]);
-                            setShowLabelModal(true);
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 border rounded-lg bg-white hover:bg-gray-50 transition-colors"
-                    >
-                        <Tag className="w-4 h-4" />
-                        Thêm nhãn
-                    </button>
-                    <button
-                        onClick={() => setShowModal(true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                        <Plus className="w-4 h-4" />
-                        Thêm Category
-                    </button>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-12 gap-6">
-                <div className="col-span-4 bg-white rounded-xl p-4 shadow-sm">
-                    <div className="flex items-center gap-2 mb-4">
-                        <Folder className="w-5 h-5 text-blue-600" />
-                        <h2 className="font-semibold text-lg">Categories</h2>
-                    </div>
-
-                    {loading ? (
-                        <p className="text-gray-500">Đang tải...</p>
-                    ) : categories.length === 0 ? (
-                        <p className="text-gray-500">Chưa có category nào</p>
-                    ) : (
-                        <div className="space-y-3">
-                            {categories.map((c, index) => (
-                                <div
-                                    key={c.categoryId || c.id || index}
-                                    onClick={() => handleSelectCategory(c)}
-                                    className={`p-4 border rounded-lg cursor-pointer flex items-center justify-between hover:bg-gray-50 ${(selected?.categoryId || selected?.id) === (c.categoryId || c.id) ? "border-blue-500 bg-blue-50" : ""
-                                        }`}
-                                >
-                                    <div>
-                                        <p className="font-medium text-gray-900">{c.name}</p>
-                                        <p className="text-sm text-gray-500">
-                                            Phân loại: {c.description || "Chưa có mô tả"}
-                                        </p>
-                                    </div>
-                                    <ChevronRight className="w-4 h-4 text-gray-400" />
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-                <div className="col-span-8 bg-white rounded-xl shadow-sm overflow-hidden flex flex-col">
-                    {!selected ? (
-                        <div className="flex-1 flex flex-col items-center justify-center text-gray-500 p-12">
-                            <Folder className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                            <p className="font-medium">Chọn một category để xem các dự án</p>
-                            <p className="text-sm">
-                                Các dự án sẽ được hiển thị tại đây
-                            </p>
-                        </div>
-                    ) : (
-                        <div className="p-6">
-                            <div className="mb-6 flex justify-between items-start">
-                                <div>
-                                    <h2 className="text-2xl font-bold text-gray-900">{selected.name}</h2>
-                                    <p className="text-gray-500">
-                                        {selected.description || "Chưa có mô tả"}
-                                    </p>
-                                </div>
-                                <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold uppercase">
-                                    {categoryProjects.length} Dự án
-                                </div>
-                            </div>
-
-                            <div>
-                                <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
-                                    <Plus className="w-5 h-5 text-gray-400" />
-                                    Danh sách dự án thuộc Category
-                                </h3>
-
-                                {fetchingProjects ? (
-                                    <div className="flex justify-center p-12">
-                                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                                    </div>
-                                ) : categoryProjects.length > 0 ? (
-                                    <div className="grid grid-cols-2 gap-4">
-                                        {categoryProjects.map((p) => (
-                                            <div key={p.id || p.projectId} className="p-4 border border-gray-100 rounded-xl hover:shadow-md transition-all bg-gray-50/30">
-                                                <h4 className="font-bold text-gray-900">{p.name}</h4>
-                                                <p className="text-sm text-gray-500 line-clamp-2 mt-1">{p.description}</p>
-                                                <div className="mt-4 flex items-center justify-between">
-                                                    <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-black uppercase">
-                                                        {p.type}
-                                                    </span>
-                                                    <span className="text-xs text-gray-400">
-                                                        {p.status}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div className="h-40 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-gray-400">
-                                        <p>Chưa có dự án nào trong category này</p>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </div>
-            {showLabelModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
-                    <div className="bg-white rounded-2xl p-8 w-[500px] shadow-2xl">
-                        <div className="flex justify-between items-center mb-6">
-                            <div>
-                                <h2 className="text-xl font-bold text-gray-900">Thêm nhãn mới</h2>
-                                <p className="text-sm text-gray-500">Chọn category và nhập tên nhãn muốn thêm</p>
-                            </div>
-                            <button
-                                onClick={() => setShowLabelModal(false)}
-                                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                            >
-                                <X className="w-6 h-6 text-gray-400" />
-                            </button>
-                        </div>
-
-                        <div className="space-y-6">
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-3">
-                                    Chọn Category * <span className="font-normal text-gray-400">(có thể chọn nhiều)</span>
-                                </label>
-                                <div className="max-h-[240px] overflow-y-auto border rounded-xl p-2 space-y-1 bg-gray-50/50">
-                                    {categories.map((c, index) => {
-                                        const catId = c.categoryId || c.id;
-                                        return (
-                                            <label
-                                                key={catId || index}
-                                                className="flex items-center gap-3 p-3 rounded-lg hover:bg-white hover:shadow-sm cursor-pointer transition-all"
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedCategoryIds.includes(catId)}
-                                                    onChange={() => toggleCategorySelection(catId)}
-                                                    className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                                />
-                                                <div className="flex-1">
-                                                    <span className="font-medium text-gray-900">{c.name}</span>
-                                                    <span className="text-xs text-gray-500 ml-2">({c.labelsCount || 0} nhãn)</span>
-                                                </div>
-                                            </label>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                    Tên nhãn *
-                                </label>
-                                <input
-                                    value={labelName}
-                                    onChange={(e) => setLabelName(e.target.value)}
-                                    className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm"
-                                    placeholder="Ví dụ: Chó, Mèo, Xe hơi..."
-                                />
-                            </div>
-                        </div>
-
-                        <div className="flex justify-end gap-3 mt-8">
-                            <button
-                                onClick={() => setShowLabelModal(false)}
-                                className="px-6 py-2.5 font-medium border border-gray-200 text-gray-600 rounded-xl hover:bg-gray-50 transition-all"
-                            >
-                                Hủy
-                            </button>
-                            <button
-                                onClick={handleCreateLabel}
-                                className="px-6 py-2.5 font-medium bg-blue-600 text-white rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all disabled:opacity-50 disabled:shadow-none"
-                                disabled={!labelName.trim() || selectedCategoryIds.length === 0}
-                            >
-                                Thêm nhãn
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-            {showModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
-                    <div className="bg-white rounded-2xl p-8 w-[450px] shadow-2xl">
-                        <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-xl font-bold text-gray-900">Thêm Category mới</h2>
-                            <button
-                                onClick={() => setShowModal(false)}
-                                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                            >
-                                <X className="w-6 h-6 text-gray-400" />
-                            </button>
-                        </div>
-
-                        <div className="space-y-5">
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                    Tên category *
-                                </label>
-                                <input
-                                    value={newName}
-                                    onChange={(e) => setNewName(e.target.value)}
-                                    className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm"
-                                    placeholder="Ví dụ: Động vật, Giao thông..."
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                    Mô tả
-                                </label>
-                                <textarea
-                                    value={newDesc}
-                                    onChange={(e) => setNewDesc(e.target.value)}
-                                    className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm min-h-[100px]"
-                                    placeholder="Mô tả ngắn gọn về category này..."
-                                />
-                            </div>
-                        </div>
-
-                        <div className="flex justify-end gap-3 mt-8">
-                            <button
-                                onClick={() => setShowModal(false)}
-                                className="px-6 py-2.5 font-medium border border-gray-200 text-gray-600 rounded-xl hover:bg-gray-50 transition-all"
-                            >
-                                Hủy
-                            </button>
-                            <button
-                                onClick={handleCreate}
-                                className="px-6 py-2.5 font-medium bg-blue-600 text-white rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all disabled:opacity-50"
-                                disabled={!newName.trim()}
-                            >
-                                Tạo Category
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
+    const exists = selectedCategory.labels.some(
+      (label) => String(label.name).toLowerCase() === nextLabelName.toLowerCase()
     );
+
+    if (exists) {
+      alert("Nhan nay da ton tai trong category");
+      return;
+    }
+
+    setAddingLabel(true);
+    try {
+      await requestSequential([
+        () => api.post(`/categories/${selectedCategory.id}/labels`, { name: nextLabelName }),
+        () => api.post(`/Categories/${selectedCategory.id}/labels`, { name: nextLabelName }),
+        () => api.post(`/labelsets/${selectedCategory.id}/labels`, { name: nextLabelName }),
+      ]);
+
+      applyLabelToState(selectedCategory.id, nextLabelName);
+      setLabelName("");
+      alert("Them nhan thanh cong");
+    } catch (error) {
+      applyLabelToState(selectedCategory.id, nextLabelName);
+      setLabelName("");
+      alert("Backend chua ho tro endpoint labels. Da luu nhan local de tiep tuc.");
+    } finally {
+      setAddingLabel(false);
+    }
+  };
+
+  const filteredCategories = useMemo(() => {
+    const keyword = searchKeyword.trim().toLowerCase();
+    if (!keyword) return categories;
+
+    return categories.filter((category) => {
+      const byName = String(category.name).toLowerCase().includes(keyword);
+      const byDesc = String(category.description).toLowerCase().includes(keyword);
+      const byLabel = category.labels.some((label) => String(label.name).toLowerCase().includes(keyword));
+      return byName || byDesc || byLabel;
+    });
+  }, [categories, searchKeyword]);
+
+  const filteredProjects = useMemo(() => {
+    if (!activeLabelFilter) return categoryProjects;
+
+    return categoryProjects.filter((project) => {
+      const projectLabels = [
+        ...(Array.isArray(project?.labels) ? project.labels : []),
+        ...(Array.isArray(project?.labelNames) ? project.labelNames : []),
+      ]
+        .map((item) => (typeof item === "string" ? item : item?.name))
+        .filter(Boolean)
+        .map((item) => String(item).toLowerCase());
+
+      return projectLabels.includes(activeLabelFilter.toLowerCase());
+    });
+  }, [categoryProjects, activeLabelFilter]);
+
+  return (
+    <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Quan ly Category va Labels</h1>
+          <p className="text-gray-500">Moi category co danh sach nhan rieng, co the them nhan truc tiep.</p>
+        </div>
+
+        <button
+          onClick={() => setShowModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          Them Category
+        </button>
+      </div>
+
+      <div className="grid grid-cols-12 gap-6">
+        <div className="col-span-4 bg-white rounded-xl p-4 shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <Folder className="w-5 h-5 text-blue-600" />
+            <h2 className="font-semibold text-lg">Category List</h2>
+          </div>
+
+          <input
+            value={searchKeyword}
+            onChange={(event) => setSearchKeyword(event.target.value)}
+            placeholder="Tim theo category hoac label..."
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4"
+          />
+
+          {loading ? (
+            <p className="text-gray-500">Dang tai...</p>
+          ) : filteredCategories.length === 0 ? (
+            <p className="text-gray-500">Khong co category phu hop</p>
+          ) : (
+            <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
+              {filteredCategories.map((category) => {
+                const isActive = String(selectedCategoryId) === String(category.id);
+                return (
+                  <button
+                    key={category.id}
+                    onClick={() => {
+                      setSelectedCategoryId(String(category.id));
+                      setActiveLabelFilter("");
+                    }}
+                    className={`w-full text-left p-4 border rounded-lg transition-all ${
+                      isActive ? "border-blue-500 bg-blue-50" : "hover:bg-gray-50"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-semibold text-gray-900">{category.name}</p>
+                        <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                          {category.description || "Chua co mo ta"}
+                        </p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-gray-400" />
+                    </div>
+
+                    <div className="mt-3 flex items-center gap-2 text-xs">
+                      <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full font-semibold">
+                        {category.labelsCount} labels
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="col-span-8 bg-white rounded-xl shadow-sm overflow-hidden">
+          {!selectedCategory ? (
+            <div className="h-full min-h-[540px] flex flex-col items-center justify-center text-gray-500 p-12">
+              <Layers3 className="w-14 h-14 text-gray-300 mb-3" />
+              <p className="font-medium">Chon category de quan ly nhan</p>
+            </div>
+          ) : (
+            <div className="p-6 space-y-6">
+              <div className="flex justify-between items-start gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">{selectedCategory.name}</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {selectedCategory.description || "Chua co mo ta"}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">
+                    {selectedCategory.labels.length} labels
+                  </span>
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">
+                    {filteredProjects.length} projects
+                  </span>
+                </div>
+              </div>
+
+              <div className="border rounded-xl p-4 bg-gray-50/60 space-y-4">
+                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                  <Tag className="w-4 h-4" />
+                  Quan ly labels trong category
+                </h3>
+
+                <div className="flex gap-3">
+                  <input
+                    value={labelName}
+                    onChange={(event) => setLabelName(event.target.value)}
+                    placeholder="Nhap ten nhan moi..."
+                    className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                  />
+                  <button
+                    onClick={handleAddLabel}
+                    disabled={addingLabel || !labelName.trim()}
+                    className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {addingLabel ? "Dang them..." : "Them nhan"}
+                  </button>
+                </div>
+
+                {selectedCategory.labels.length === 0 ? (
+                  <div className="border border-dashed rounded-lg px-4 py-4 text-sm text-gray-500">
+                    Category nay chua co label. Hay them nhan de phan loai du lieu.
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setActiveLabelFilter("")}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold border ${
+                        activeLabelFilter === ""
+                          ? "bg-slate-900 text-white border-slate-900"
+                          : "bg-white text-slate-700 border-slate-200"
+                      }`}
+                    >
+                      Tat ca
+                    </button>
+                    {selectedCategory.labels.map((label) => (
+                      <button
+                        key={label.id}
+                        onClick={() => setActiveLabelFilter(label.name)}
+                        className={`px-3 py-1 rounded-full text-xs font-semibold border ${
+                          activeLabelFilter === label.name
+                            ? "bg-indigo-600 text-white border-indigo-600"
+                            : "bg-white text-indigo-700 border-indigo-200"
+                        }`}
+                      >
+                        #{label.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="font-semibold text-gray-900">Du an trong category</h3>
+
+                {fetchingProjects ? (
+                  <div className="flex justify-center p-10">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+                  </div>
+                ) : filteredProjects.length === 0 ? (
+                  <div className="h-36 border-2 border-dashed rounded-xl flex items-center justify-center text-sm text-gray-400">
+                    Khong co du an nao phu hop voi label dang chon
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-4">
+                    {filteredProjects.map((project) => (
+                      <div
+                        key={project.id || project.projectId}
+                        className="p-4 border border-gray-100 rounded-xl bg-gray-50/30"
+                      >
+                        <h4 className="font-bold text-gray-900">{project.name}</h4>
+                        <p className="text-sm text-gray-500 line-clamp-2 mt-1">
+                          {project.description || "Chua co mo ta"}
+                        </p>
+                        <div className="mt-3 text-xs text-gray-500">Trang thai: {project.status || "N/A"}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl p-8 w-[460px] shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Them Category moi</h2>
+              <button
+                onClick={() => setShowModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <X className="w-6 h-6 text-gray-400" />
+              </button>
+            </div>
+
+            <div className="space-y-5">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Ten category *</label>
+                <input
+                  value={newName}
+                  onChange={(event) => setNewName(event.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3"
+                  placeholder="Vi du: Giao thong, Dong vat..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Mo ta</label>
+                <textarea
+                  value={newDesc}
+                  onChange={(event) => setNewDesc(event.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 min-h-[100px]"
+                  placeholder="Mo ta ngan gon ve category nay..."
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-8">
+              <button
+                onClick={() => setShowModal(false)}
+                className="px-6 py-2.5 font-medium border border-gray-200 text-gray-600 rounded-xl hover:bg-gray-50"
+              >
+                Huy
+              </button>
+              <button
+                onClick={handleCreateCategory}
+                className="px-6 py-2.5 font-medium bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50"
+                disabled={!newName.trim()}
+              >
+                Tao Category
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
