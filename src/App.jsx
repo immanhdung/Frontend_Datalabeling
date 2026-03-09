@@ -14,7 +14,7 @@ import ActivityLogs from "./pages/Admin/ActivityLogs";
 import ManagerDashboard from "./pages/Manager/Dashboard";
 import ManagerProjects from "./pages/Manager/Projects";
 import Categories from "./pages/Manager/Categories";
-import ManagerAssignments from "./pages/Manager/Assignments";
+import ManagerAssignments from "./pages/Manager/AssignTasks";
 import ManagerReview from "./pages/Manager/Review";
 import ManagerProjectsDetail from "./pages/Manager/ProjectDetail";
 import CreateProjectPage from "./pages/Manager/CreateProject";
@@ -23,13 +23,26 @@ import Datasets from "./pages/Manager/Datasets";
 
 // Annotator
 import AnnotatorDashboard from "./pages/Annotator/Dashboard";
+import AnnotatorTask from "./pages/Annotator/Task";
+import AnnotatorHistory from "./pages/Annotator/History";
+import AnnotatorFeedback from "./pages/Annotator/Feedback";
 
 // Reviewer
 import ReviewerDashboard from "./pages/Reviewer/Dashboard";
+import ReviewerHistory from "./pages/Reviewer/History";
+import ReviewerAnalytics from "./pages/Reviewer/Analytics";
 
 
 function ProtectedRoute({ children, allowRoles }) {
   const { user, loading } = useAuth();
+
+  const isDevManagerBypass =
+    import.meta.env.DEV &&
+    Array.isArray(allowRoles) &&
+    allowRoles.length === 1 &&
+    allowRoles[0] === "manager";
+
+  if (isDevManagerBypass) return children;
 
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
@@ -43,8 +56,12 @@ function ProtectedRoute({ children, allowRoles }) {
 
 function RoleRedirect() {
   const { user, loading } = useAuth();
+  const isDevBypass = import.meta.env.DEV && import.meta.env.VITE_BYPASS_LOGIN === "true";
 
   if (loading) return null;
+  if (isDevBypass && !user) {
+    return <Navigate to="/admin/dashboard" replace />;
+  }
   if (!user) return <Navigate to="/login" replace />;
 
   switch (user.role.toLowerCase()) {
@@ -65,7 +82,7 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/" element={<RoleRedirect />} />
       <Route element={<DashboardLayout />}>
         {/* ADMIN */}
         <Route
@@ -102,6 +119,10 @@ function App() {
         />
 
         {/* MANAGER */}
+        <Route
+          path="/manager"
+          element={<Navigate to="/manager/dashboard" replace />}
+        />
         <Route
           path="/manager/dashboard"
           element={
@@ -177,6 +198,38 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/annotator/tasks/:taskId"
+          element={
+            <ProtectedRoute allowRoles={["annotator"]}>
+              <AnnotatorTask />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/annotator/tasks"
+          element={
+            <ProtectedRoute allowRoles={["annotator"]}>
+              <AnnotatorDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/annotator/history"
+          element={
+            <ProtectedRoute allowRoles={["annotator"]}>
+              <AnnotatorHistory />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/annotator/feedback"
+          element={
+            <ProtectedRoute allowRoles={["annotator"]}>
+              <AnnotatorFeedback />
+            </ProtectedRoute>
+          }
+        />
 
         {/* REVIEWER */}
         <Route
@@ -184,6 +237,30 @@ function App() {
           element={
             <ProtectedRoute allowRoles={["reviewer"]}>
               <ReviewerDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reviewer/review"
+          element={
+            <ProtectedRoute allowRoles={["reviewer"]}>
+              <ReviewerDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reviewer/history"
+          element={
+            <ProtectedRoute allowRoles={["reviewer"]}>
+              <ReviewerHistory />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reviewer/analytics"
+          element={
+            <ProtectedRoute allowRoles={["reviewer"]}>
+              <ReviewerAnalytics />
             </ProtectedRoute>
           }
         />

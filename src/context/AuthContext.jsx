@@ -1,6 +1,12 @@
 import { createContext, useContext, useState, useEffect } from "react";
 
 const AuthContext = createContext(null);
+const ENABLE_DEV_LOGIN_BYPASS = import.meta.env.VITE_BYPASS_LOGIN === "true";
+const DEV_BYPASS_USER = {
+    id: "dev-admin-1",
+    username: "admin1",
+    role: "admin",
+};
 
 export function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
@@ -14,6 +20,15 @@ export function AuthProvider({ children }) {
         if (savedUser && savedToken) {
             setUser(JSON.parse(savedUser));
             setToken(savedToken);
+            setLoading(false);
+            return;
+        }
+
+        if (import.meta.env.DEV && ENABLE_DEV_LOGIN_BYPASS) {
+            setUser(DEV_BYPASS_USER);
+            setToken("dev-bypass-token");
+            localStorage.setItem("user", JSON.stringify(DEV_BYPASS_USER));
+            localStorage.setItem("accessToken", "dev-bypass-token");
         }
 
         setLoading(false);
