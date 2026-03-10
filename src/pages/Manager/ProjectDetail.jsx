@@ -95,7 +95,7 @@ export default function ManagerProjectDetail() {
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [selectedAssigneeId, setSelectedAssigneeId] = useState("");
   const [memberSearch, setMemberSearch] = useState("");
-  const [memberRoleFilter, setMemberRoleFilter] = useState("all");
+  const [memberRoleFilter, setMemberRoleFilter] = useState("annotator");
   const [memberPage, setMemberPage] = useState(1);
   const [addingMember, setAddingMember] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState("");
@@ -208,7 +208,7 @@ export default function ManagerProjectDetail() {
       const email = String(user?.email || "").toLowerCase();
       const username = String(user?.username || "").toLowerCase();
 
-      const matchRole = memberRoleFilter === "all" || role === memberRoleFilter;
+      const matchRole = role === memberRoleFilter;
       const matchKeyword =
         !keyword ||
         displayName.includes(keyword) ||
@@ -954,11 +954,8 @@ export default function ManagerProjectDetail() {
             onChange={(e) => setMemberRoleFilter(e.target.value)}
             className="border rounded px-3 py-2"
           >
-            <option value="all">Tất cả role</option>
             <option value="annotator">Annotator</option>
             <option value="reviewer">Reviewer</option>
-            <option value="manager">Manager</option>
-            <option value="admin">Admin</option>
           </select>
         </div>
 
