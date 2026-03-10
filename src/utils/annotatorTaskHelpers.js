@@ -42,9 +42,9 @@ export const getCurrentUserIdentifiers = () => {
 };
 
 export const getTaskAssigneeId = (task) => {
-  const directAssignee = task?.assignedTo ?? task?.assigned_to ?? task?.assigneeId ?? task?.annotatorId;
+  const directAssignee = task?.assignedTo ?? task?.assigned_to ?? task?.assigneeId ?? task?.annotatorId ?? task?.assignee ?? task?.user ?? task?.member;
   if (typeof directAssignee === 'object' && directAssignee !== null) {
-    return directAssignee.id ?? directAssignee._id;
+    return directAssignee.id ?? directAssignee._id ?? directAssignee.userId;
   }
   return directAssignee;
 };
@@ -166,22 +166,21 @@ export const assignLocalTaskToUser = (task, userId) => {
   localStorage.setItem('assignedTasksByUser', JSON.stringify(taskMap));
 };
 
-export const fetchAssignedTasksForUser = async (taskApi, userId) => {
-  if (!userId) {
+export const fetchAssignedTasksForUser = async (taskApi, userIdOrIds) => {
+  if (!userIdOrIds) {
     return [];
   }
+
+  const ids = Array.isArray(userIdOrIds) ? userIdOrIds : [userIdOrIds];
+  const isMatch = (task) => ids.some(id => String(task.assignedTo) === String(id));
 
   try {
     const myTasksResponse = await taskApi.getMyTasks();
     const myTasks = resolveApiData(myTasksResponse);
-    return normalizeTasks(myTasks).filter(
-      (task) => String(task.assignedTo) === String(userId)
-    );
+    return normalizeTasks(myTasks).filter(isMatch);
   } catch (myTaskError) {
     const allTasksResponse = await taskApi.getAll();
     const allTasks = resolveApiData(allTasksResponse);
-    return normalizeTasks(allTasks).filter(
-      (task) => String(task.assignedTo) === String(userId)
-    );
+    return normalizeTasks(allTasks).filter(isMatch);
   }
 };

@@ -15,7 +15,8 @@ import {
     Loader2,
     Eye,
     Calendar,
-    Database
+    Database,
+    Pencil
 } from "lucide-react";
 import api, { datasetAPI, API_BASE_URL } from "../../config/api";
 
@@ -298,9 +299,10 @@ export default function Datasets() {
         }
     };
 
-    const handleViewDetail = async (ds) => {
+
+    const handleViewDetail = async (ds, openModal = true) => {
         const id = ds.id || ds.datasetId;
-        setShowDetailModal(true);
+        if (openModal) setShowDetailModal(true);
         setLoadingDetail(true);
         try {
             // Fetch fresh dataset info AND items
@@ -308,6 +310,7 @@ export default function Datasets() {
                 api.get(`/datasets/${id}`),
                 api.get(`/datasets/${id}/items`)
             ]);
+            console.log("DEBUG: Dataset items data:", itemsRes.data);
             setSelectedDataset(infoRes.data);
             setDetailItems(itemsRes.data?.items || itemsRes.data || []);
         } catch (err) {
@@ -316,6 +319,63 @@ export default function Datasets() {
             setDetailItems([]);
         } finally {
             setLoadingDetail(false);
+        }
+    };
+
+    const handleDeleteItem = async (itemId) => {
+        if (!window.confirm("Bạn có chắc muốn xóa tệp này?")) return;
+        try {
+            setLoading(true);
+            await api.delete(`/datasets/items/${itemId}`);
+            setDetailItems(prev => prev.filter(it => (it.id || it.itemId || it.datasetItemId || it.dataset_item_id) !== itemId));
+            // Also refresh dataset list to update counts/size
+            fetchData();
+        } catch (err) {
+            console.error(err);
+            alert("Xóa tệp thất bại");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleUploadMore = async () => {
+        if (uploadType === "zip" && !newDataset.zipFile) {
+            alert("Vui lòng chọn file ZIP");
+            return;
+        }
+        if (uploadType === "images" && newDataset.images.length === 0) {
+            alert("Vui lòng chọn ít nhất một ảnh");
+            return;
+        }
+
+        try {
+            setLoading(true);
+            const datasetId = selectedDataset.id || selectedDataset.datasetId;
+
+            if (uploadType === "zip") {
+                const formData = new FormData();
+                formData.append("File", newDataset.zipFile);
+                formData.append("Name", newDataset.zipFile.name);
+                await api.post(`/datasets/${datasetId}/items`, formData);
+            } else {
+                for (const file of newDataset.images) {
+                    const formData = new FormData();
+                    formData.append("File", file);
+                    formData.append("Name", file.name);
+                    await api.post(`/datasets/${datasetId}/items`, formData);
+                }
+            }
+
+            alert("Tải lên thêm thành công!");
+            resetAddForm();
+            // Refresh items list
+            handleViewDetail(selectedDataset, false);
+            fetchData();
+        } catch (err) {
+            console.error(err);
+            alert("Tải lên thất bại: " + (err.response?.data?.message || err.message));
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -413,6 +473,20 @@ export default function Datasets() {
                                                 >
                                                     <Eye className="w-4 h-4" />
                                                     Xem chi tiết
+                                                </button>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSelectedDataset(ds);
+                                                        setEditName(ds.name);
+                                                        setShowEditModal(true);
+                                                        setOpenMenuId(null);
+                                                        handleViewDetail(ds, false); // Fetch items for editing
+                                                    }}
+                                                    className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-amber-600 hover:bg-amber-50 transition-colors"
+                                                >
+                                                    <Pencil className="w-4 h-4" />
+                                                    Chỉnh sửa
                                                 </button>
                                                 <button
                                                     onClick={(e) => {
@@ -592,25 +666,162 @@ export default function Datasets() {
             {/* EDIT MODAL */}
             {showEditModal && (
                 <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in duration-200">
+                    <div className="bg-white rounded-[32px] w-full max-w-4xl max-h-[90vh] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in duration-200">
                         <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                            <h2 className="text-xl font-bold text-gray-900">Chỉnh sửa Dataset</h2>
-                            <button onClick={() => setShowEditModal(false)} className="p-2 hover:bg-white rounded-full transition-all">
+                            <div>
+                                <h2 className="text-xl font-bold text-gray-900">Chỉnh sửa Dataset</h2>
+                                <p className="text-sm text-gray-500">Quản lý tên và nội dung của dataset</p>
+                            </div>
+                            <button onClick={() => { setShowEditModal(false); resetAddForm(); }} className="p-2 hover:bg-white rounded-full transition-all">
                                 <X className="w-5 h-5 text-gray-400" />
                             </button>
                         </div>
-                        <div className="p-8 space-y-4">
-                            <label className="text-sm font-bold text-gray-700 ml-1">Đổi tên Dataset</label>
-                            <input
-                                type="text"
-                                value={editName}
-                                onChange={(e) => setEditName(e.target.value)}
-                                className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 focus:bg-white transition-all text-lg font-bold"
-                            />
+
+                        <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+                            {/* Rename Section */}
+                            <div className="space-y-4">
+                                <label className="text-sm font-bold text-gray-700 ml-1">Đổi tên Dataset</label>
+                                <div className="flex gap-3">
+                                    <input
+                                        type="text"
+                                        value={editName}
+                                        onChange={(e) => setEditName(e.target.value)}
+                                        className="flex-1 px-5 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 focus:bg-white transition-all font-bold"
+                                    />
+                                    <button
+                                        onClick={handleEditDataset}
+                                        disabled={loading || !editName.trim() || editName === selectedDataset?.name}
+                                        className="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 transition-all font-sans"
+                                    >
+                                        Đổi tên
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                {/* Manage Items List */}
+                                <div className="space-y-4">
+                                    <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 flex items-center gap-2">
+                                        <Database className="w-4 h-4" />
+                                        Danh sách tệp tin hiện tại
+                                    </h3>
+                                    <div className="border border-gray-100 rounded-2xl overflow-hidden bg-gray-50/30">
+                                        {loadingDetail ? (
+                                            <div className="p-10 text-center">
+                                                <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mx-auto mb-2" />
+                                                <p className="text-xs text-gray-400 font-bold">Đang tải...</p>
+                                            </div>
+                                        ) : detailItems.length === 0 ? (
+                                            <div className="p-10 text-center text-gray-400 text-sm font-medium italic">Trống</div>
+                                        ) : (
+                                            <div className="max-h-[300px] overflow-y-auto divide-y divide-gray-100">
+                                                {detailItems.map((item, idx) => {
+                                                    const name = getItemName(item, idx);
+                                                    const itemId = item.id || item.itemId || item.datasetItemId || item.dataset_item_id;
+                                                    return (
+                                                        <div key={idx} className="flex items-center justify-between p-3 hover:bg-white transition-colors group">
+                                                            <div className="flex items-center gap-3 min-w-0">
+                                                                <div className="w-8 h-8 rounded bg-gray-100 flex items-center justify-center text-gray-400 shrink-0">
+                                                                    <ImageIcon className="w-4 h-4" />
+                                                                </div>
+                                                                <span className="text-sm truncate font-medium text-gray-700">{name}</span>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => handleDeleteItem(itemId)}
+                                                                className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Upload More Section */}
+                                <div className="space-y-4">
+                                    <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 flex items-center gap-2">
+                                        <Plus className="w-4 h-4" />
+                                        Thêm tệp mới
+                                    </h3>
+
+                                    <div className="flex gap-2 p-1 bg-gray-100 rounded-xl w-fit">
+                                        <button
+                                            onClick={() => setUploadType("images")}
+                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${uploadType === "images" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500"}`}
+                                        >
+                                            Ảnh
+                                        </button>
+                                        <button
+                                            onClick={() => setUploadType("zip")}
+                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${uploadType === "zip" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500"}`}
+                                        >
+                                            ZIP
+                                        </button>
+                                    </div>
+
+                                    <div
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="border-2 border-dashed border-gray-200 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 hover:border-indigo-400 hover:bg-indigo-50/30 transition-all cursor-pointer group"
+                                    >
+                                        <Upload className="w-6 h-6 text-gray-400 group-hover:text-indigo-500" />
+                                        <p className="text-xs font-bold text-gray-500">Nhấp để tải lên</p>
+                                        <input
+                                            type="file"
+                                            ref={fileInputRef}
+                                            onChange={handleFileChange}
+                                            multiple={uploadType === "images"}
+                                            accept={uploadType === "images" ? "image/*" : ".zip"}
+                                            className="hidden"
+                                        />
+                                    </div>
+
+                                    {uploadType === "images" && newDataset.images.length > 0 && (
+                                        <div className="flex items-center justify-between p-3 bg-indigo-50 rounded-xl border border-indigo-100">
+                                            <span className="text-xs font-bold text-indigo-700">{newDataset.images.length} tệp đã chọn</span>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => resetAddForm()} className="text-[10px] font-black uppercase text-gray-400 hover:text-red-500">Hủy</button>
+                                                <button
+                                                    onClick={handleUploadMore}
+                                                    disabled={loading}
+                                                    className="bg-indigo-600 text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase hover:bg-indigo-700 disabled:opacity-50"
+                                                >
+                                                    Tải lên
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {uploadType === "zip" && newDataset.zipFile && (
+                                        <div className="flex items-center justify-between p-3 bg-indigo-50 rounded-xl border border-indigo-100">
+                                            <div className="flex-1 min-w-0 pr-4">
+                                                <p className="text-xs font-bold text-indigo-900 truncate">{newDataset.zipFile.name}</p>
+                                            </div>
+                                            <div className="flex gap-2 shrink-0">
+                                                <button onClick={() => resetAddForm()} className="text-[10px] font-black uppercase text-gray-400 hover:text-red-500">Hủy</button>
+                                                <button
+                                                    onClick={handleUploadMore}
+                                                    disabled={loading}
+                                                    className="bg-indigo-600 text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase hover:bg-indigo-700 disabled:opacity-50"
+                                                >
+                                                    Tải lên
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
-                        <div className="p-6 border-t bg-gray-50/50 flex justify-end gap-3">
-                            <button onClick={() => setShowEditModal(false)} className="px-5 py-2.5 text-sm font-bold text-gray-500">Đóng</button>
-                            <button onClick={handleEditDataset} className="px-8 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100">Lưu thay đổi</button>
+
+                        <div className="p-6 border-t bg-gray-50/50 flex justify-end">
+                            <button
+                                onClick={() => { setShowEditModal(false); resetAddForm(); }}
+                                className="px-8 py-2.5 bg-gray-800 text-white rounded-xl text-sm font-bold hover:bg-black shadow-lg"
+                            >
+                                Xong
+                            </button>
                         </div>
                     </div>
                 </div>

@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import api from '../../config/api';
-import { taskAPI, userAPI, roleAPI } from '../../config/api';
+import api, { taskAPI, userAPI, roleAPI } from '../../config/api';
 import Header from '../../components/common/Header';
 import {
   assignLocalTaskToUser,
   getAssignedTasksByUserMap,
   resolveApiData,
+  normalizeTasks,
+  normalizeTask,
 } from '../../utils/annotatorTaskHelpers';
 import {
   Search,
@@ -164,26 +165,31 @@ export default function AssignTasks() {
         roleAPI.getAll()
       ]);
 
+      let apiTasks = [];
       if (tasksRes.status === 'fulfilled') {
-        const t = resolveApiData(tasksRes.value);
-        setTasks(t);
-        if (preselectedProjectId) {
-          const found = t.find(it => String(it.id) === preselectedProjectId);
-          if (found) setSelectedTask(found);
-        }
-      } else {
-        try {
-          const projectsRes = await api.get('/projects');
-          const projects = toArrayData(projectsRes);
-          const mappedTasks = projects.map(mapProjectToTask);
-          setTasks(mappedTasks);
-          if (preselectedProjectId) {
-            const found = mappedTasks.find(it => String(it.id) === preselectedProjectId);
-            if (found) setSelectedTask(found);
-          }
-        } catch {
-          setTasks([]);
-        }
+        apiTasks = normalizeTasks(resolveApiData(tasksRes.value));
+      }
+
+      let projectTasks = [];
+      try {
+        const projectsRes = await api.get('/projects');
+        const projects = toArrayData(projectsRes);
+        projectTasks = projects.map(mapProjectToTask).map(t => normalizeTask(t));
+      } catch (projErr) {
+        console.warn("Fallback projects fetch failed:", projErr);
+      }
+
+      // Combine both API tasks and project-based tasks
+      const combinedMap = new Map();
+      projectTasks.forEach(t => combinedMap.set(String(t.id), t));
+      apiTasks.forEach(t => combinedMap.set(String(t.id), t));
+
+      const finalTasks = Array.from(combinedMap.values());
+      setTasks(finalTasks);
+
+      if (preselectedProjectId) {
+        const found = finalTasks.find(it => String(it.id || it._id) === preselectedProjectId || String(it.__projectId) === preselectedProjectId);
+        if (found) setSelectedTask(found);
       }
 
       if (rolesRes.status === 'fulfilled') {
@@ -196,15 +202,17 @@ export default function AssignTasks() {
         });
         setRolesMap(nextRolesMap);
       } else {
+        // Silently use fallback roles if API is forbidden
         setRolesMap({ '1': 'admin', '2': 'manager', '3': 'annotator', '4': 'reviewer' });
       }
 
       const apiUsers = usersRes.status === 'fulfilled' ? toArrayData(usersRes.value) : [];
       let projectMembers = [];
       try {
+        // Wrapped in try-catch to prevent a 500 here from breaking the whole page
         projectMembers = await fetchUsersFromProjectMembers();
       } catch (e) {
-        console.warn("Project members fetch failed (expected if API restricted)", e);
+        console.warn("Project members fetch failed (expected if API restricted or failing):", e);
       }
 
       let allUsers = dedupeUsers([...apiUsers, ...projectMembers, ...readLocalDevUsers()]);
@@ -256,11 +264,13 @@ export default function AssignTasks() {
         assignLocalTaskToUser(selectedTask, uid);
         successCount++;
 
-        if (!isPreviewTask && selectedTask.__assignmentSource !== 'project') {
+        if (!isPreviewTask) {
           try {
-            await taskAPI.assign(selectedTask.id, uid);
+            // Strip project- prefix if it's a project-based task
+            const rawId = selectedTask.__projectId || String(selectedTask.id).replace('project-', '');
+            await taskAPI.assign(rawId, uid);
           } catch (e) {
-            console.warn("Backend assign faied for", uid, e);
+            console.warn("Backend assign failed for", uid, e);
           }
         }
       }
@@ -326,7 +336,11 @@ export default function AssignTasks() {
 
   const filteredTasks = sourceTasks.filter(t => {
     if (filterStatus !== 'all' && t.status !== filterStatus) return false;
-    if (searchTask && !(t.name || '').toLowerCase().includes(searchTask.toLowerCase())) return false;
+    if (searchTask) {
+      const search = searchTask.toLowerCase();
+      const name = String(t.name || t.title || '').toLowerCase();
+      if (!name.includes(search)) return false;
+    }
     return true;
   });
 
@@ -419,7 +433,7 @@ export default function AssignTasks() {
                   >
                     <div className="flex justify-between items-start mb-2">
                       <h3 className={`font-bold text-sm ${isTaskSelected(task.id) ? 'text-indigo-900' : 'text-slate-900'} line-clamp-2 pr-2`}>
-                        {task.name || `Task #${task.id}`}
+                        {task.title || task.name || `Task #${task.id}`}
                       </h3>
                       {isTaskSelected(task.id) && <CheckCircle2 className="w-5 h-5 text-indigo-600 shrink-0" />}
                     </div>
@@ -430,9 +444,9 @@ export default function AssignTasks() {
                         }`}>
                         {task.status || 'pending'}
                       </span>
-                      {task.project_name && (
+                      {task.projectName && (
                         <span className="text-[10px] font-bold text-slate-400 truncate">
-                          • {task.project_name}
+                          • {task.projectName}
                         </span>
                       )}
                     </div>
@@ -451,7 +465,7 @@ export default function AssignTasks() {
                 <div className="flex items-center justify-between w-full bg-indigo-900 text-white px-6 py-3 rounded-2xl shadow-xl shadow-indigo-900/20">
                   <div className="flex flex-col">
                     <span className="text-indigo-200 text-xs font-bold uppercase tracking-wider">Đang chọn giao việc</span>
-                    <span className="font-bold text-lg truncate max-w-md">{selectedTask.name}</span>
+                    <span className="font-bold text-lg truncate max-w-md">{selectedTask.title || selectedTask.name || `Nhiệm vụ #${selectedTask.id}`}</span>
                   </div>
                   <button
                     onClick={handleAssignSubmit}

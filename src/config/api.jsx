@@ -54,23 +54,22 @@ export const taskAPI = {
     ]),
   assign: (taskId, userId) =>
     trySequential([
+      () => api.post("/tasks/assign", { taskId, userId }),
+      () => api.post("/Tasks/assign", { taskId, userId }),
+      () => api.post("/tasks/assign", { projectId: taskId, userId }),
+      () => api.post("/tasks/assign", { id: taskId, userId }),
       () => api.post(`/tasks/${taskId}/assign`, { userId }),
       () => api.post(`/tasks/${taskId}/assign`, { annotatorId: userId }),
       () => api.post(`/tasks/${taskId}/assign`, { assignedTo: userId }),
-      () => api.post(`/tasks/${taskId}/assign`, { assigned_to: userId }),
-      () => api.post(`/tasks/${taskId}/assign`, { assigneeId: userId }),
-      () => api.put(`/tasks/${taskId}/assign`, { userId }),
-      () => api.patch(`/tasks/${taskId}/assign`, { userId }),
       () => api.post(`/projects/${taskId}/members/${userId}`, {}),
-      () => api.post(`/Tasks/${taskId}/assign`, { userId }),
-      () => api.post(`/tasks/${taskId}/Assign`, { userId }),
     ]),
   getMyTasks: () =>
     trySequential([
+      () => api.get("/tasks"),
+      () => api.get("/Tasks"),
       () => api.get("/tasks/my-tasks"),
       () => api.get("/tasks/my"),
       () => api.get("/tasks/assigned"),
-      () => api.get("/tasks?assignedOnly=true"),
     ]),
   getById: (taskId) => api.get(`/tasks/${taskId}`),
   submit: (taskId, payload) =>

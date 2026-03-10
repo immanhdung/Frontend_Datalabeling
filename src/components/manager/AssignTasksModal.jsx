@@ -12,6 +12,7 @@ import {
     ClipboardList
 } from 'lucide-react';
 import api, { taskAPI, userAPI, roleAPI } from '../../config/api';
+import { assignLocalTaskToUser } from '../../utils/annotatorTaskHelpers';
 
 export default function AssignTasksModal({ project, isOpen, onClose }) {
     const [users, setUsers] = useState([]);
@@ -153,6 +154,9 @@ export default function AssignTasksModal({ project, isOpen, onClose }) {
 
         try {
             for (const uid of allSelectedIds) {
+                // local update for instant visibility for annotators
+                assignLocalTaskToUser(project, uid);
+
                 try {
                     await taskAPI.assign(projectId, uid);
                 } catch (e) {
@@ -196,7 +200,7 @@ export default function AssignTasksModal({ project, isOpen, onClose }) {
                 {/* Message Banner */}
                 {message.text && (
                     <div className={`m-4 p-4 rounded-2xl border font-bold flex items-center shadow-sm ${message.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
-                            message.type === 'error' ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-amber-50 text-amber-700 border-amber-100'
+                        message.type === 'error' ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-amber-50 text-amber-700 border-amber-100'
                         }`}>
                         {message.type === 'success' ? <CheckCircle2 className="w-5 h-5 mr-3" /> : <AlertCircle className="w-5 h-5 mr-3" />}
                         {message.text}

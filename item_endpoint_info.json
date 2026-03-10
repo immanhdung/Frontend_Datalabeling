@@ -1,0 +1,25 @@
+{
+  "delete": {
+    "tags": [
+      "Datasets"
+    ],
+    "summary": "Delete a dataset item by ID.",
+    "parameters": [
+      {
+        "name": "itemId",
+        "in": "path",
+        "required": true,
+        "style": "simple",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "Success"
+      }
+    }
+  }
+}
