@@ -21,7 +21,6 @@ import {
 import api from "../../config/api";
 
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "bmp", "gif", "tif", "tiff"];
-const DEV_DATASETS_KEY = "devManagerDatasets";
 
 const requestSequential = async (factories) => {
     let lastError;
@@ -33,11 +32,6 @@ const requestSequential = async (factories) => {
         }
     }
     throw lastError;
-};
-
-const isEndpointMissing = (error) => {
-    const status = Number(error?.response?.status);
-    return import.meta.env.DEV && (status === 404 || status === 405 || status === 501);
 };
 
 const formatBytes = (bytes) => {
@@ -148,16 +142,6 @@ const getQualityInfo = (item, fallbackIndex) => {
     return { status: "unknown", text: "Chưa đủ dữ liệu" };
 };
 
-const buildLocalItemsFromFiles = (files) => {
-    return files.map((file, index) => ({
-        id: `local-item-${Date.now()}-${index}`,
-        name: file.name,
-        fileName: file.name,
-        size: file.size,
-        contentLength: file.size,
-    }));
-};
-
 const getItemId = (item, fallbackIndex) => {
     const id = item?.id ?? item?.itemId ?? item?.datasetItemId;
     if (id !== undefined && id !== null && String(id).trim() !== "") {
@@ -221,21 +205,6 @@ export default function Datasets() {
         })),
         [editImages]
     );
-
-    const readLocalDatasets = () => {
-        try {
-            const raw = localStorage.getItem(DEV_DATASETS_KEY);
-            const parsed = raw ? JSON.parse(raw) : [];
-            return Array.isArray(parsed) ? parsed : [];
-        } catch {
-            return [];
-        }
-    };
-
-    const persistLocalDatasets = (next) => {
-        if (!import.meta.env.DEV) return;
-        localStorage.setItem(DEV_DATASETS_KEY, JSON.stringify(next));
-    };
 
     useEffect(() => {
         return () => {
@@ -339,11 +308,7 @@ export default function Datasets() {
                     datasetRes.data ||
                     [];
             } catch (datasetErr) {
-                if (isEndpointMissing(datasetErr)) {
-                    datasetList = readLocalDatasets();
-                } else {
-                    setError("Không thể tải dữ liệu dataset.");
-                }
+                setError("Không thể tải dữ liệu dataset.");
             }
 
             try {
@@ -364,20 +329,9 @@ export default function Datasets() {
             const safeDatasets = Array.isArray(datasetList) ? datasetList : [];
             setDatasets(safeDatasets);
             setProjects(Array.isArray(projectList) ? projectList : []);
-
-            if (import.meta.env.DEV && safeDatasets.length > 0) {
-                persistLocalDatasets(safeDatasets);
-            }
         } catch (err) {
             console.error(err);
-            if (isEndpointMissing(err)) {
-                const localDatasets = readLocalDatasets();
-                setDatasets(localDatasets);
-                setProjects([]);
-                setError(null);
-            } else {
-                setError("Không th? tải dữ liệu.");
-            }
+            setError("Không tải được dữ liệu.");
         } finally {
             setLoading(false);
         }
@@ -464,32 +418,6 @@ export default function Datasets() {
             fetchData();
         } catch (err) {
             console.error(err);
-            if (isEndpointMissing(err)) {
-                const localFiles = uploadType === "zip" ? [newDataset.zipFile] : newDataset.images;
-                const localItems = buildLocalItemsFromFiles(localFiles.filter(Boolean));
-                const localId = `local-dataset-${Date.now()}`;
-
-                const localDataset = {
-                    id: localId,
-                    datasetId: localId,
-                    name: newDataset.name.trim(),
-                    createdAt: new Date().toISOString(),
-                    itemsCount: localItems.length,
-                    imagesCount: localItems.length,
-                    totalItems: localItems.length,
-                    items: localItems,
-                    isLocalOnly: true,
-                };
-
-                const nextDatasets = [localDataset, ...datasets];
-                setDatasets(nextDatasets);
-                persistLocalDatasets(nextDatasets);
-                setShowAddModal(false);
-                resetAddForm();
-                alert("Endpoint tạo/upload dataset chưa có. Đã tạo dataset demo để tiếp tục test UI.");
-                return;
-            }
-
             alert("Thêm dataset thất bại: " + (err.response?.data?.message || err.message));
         } finally {
             setLoading(false);
@@ -584,13 +512,6 @@ export default function Datasets() {
         setShowDetailModal(true);
         setLoadingDetail(true);
 
-        if (ds?.isLocalOnly) {
-            setSelectedDataset(ds);
-            setDetailItems(Array.isArray(ds?.items) ? ds.items : []);
-            setLoadingDetail(false);
-            return;
-        }
-
         try {
             const detail = await fetchDatasetDetail(id);
             setSelectedDataset(detail.dataset);
@@ -612,11 +533,6 @@ export default function Datasets() {
         setEditImages([]);
         setEditZipFile(null);
         setShowEditModal(true);
-
-        if (ds?.isLocalOnly) {
-            setDetailItems(Array.isArray(ds?.items) ? ds.items : []);
-            return;
-        }
 
         try {
             setLoadingDetail(true);
@@ -656,38 +572,6 @@ export default function Datasets() {
         }
 
         const files = editUploadType === "zip" ? [editZipFile] : editImages;
-        const applyFilesLocal = () => {
-            const appendedItems = buildLocalItemsFromFiles(files.filter(Boolean));
-            const nextDatasets = datasets.map((dataset) => {
-                const currentId = dataset?.id || dataset?.datasetId;
-                if (String(currentId) !== String(dsId)) return dataset;
-
-                const prevItems = Array.isArray(dataset?.items) ? dataset.items : [];
-                const mergedItems = [...prevItems, ...appendedItems];
-                return {
-                    ...dataset,
-                    items: mergedItems,
-                    itemsCount: mergedItems.length,
-                    imageCount: mergedItems.length,
-                    imagesCount: mergedItems.length,
-                    totalItems: mergedItems.length,
-                    isLocalOnly: true,
-                };
-            });
-
-            const updated = nextDatasets.find((dataset) => String(dataset?.id || dataset?.datasetId) === String(dsId));
-            setDatasets(nextDatasets);
-            persistLocalDatasets(nextDatasets);
-            setSelectedDataset(updated || selectedDataset);
-            setDetailItems(Array.isArray(updated?.items) ? updated.items : []);
-            setEditImages([]);
-            setEditZipFile(null);
-        };
-
-        if (selectedDataset?.isLocalOnly) {
-            applyFilesLocal();
-            return;
-        }
 
         try {
             setUploadingDetailItems(true);
@@ -709,11 +593,6 @@ export default function Datasets() {
             fetchData();
             alert("Đã cập nhật dữ liệu dataset");
         } catch (err) {
-            if (isEndpointMissing(err)) {
-                applyFilesLocal();
-                alert("Endpoint upload chưa có. Đã lưu local để bạn test tiếp.");
-                return;
-            }
             alert("Thêm file thất bại: " + (err.response?.data?.message || err.message));
         } finally {
             setUploadingDetailItems(false);
@@ -730,36 +609,6 @@ export default function Datasets() {
 
         if (!window.confirm("Bạn có chắc chắn muốn xóa file này?")) return;
 
-        const removeItemLocal = () => {
-            const nextDatasets = datasets.map((dataset) => {
-                const currentId = dataset?.id || dataset?.datasetId;
-                if (String(currentId) !== String(dsId)) return dataset;
-
-                const prevItems = Array.isArray(dataset?.items) ? dataset.items : [];
-                const nextItems = prevItems.filter((it) => String(it?.id || it?.itemId || it?.datasetItemId) !== String(itemId));
-                return {
-                    ...dataset,
-                    items: nextItems,
-                    itemsCount: nextItems.length,
-                    imageCount: nextItems.length,
-                    imagesCount: nextItems.length,
-                    totalItems: nextItems.length,
-                    isLocalOnly: true,
-                };
-            });
-
-            const updated = nextDatasets.find((dataset) => String(dataset?.id || dataset?.datasetId) === String(dsId));
-            setDatasets(nextDatasets);
-            persistLocalDatasets(nextDatasets);
-            setSelectedDataset(updated || selectedDataset);
-            setDetailItems(Array.isArray(updated?.items) ? updated.items : []);
-        };
-
-        if (selectedDataset?.isLocalOnly) {
-            removeItemLocal();
-            return;
-        }
-
         try {
             setDeletingItemIds((prev) => [...prev, String(itemId)]);
             await requestSequential([
@@ -772,10 +621,6 @@ export default function Datasets() {
             setDetailItems((prev) => prev.filter((it) => String(it?.id || it?.itemId || it?.datasetItemId) !== String(itemId)));
             fetchData();
         } catch (err) {
-            if (isEndpointMissing(err)) {
-                removeItemLocal();
-                return;
-            }
             alert("Xóa file thất bại: " + (err.response?.data?.message || err.message));
         } finally {
             setDeletingItemIds((prev) => prev.filter((id) => id !== String(itemId)));

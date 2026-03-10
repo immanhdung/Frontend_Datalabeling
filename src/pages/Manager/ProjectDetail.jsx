@@ -81,10 +81,6 @@ const normalizeLabelItem = (item, index) => {
 export default function ManagerProjectDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const isEndpointMissing = (error) => {
-    const status = error?.response?.status;
-    return import.meta.env.DEV && (status === 404 || status === 405 || status === 500 || status === 501);
-  };
 
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -369,21 +365,7 @@ export default function ManagerProjectDetail() {
       }));
       setCustomLabelInput("");
     } catch (error) {
-      if (!isEndpointMissing(error)) {
-        alert(error?.response?.data?.message || error?.response?.data?.title || "Thêm nhãn thất bại");
-        return;
-      }
-
-      patchSelectedCategoryLabels((prev) => [
-        ...prev,
-        { id: `label-${Date.now()}`, name: nextName },
-      ]);
-      setEditForm((prev) => ({
-        ...prev,
-        labels: prev.labels.includes(nextName) ? prev.labels : [...prev.labels, nextName],
-      }));
-      setCustomLabelInput("");
-      alert("Backend loi, da cap nhat local o che do demo.");
+      alert(error?.response?.data?.message || error?.response?.data?.title || "Thêm nhãn thất bại");
     } finally {
       setLabelActionTargetId("");
     }
@@ -430,24 +412,7 @@ export default function ManagerProjectDetail() {
       }));
       cancelEditCategoryLabel();
     } catch (error) {
-      if (!isEndpointMissing(error)) {
-        alert(error?.response?.data?.message || error?.response?.data?.title || "Cập nhật nhãn thất bại");
-        return;
-      }
-
-      patchSelectedCategoryLabels((prev) =>
-        prev.map((item) =>
-          String(item.id) === String(label.id) ? { ...item, name: nextName } : item
-        )
-      );
-      setEditForm((prev) => ({
-        ...prev,
-        labels: prev.labels.map((item) =>
-          String(item).trim().toLowerCase() === currentName.toLowerCase() ? nextName : item
-        ),
-      }));
-      cancelEditCategoryLabel();
-      alert("Backend loi, da cap nhat local o che do demo.");
+      alert(error?.response?.data?.message || error?.response?.data?.title || "Cập nhật nhãn thất bại");
     } finally {
       setLabelActionTargetId("");
     }
@@ -475,24 +440,7 @@ export default function ManagerProjectDetail() {
         cancelEditCategoryLabel();
       }
     } catch (error) {
-      if (!isEndpointMissing(error)) {
-        alert(error?.response?.data?.message || error?.response?.data?.title || "Xóa nhãn thất bại");
-        return;
-      }
-
-      patchSelectedCategoryLabels((prev) =>
-        prev.filter((item) => String(item.id) !== String(label.id))
-      );
-      setEditForm((prev) => ({
-        ...prev,
-        labels: prev.labels.filter(
-          (item) => String(item).trim().toLowerCase() !== String(label.name).trim().toLowerCase()
-        ),
-      }));
-      if (String(editingCategoryLabelId) === String(label.id)) {
-        cancelEditCategoryLabel();
-      }
-      alert("Backend lỗi, đã xóa local ở chế độ demo.");
+      alert(error?.response?.data?.message || error?.response?.data?.title || "Xóa nhãn thất bại");
     } finally {
       setLabelActionTargetId("");
     }

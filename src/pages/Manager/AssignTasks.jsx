@@ -6,8 +6,6 @@ import {
   resolveApiData,
 } from '../../utils/annotatorTaskHelpers';
 
-const DEV_USERS_KEY = 'devAdminUsers';
-
 const AssignTasks = () => {
   const [tasks, setTasks] = useState([]);
   const [users, setUsers] = useState([]);
@@ -20,18 +18,6 @@ const AssignTasks = () => {
   const [message, setMessage] = useState({ type: '', text: '' });
   const [taskLoadFailed, setTaskLoadFailed] = useState(false);
   const [taskLoadStatusCode, setTaskLoadStatusCode] = useState(null);
-  const token = localStorage.getItem('accessToken');
-  const isDevFallbackToken = token === 'dev-fallback-token' || token === 'dev-bypass-token';
-
-  const readLocalDevUsers = () => {
-    try {
-      const raw = localStorage.getItem(DEV_USERS_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  };
 
   const getUserRole = (user) => {
     const mappedRoleById = rolesMap[
@@ -199,12 +185,6 @@ const AssignTasks = () => {
           }
         });
         setRolesMap(nextRolesMap);
-      }
-
-      if (isDevFallbackToken) {
-        const localDevUsers = readLocalDevUsers();
-        setUsers(keepAnnotatorsOnly(localDevUsers));
-        return;
       }
 
       const memberUsers = await fetchMemberUsersSafe();
@@ -449,9 +429,7 @@ const AssignTasks = () => {
                   </svg>
                   <p>
                     {taskLoadFailed
-                      ? isDevFallbackToken
-                        ? 'Không tải được task vì đang dùng dev token. Vui lòng đăng nhập tài khoản backend thật để lấy task.'
-                        : taskLoadStatusCode === 401 || taskLoadStatusCode === 403
+                      ? taskLoadStatusCode === 401 || taskLoadStatusCode === 403
                             ? 'Không tải được task do token không hợp lệ/hết hạn. Vui lòng đăng nhập lại.'
                             : 'Không tải được danh sách task. Vui lòng kiểm tra token/API.'
                           : 'Chưa có task nào.'}

@@ -63,43 +63,6 @@ export default function ManagerProjects() {
   const navigate = useNavigate();
   const { logout } = useAuth();
 
-  const isRecoverableLabelError = (err) => {
-    const status = Number(err?.response?.status);
-    return import.meta.env.DEV && (status === 404 || status === 405 || status === 500 || status === 501);
-  };
-
-  const applyLabelLocalToSelectedProjects = (label) => {
-    const normalizedLabel = String(label || "").trim();
-    if (!normalizedLabel) return;
-
-    setProjects((prev) =>
-      prev.map((project) => {
-        const projectId = String(project?.id || project?.projectId || "");
-        if (!selectedProjectIds.includes(projectId)) return project;
-
-        const nextLabelNames = [
-          ...(Array.isArray(project?.labelNames) ? project.labelNames : []),
-          ...(Array.isArray(project?.labels)
-            ? project.labels
-                .map((item) => (typeof item === "string" ? item : item?.name))
-                .filter(Boolean)
-            : []),
-        ];
-
-        if (!nextLabelNames.some((item) => String(item).toLowerCase() === normalizedLabel.toLowerCase())) {
-          nextLabelNames.push(normalizedLabel);
-        }
-
-        return {
-          ...project,
-          labelNames: nextLabelNames,
-          labels: nextLabelNames,
-          labelsCount: nextLabelNames.length,
-        };
-      })
-    );
-  };
-
   const handleAssignDataset = async (datasetId) => {
     if (!selectedProject || !datasetId) return;
     try {
@@ -201,15 +164,6 @@ export default function ManagerProjects() {
       const successCount = results.filter((item) => item.status === "fulfilled").length;
 
       if (successCount === 0) {
-        const firstError = results.find((item) => item.status === "rejected")?.reason;
-        if (isRecoverableLabelError(firstError)) {
-          applyLabelLocalToSelectedProjects(normalizedLabelName);
-          alert("Backend nhãn đang lỗi (500). Đã gán nhãn local để bạn tiếp tục làm việc.");
-          setShowLabelModal(false);
-          setLabelName("");
-          setSelectedProjectIds([]);
-          return;
-        }
         throw new Error("Không endpoint nào hỗ trợ thêm nhãn cho category");
       }
 
@@ -220,14 +174,6 @@ export default function ManagerProjects() {
       fetchProjects();
     } catch (err) {
       console.error("Error creating label:", err);
-      if (isRecoverableLabelError(err)) {
-        applyLabelLocalToSelectedProjects(labelName.trim());
-        alert("Backend nhãn đang lỗi (500). Đã gán nhãn local để bạn tiếp tục làm việc.");
-        setShowLabelModal(false);
-        setLabelName("");
-        setSelectedProjectIds([]);
-        return;
-      }
       const serverMsg =
         err.response?.data?.title ||
         err.response?.data?.message ||
@@ -251,12 +197,6 @@ export default function ManagerProjects() {
     }
 
     if (!window.confirm("Bạn có chắc chắn muốn xóa dự án này?")) return;
-
-    if (String(id).startsWith("local-project-")) {
-      const nextProjects = projects.filter((p) => String(getProjectId(p)) !== String(id));
-      setProjects(nextProjects);
-      return;
-    }
 
     try {
       await requestSequential([

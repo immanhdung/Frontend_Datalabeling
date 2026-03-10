@@ -2,8 +2,6 @@
 import api, { categoryAPI, labelAPI } from "../../config/api";
 import { Plus, Folder, ChevronRight, Tag, X, Layers3, Pencil, Trash2, Check } from "lucide-react";
 
-const DEV_CATEGORIES_KEY = "devManagerCategories";
-
 const readArray = (value) => {
   if (Array.isArray(value)) return value;
   if (Array.isArray(value?.items)) return value.items;
@@ -96,34 +94,13 @@ export default function Categories() {
   const [categoryProjects, setCategoryProjects] = useState([]);
   const [fetchingProjects, setFetchingProjects] = useState(false);
 
-  const isEndpointMissing = (error) => {
-    const status = error?.response?.status;
-    return import.meta.env.DEV && (status === 404 || status === 405 || status === 500 || status === 501);
-  };
-
   const selectedCategory = useMemo(
     () => categories.find((item) => String(item.id) === String(selectedCategoryId)) || null,
     [categories, selectedCategoryId]
   );
 
-  const persistLocalCategories = (nextCategories) => {
-    if (!import.meta.env.DEV) return;
-    localStorage.setItem(DEV_CATEGORIES_KEY, JSON.stringify(nextCategories));
-  };
-
-  const readLocalCategories = () => {
-    try {
-      const raw = localStorage.getItem(DEV_CATEGORIES_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed.map(normalizeCategory) : [];
-    } catch (error) {
-      return [];
-    }
-  };
-
   const syncCategoriesState = (nextCategories, preferredId) => {
     setCategories(nextCategories);
-    persistLocalCategories(nextCategories);
 
     if (nextCategories.length === 0) {
       setSelectedCategoryId("");
@@ -150,12 +127,7 @@ export default function Categories() {
         syncCategoriesState([], "");
       }
     } catch (error) {
-      if (isEndpointMissing(error)) {
-        const localCategories = readLocalCategories();
-        syncCategoriesState(localCategories, preferredId || selectedCategoryId);
-      } else {
-        alert("Không tải được danh sách category");
-      }
+      alert("Không tải được danh sách category");
     } finally {
       setLoading(false);
     }
@@ -319,27 +291,7 @@ export default function Categories() {
       setNewDesc("");
       await fetchCategories();
     } catch (error) {
-      if (!isEndpointMissing(error)) {
-        alert(error?.response?.data?.message || error?.response?.data?.title || "Tạo category thất bại");
-        return;
-      }
-
-      const localCategory = normalizeCategory(
-        {
-          id: `local-category-${Date.now()}`,
-          name,
-          description: newDesc.trim(),
-          labels: [],
-        },
-        categories.length
-      );
-
-      const nextCategories = [localCategory, ...categories];
-      syncCategoriesState(nextCategories, localCategory.id);
-      setShowModal(false);
-      setNewName("");
-      setNewDesc("");
-      alert("Đã tạo category local (chế độ demo)");
+      alert(error?.response?.data?.message || error?.response?.data?.title || "Tạo category thất bại");
     }
   };
 
@@ -367,14 +319,7 @@ export default function Categories() {
       setLabelName("");
       alert("Thêm nhãn thành công");
     } catch (error) {
-      if (!isEndpointMissing(error)) {
-        alert(error?.response?.data?.message || error?.response?.data?.title || "Thêm nhãn thất bại");
-        return;
-      }
-
-      applyLabelToState(selectedCategory.id, nextLabelName);
-      setLabelName("");
-      alert("Backend lỗi, đã lưu nhãn local ở chế độ demo.");
+      alert(error?.response?.data?.message || error?.response?.data?.title || "Thêm nhãn thất bại");
     } finally {
       setAddingLabel(false);
     }
@@ -422,14 +367,7 @@ export default function Categories() {
       handleCancelEditLabel();
       alert("Cập nhật nhãn thành công");
     } catch (error) {
-      if (!isEndpointMissing(error)) {
-        alert(error?.response?.data?.message || error?.response?.data?.title || "Cập nhật nhãn thất bại");
-        return;
-      }
-
-      updateLabelInState(selectedCategory.id, label.id, nextName);
-      handleCancelEditLabel();
-      alert("Backend loi, da cap nhat local o che do demo.");
+      alert(error?.response?.data?.message || error?.response?.data?.title || "Cập nhật nhãn thất bại");
     } finally {
       setProcessingLabelId("");
     }
@@ -452,16 +390,7 @@ export default function Categories() {
       }
       alert("Xóa nhãn thành công");
     } catch (error) {
-      if (!isEndpointMissing(error)) {
-        alert(error?.response?.data?.message || error?.response?.data?.title || "Xóa nhãn thất bại");
-        return;
-      }
-
-      removeLabelFromState(selectedCategory.id, label.id, label.name);
-      if (String(editingLabelId) === String(label.id)) {
-        handleCancelEditLabel();
-      }
-      alert("Backend lỗi, đã xóa local ở chế độ demo.");
+      alert(error?.response?.data?.message || error?.response?.data?.title || "Xóa nhãn thất bại");
     } finally {
       setProcessingLabelId("");
     }
