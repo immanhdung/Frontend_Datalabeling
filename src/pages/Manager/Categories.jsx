@@ -146,7 +146,7 @@ export default function Categories() {
       } else {
         syncCategoriesState([], "");
       }
-    } catch (error) {
+    } catch {
       alert("Không tải được danh sách category");
     } finally {
       setLoading(false);
@@ -178,7 +178,7 @@ export default function Categories() {
       });
 
       setCategoryProjects(filtered);
-    } catch (error) {
+    } catch {
       setCategoryProjects([]);
     } finally {
       setFetchingProjects(false);
@@ -398,7 +398,7 @@ export default function Categories() {
   const handleDeleteLabel = async (label) => {
     if (!selectedCategory) return;
 
-    if (!window.confirm(`Bạn có chắc chắn muốn xóa nhãn \"${label.name}\"?`)) {
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa nhãn "${label.name}"?`)) {
       return;
     }
 

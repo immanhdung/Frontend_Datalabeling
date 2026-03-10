@@ -134,7 +134,7 @@ const AssignTasks = () => {
   const fetchMemberUsersSafe = async () => {
     try {
       return await fetchUsersFromProjectMembers();
-    } catch (error) {
+    } catch {
       return [];
     }
   };

@@ -13,6 +13,8 @@ import {
   X,
 } from "lucide-react";
 
+const FIXED_TEMPLATE_ID = "e841b523-8215-4952-b3dc-8c9bc60f8a7d";
+
 const toArray = (value) => {
   if (Array.isArray(value)) return value;
   if (Array.isArray(value?.items)) return value.items;
@@ -130,7 +132,7 @@ export default function CreateProjectPage() {
           return;
         }
         setCategories([]);
-      } catch (err) {
+      } catch {
         setError("Không tải được danh sách category");
       } finally {
         setLoadingCategories(false);
@@ -145,7 +147,7 @@ export default function CreateProjectPage() {
           () => api.get("/Datasets"),
         ]);
         setDatasets(toArray(response?.data));
-      } catch (err) {
+      } catch {
         setDatasets([]);
       } finally {
         setLoadingDatasets(false);
@@ -278,22 +280,29 @@ export default function CreateProjectPage() {
 
     try {
       const normalizedCategoryId = String(selectedCategoryId);
+      const normalizedGuideline = guidelines.trim();
 
       const payload = {
         name: projectName.trim(),
         description: projectDescription.trim(),
         categoryId: normalizedCategoryId,
+        guideline: normalizedGuideline,
+        templateId: FIXED_TEMPLATE_ID,
+      };
+
+      const payloadPascalCase = {
+        name: projectName.trim(),
+        description: projectDescription.trim(),
+        categoryId: normalizedCategoryId,
+        guideline: normalizedGuideline,
+        TemplateId: FIXED_TEMPLATE_ID,
       };
 
       const createRes = await requestSequential([
         () => api.post("/projects", payload),
         () => api.post("/Projects", payload),
-        () => api.post("/projects", {
-          name: projectName.trim(),
-          description: projectDescription.trim(),
-          categoryId: normalizedCategoryId,
-          guideline: guidelines.trim(),
-        }),
+        () => api.post("/projects", payloadPascalCase),
+        () => api.post("/Projects", payloadPascalCase),
       ]);
 
       let projectId = extractProjectIdFromResponse(createRes?.data);

@@ -11,7 +11,7 @@ import {
     FolderKanban,
     ClipboardList
 } from 'lucide-react';
-import api, { taskAPI, userAPI, roleAPI } from '../../config/api';
+import { taskAPI, userAPI, roleAPI } from '../../config/api';
 import { assignLocalTaskToUser } from '../../utils/annotatorTaskHelpers';
 
 export default function AssignTasksModal({ project, isOpen, onClose }) {
@@ -165,7 +165,7 @@ export default function AssignTasksModal({ project, isOpen, onClose }) {
             }
             showMessage('success', `Đã giao việc cho ${allSelectedIds.length} nhân sự thành công!`);
             setTimeout(() => onClose(), 2000);
-        } catch (error) {
+        } catch {
             showMessage('error', 'Giao việc thất bại');
         } finally {
             setAssigning(false);

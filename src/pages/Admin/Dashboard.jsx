@@ -1,4 +1,5 @@
 
+import { useEffect, useState } from "react";
 import {
   Users,
   FolderKanban,
@@ -13,8 +14,65 @@ import {
   UserCheck,
   Activity
 } from "lucide-react";
+import api from "../../config/api";
+import {
+  toArrayData,
+  requestSequential,
+  isCompletedProject,
+  getProjectStatusMeta,
+  getProjectItemCount,
+  getProjectTypeLabel,
+  sortProjectsByNewest,
+  getProjectUpdatedAt,
+  formatRelativeDateVi,
+} from "../../utils/projectDashboardHelpers";
 
 export default function AdminDashboard() {
+  const [projectStats, setProjectStats] = useState({
+    total: 4,
+    completed: 1,
+    recentProjects: [],
+  });
+
+  useEffect(() => {
+    const loadProjectStats = async () => {
+      try {
+        const response = await requestSequential([
+          () => api.get("/projects"),
+          () => api.get("/Projects"),
+        ]);
+        const projects = toArrayData(response?.data);
+        const completed = projects.filter((project) => isCompletedProject(project)).length;
+
+        const recentProjects = sortProjectsByNewest(projects).slice(0, 4).map((project) => {
+          const statusMeta = getProjectStatusMeta(project);
+          const itemCount = getProjectItemCount(project);
+          const updatedLabel = formatRelativeDateVi(getProjectUpdatedAt(project));
+
+          return {
+            name: project?.name || "Dự án không tên",
+            status: statusMeta.label,
+            statusType: statusMeta.statusType,
+            desc: `${getProjectTypeLabel(project)} · ${itemCount} ảnh`,
+            progress: statusMeta.statusType === "completed" ? 100 : statusMeta.statusType === "active" ? 50 : 0,
+            accuracy: "N/A",
+            updated: updatedLabel,
+          };
+        });
+
+        setProjectStats({
+          total: projects.length,
+          completed,
+          recentProjects,
+        });
+      } catch {
+        // Keep fallback value from static stats.
+      }
+    };
+
+    loadProjectStats();
+  }, []);
+
   const stats = [
     {
       label: "Tổng người dùng",
@@ -24,13 +82,13 @@ export default function AdminDashboard() {
     },
     {
       label: "Tổng dự án",
-      value: 4,
+      value: projectStats.total,
       icon: FolderKanban,
       color: "indigo"
     },
     {
       label: "Dự án hoàn thành",
-      value: 1,
+      value: projectStats.completed,
       icon: CheckCircle2,
       color: "emerald"
     },
@@ -42,7 +100,7 @@ export default function AdminDashboard() {
     },
   ];
 
-  const projects = [
+  const fallbackProjects = [
     {
       name: "Phân loại chó mèo",
       status: "Đang hoạt động",
@@ -80,6 +138,8 @@ export default function AdminDashboard() {
       updated: "3 ngày trước"
     },
   ];
+
+  const projects = projectStats.recentProjects.length > 0 ? projectStats.recentProjects : fallbackProjects;
 
   const userStats = [
     { role: "Admin", count: 1, color: "bg-indigo-500", icon: ShieldCheck },

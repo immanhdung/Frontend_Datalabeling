@@ -21,6 +21,16 @@ import {
 import api from "../../config/api";
 
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "bmp", "gif", "tif", "tiff"];
+const MIME_EXTENSION_MAP = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/bmp": "bmp",
+    "image/gif": "gif",
+    "image/tiff": "tiff",
+    "image/svg+xml": "svg",
+};
 
 const requestSequential = async (factories) => {
     let lastError;
@@ -47,11 +57,35 @@ const formatBytes = (bytes) => {
     return `${value.toFixed(unitIndex === 0 ? 0 : 2)} ${units[unitIndex]}`;
 };
 
+const parseItemMetadata = (item) => {
+    const metadata = item?.metadata ?? item?.meta ?? item?.info;
+    if (!metadata) return null;
+
+    if (typeof metadata === "string") {
+        try {
+            return JSON.parse(metadata);
+        } catch {
+            return null;
+        }
+    }
+
+    if (typeof metadata === "object") {
+        return metadata;
+    }
+
+    return null;
+};
+
 const getItemName = (item, fallbackIndex) => {
+    if (typeof item === "string" || typeof item === "number") {
+        const raw = String(item).trim();
+        return raw || `item-${fallbackIndex + 1}`;
+    }
+
     const name = item?.name || item?.fileName || item?.filename || item?.originalName || item?.path;
     if (name) return String(name);
 
-    const url = item?.url || item?.thumbnailUrl || item?.fileUrl;
+    const url = item?.url || item?.thumbnailUrl || item?.fileUrl || item?.storageUri || item?.uri;
     if (url && typeof url === "string") {
         const parts = url.split("/");
         const finalPart = parts[parts.length - 1];
@@ -62,7 +96,21 @@ const getItemName = (item, fallbackIndex) => {
 };
 
 const getItemSizeBytes = (item) => {
-    const raw = item?.size ?? item?.fileSize ?? item?.length ?? item?.contentLength ?? item?.bytes;
+    if (typeof item === "string" || typeof item === "number") {
+        return 0;
+    }
+
+    const parsedMeta = parseItemMetadata(item);
+    const raw =
+        item?.size ??
+        item?.fileSize ??
+        item?.length ??
+        item?.contentLength ??
+        item?.bytes ??
+        item?.fileBytes ??
+        parsedMeta?.size ??
+        parsedMeta?.fileSize ??
+        parsedMeta?.bytes;
     const numeric = Number(raw || 0);
     return Number.isFinite(numeric) ? numeric : 0;
 };
@@ -70,18 +118,33 @@ const getItemSizeBytes = (item) => {
 const getItemExtension = (item, fallbackIndex) => {
     const name = getItemName(item, fallbackIndex);
     const chunks = String(name).split(".");
-    if (chunks.length <= 1) return "unknown";
+    if (chunks.length <= 1) {
+        const fromMime = getExtensionFromMimeType(item?.mediaType ?? item?.mimeType ?? item?.contentType);
+        return fromMime !== "unknown" ? fromMime : "unknown";
+    }
     return chunks[chunks.length - 1].toLowerCase();
 };
 
 const isImageItem = (item, fallbackIndex) => {
+    if (typeof item === "object" && item !== null) {
+        const mimeType = String(item?.mimeType ?? item?.contentType ?? item?.type ?? "").toLowerCase();
+        if (mimeType.startsWith("image/")) {
+            return true;
+        }
+    }
+
     const ext = getItemExtension(item, fallbackIndex);
     return IMAGE_EXTENSIONS.includes(ext);
 };
 
 const getItemDimensions = (item) => {
-    const width = Number(item?.width ?? item?.imageWidth ?? item?.meta?.width ?? 0);
-    const height = Number(item?.height ?? item?.imageHeight ?? item?.meta?.height ?? 0);
+    if (typeof item === "string" || typeof item === "number") {
+        return null;
+    }
+
+    const parsedMeta = parseItemMetadata(item);
+    const width = Number(item?.width ?? item?.imageWidth ?? item?.meta?.width ?? parsedMeta?.width ?? 0);
+    const height = Number(item?.height ?? item?.imageHeight ?? item?.meta?.height ?? parsedMeta?.height ?? 0);
     if (width > 0 && height > 0) {
         return { width, height };
     }
@@ -89,6 +152,10 @@ const getItemDimensions = (item) => {
 };
 
 const resolvePreviewUrl = (item) => {
+    if (typeof item === "string" || typeof item === "number") {
+        return "";
+    }
+
     const candidate =
         item?.thumbnailUrl ||
         item?.thumbnailURL ||
@@ -98,6 +165,8 @@ const resolvePreviewUrl = (item) => {
         item?.imageURL ||
         item?.fileUrl ||
         item?.fileURL ||
+        item?.storageUri ||
+        item?.uri ||
         item?.url ||
         item?.path ||
         item?.filePath;
@@ -143,11 +212,147 @@ const getQualityInfo = (item, fallbackIndex) => {
 };
 
 const getItemId = (item, fallbackIndex) => {
-    const id = item?.id ?? item?.itemId ?? item?.datasetItemId;
+    if (typeof item === "string" || typeof item === "number") {
+        const primitiveId = String(item).trim();
+        return primitiveId || `local-${fallbackIndex}`;
+    }
+
+    const id = item?.id ?? item?.itemId ?? item?.datasetItemId ?? item?.datasetItemID;
     if (id !== undefined && id !== null && String(id).trim() !== "") {
         return String(id);
     }
     return `local-${fallbackIndex}`;
+};
+
+const normalizeDatasetItem = (item, index, datasetId = null) => {
+    if (typeof item === "string" || typeof item === "number") {
+        return { id: String(item), itemId: String(item), __datasetId: datasetId };
+    }
+
+    if (!item || typeof item !== "object") {
+        return { id: `local-${index}`, __datasetId: datasetId };
+    }
+
+    const normalizedId =
+        item?.id ??
+        item?.itemId ??
+        item?.datasetItemId ??
+        item?.datasetItemID ??
+        item?.dataset_item_id;
+    if (normalizedId !== undefined && normalizedId !== null && String(normalizedId).trim() !== "") {
+        return {
+            ...item,
+            id: String(normalizedId),
+            itemId: String(normalizedId),
+            storageUri: item?.storageUri ?? item?.storageURL ?? item?.uri ?? item?.url ?? null,
+            __datasetId: datasetId ?? item?.datasetId ?? item?.datasetID ?? item?.dataset_id ?? null,
+        };
+    }
+
+    return {
+        ...item,
+        id: `local-${index}`,
+        storageUri: item?.storageUri ?? item?.storageURL ?? item?.uri ?? item?.url ?? null,
+        __datasetId: datasetId ?? item?.datasetId ?? item?.datasetID ?? item?.dataset_id ?? null,
+    };
+};
+
+const extractDatasetItems = (raw) => {
+    if (Array.isArray(raw)) {
+        return raw;
+    }
+
+    if (raw && typeof raw === "object") {
+        const candidates = [
+            raw.items,
+            raw.itemIds,
+            raw.datasetItemIds,
+            raw.ids,
+            raw.data,
+            raw.data?.items,
+            raw.data?.itemIds,
+            raw.data?.datasetItemIds,
+        ];
+
+        const firstArray = candidates.find((candidate) => Array.isArray(candidate));
+        if (firstArray) {
+            return firstArray;
+        }
+    }
+
+    return [];
+};
+
+const normalizeDatasetItems = (raw, datasetId = null) =>
+    extractDatasetItems(raw).map((item, index) => normalizeDatasetItem(item, index, datasetId));
+
+const getExtensionFromMimeType = (mimeType) => {
+    const normalized = String(mimeType || "").toLowerCase().split(";")[0].trim();
+    return MIME_EXTENSION_MAP[normalized] || "unknown";
+};
+
+const parseFilenameFromContentDisposition = (contentDisposition) => {
+    const value = String(contentDisposition || "");
+    if (!value) return "";
+
+    const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match?.[1]) {
+        try {
+            return decodeURIComponent(utf8Match[1].replace(/"/g, "")).trim();
+        } catch {
+            return utf8Match[1].trim();
+        }
+    }
+
+    const plainMatch = value.match(/filename="?([^";]+)"?/i);
+    return plainMatch?.[1]?.trim() || "";
+};
+
+const readImageDimensionsFromBlob = (blob) =>
+    new Promise((resolve) => {
+        const objectUrl = URL.createObjectURL(blob);
+        const image = new Image();
+
+        image.onload = () => {
+            resolve({ width: image.naturalWidth || 0, height: image.naturalHeight || 0 });
+            URL.revokeObjectURL(objectUrl);
+        };
+
+        image.onerror = () => {
+            resolve(null);
+            URL.revokeObjectURL(objectUrl);
+        };
+
+        image.src = objectUrl;
+    });
+
+const getQualityFromMetrics = ({ isImage, sizeBytes, dimensions }) => {
+    if (!isImage) {
+        return { status: "na", text: "N/A" };
+    }
+
+    const lowBySize = sizeBytes > 0 && sizeBytes < 80 * 1024;
+    const lowByDimension = dimensions ? dimensions.width < 640 || dimensions.height < 480 : false;
+
+    if (lowBySize || lowByDimension) {
+        return { status: "low", text: "Chất lượng thấp" };
+    }
+
+    if (sizeBytes > 0 || dimensions) {
+        return { status: "ok", text: "Tốt" };
+    }
+
+    return { status: "unknown", text: "Chưa đủ dữ liệu" };
+};
+
+const getInsightScore = (insight) => {
+    if (!insight) return 0;
+    let score = 0;
+    if (insight.extension && insight.extension !== "unknown") score += 1;
+    if (Number(insight.sizeBytes || 0) > 0) score += 1;
+    if (insight.dimensions?.width > 0 && insight.dimensions?.height > 0) score += 2;
+    if (insight.isImage) score += 1;
+    return score;
 };
 
 export default function Datasets() {
@@ -168,6 +373,8 @@ export default function Datasets() {
     const [uploadingDetailItems, setUploadingDetailItems] = useState(false);
     const [deletingItemIds, setDeletingItemIds] = useState([]);
     const [securePreviewUrls, setSecurePreviewUrls] = useState({});
+    const [itemInsights, setItemInsights] = useState({});
+    const [previewImage, setPreviewImage] = useState(null);
     const secureBlobUrlsRef = useRef([]);
 
     // New Dataset State
@@ -187,6 +394,28 @@ export default function Datasets() {
     const editFileInputRef = useRef(null);
 
     const [openMenuId, setOpenMenuId] = useState(null);
+
+    const getDatasetId = (dataset) => dataset?.id ?? dataset?.datasetId ?? null;
+
+    const patchDatasetCount = (datasetId, itemCount) => {
+        setDatasets((prev) =>
+            prev.map((dataset) => {
+                const currentId = getDatasetId(dataset);
+                if (String(currentId || "") !== String(datasetId || "")) {
+                    return dataset;
+                }
+
+                return {
+                    ...dataset,
+                    itemsCount: itemCount,
+                    imagesCount: itemCount,
+                    totalItems: itemCount,
+                    itemCount,
+                    imageCount: itemCount,
+                };
+            })
+        );
+    };
 
     const createImagePreviews = useMemo(
         () => newDataset.images.map((file) => ({
@@ -227,6 +456,8 @@ export default function Datasets() {
 
     useEffect(() => {
         if (!showDetailModal || detailItems.length === 0) {
+            setSecurePreviewUrls({});
+            setItemInsights({});
             return;
         }
 
@@ -235,32 +466,138 @@ export default function Datasets() {
 
         const loadSecurePreviews = async () => {
             const nextPreviewUrls = {};
+            const nextItemInsights = {};
 
             await Promise.all(
                 detailItems.map(async (item, idx) => {
-                    if (!isImageItem(item, idx)) {
-                        return;
-                    }
-
                     const itemId = getItemId(item, idx);
+                    const fallbackName = getItemName(item, idx);
+                    const fallbackExt = getItemExtension(item, idx);
+                    const fallbackSizeBytes = getItemSizeBytes(item);
+                    const fallbackDimensions = getItemDimensions(item);
+                    const fallbackIsImage = isImageItem(item, idx);
+
                     if (!itemId || itemId.startsWith("local-")) {
                         const directUrl = resolvePreviewUrl(item);
-                        if (directUrl) nextPreviewUrls[itemId] = directUrl;
+                        const fallbackQuality = getQualityFromMetrics({
+                            isImage: fallbackIsImage,
+                            sizeBytes: fallbackSizeBytes,
+                            dimensions: fallbackDimensions,
+                        });
+
+                        nextItemInsights[itemId] = {
+                            fileName: fallbackName,
+                            extension: fallbackExt,
+                            sizeBytes: fallbackSizeBytes,
+                            dimensions: fallbackDimensions,
+                            qualityStatus: fallbackQuality.status,
+                            qualityText: fallbackQuality.text,
+                            isImage: fallbackIsImage,
+                        };
+
+                        if (directUrl && fallbackIsImage) {
+                            nextPreviewUrls[itemId] = directUrl;
+                        }
                         return;
                     }
 
                     try {
+                        const datasetId = item?.__datasetId ?? selectedDataset?.id ?? selectedDataset?.datasetId ?? null;
+
                         const response = await requestSequential([
                             () => api.get(`/datasets/items/${itemId}`, { responseType: "blob" }),
                             () => api.get(`/DatasetItems/${itemId}`, { responseType: "blob" }),
+                            () => datasetId ? api.get(`/datasets/${datasetId}/items/${itemId}`, { responseType: "blob" }) : Promise.reject(new Error("skip")),
+                            () => datasetId ? api.get(`/Datasets/${datasetId}/items/${itemId}`, { responseType: "blob" }) : Promise.reject(new Error("skip")),
                         ]);
+                        const mimeType = String(response?.data?.type || "").toLowerCase();
 
-                        const blobUrl = URL.createObjectURL(response.data);
-                        freshBlobUrls.push(blobUrl);
-                        nextPreviewUrls[itemId] = blobUrl;
+                        // Fallback: some backends may return item metadata JSON instead of binary file.
+                        if (mimeType.includes("application/json")) {
+                            const text = await response.data.text();
+                            const parsed = JSON.parse(text || "{}");
+                            const source = parsed?.data ?? parsed?.item ?? parsed;
+                            const normalizedSource = normalizeDatasetItem(source, idx, datasetId);
+                            const jsonName = getItemName(normalizedSource, idx);
+                            const jsonExt = getItemExtension(normalizedSource, idx);
+                            const jsonSizeBytes = getItemSizeBytes(normalizedSource) || fallbackSizeBytes;
+                            const jsonDimensions = getItemDimensions(normalizedSource) || fallbackDimensions;
+                            const jsonIsImage = isImageItem(normalizedSource, idx) || fallbackIsImage;
+                            const jsonQuality = getQualityFromMetrics({
+                                isImage: jsonIsImage,
+                                sizeBytes: jsonSizeBytes,
+                                dimensions: jsonDimensions,
+                            });
+
+                            nextItemInsights[itemId] = {
+                                fileName: jsonName || fallbackName,
+                                extension: jsonExt !== "unknown" ? jsonExt : fallbackExt,
+                                sizeBytes: jsonSizeBytes,
+                                dimensions: jsonDimensions,
+                                qualityStatus: jsonQuality.status,
+                                qualityText: jsonQuality.text,
+                                isImage: jsonIsImage,
+                            };
+
+                            const directUrl = resolvePreviewUrl(normalizedSource);
+                            if (directUrl && jsonIsImage) {
+                                nextPreviewUrls[itemId] = directUrl;
+                            }
+                            return;
+                        }
+
+                        const extensionFromMime = getExtensionFromMimeType(mimeType);
+                        const isImageByMime = mimeType.startsWith("image/");
+                        const isImage = isImageByMime || fallbackIsImage || IMAGE_EXTENSIONS.includes(extensionFromMime);
+                        const blobSizeBytes = Number(response?.data?.size || 0);
+                        const responseHeaders = response?.headers || {};
+                        const contentDisposition =
+                            responseHeaders["content-disposition"] || responseHeaders["Content-Disposition"];
+                        const serverFileName = parseFilenameFromContentDisposition(contentDisposition);
+                        const dimensions = isImage ? await readImageDimensionsFromBlob(response.data) : fallbackDimensions;
+                        const quality = getQualityFromMetrics({
+                            isImage,
+                            sizeBytes: blobSizeBytes || fallbackSizeBytes,
+                            dimensions,
+                        });
+
+                        nextItemInsights[itemId] = {
+                            fileName: serverFileName || fallbackName,
+                            extension: extensionFromMime !== "unknown" ? extensionFromMime : fallbackExt,
+                            sizeBytes: blobSizeBytes || fallbackSizeBytes,
+                            dimensions,
+                            qualityStatus: quality.status,
+                            qualityText: quality.text,
+                            isImage,
+                        };
+
+                        // Some APIs return item metadata without filename/extension, so detect image from blob MIME.
+                        if (isImage) {
+                            const blobUrl = URL.createObjectURL(response.data);
+                            freshBlobUrls.push(blobUrl);
+                            nextPreviewUrls[itemId] = blobUrl;
+                        }
                     } catch {
                         const directUrl = resolvePreviewUrl(item);
-                        if (directUrl) nextPreviewUrls[itemId] = directUrl;
+                        const fallbackQuality = getQualityFromMetrics({
+                            isImage: fallbackIsImage,
+                            sizeBytes: fallbackSizeBytes,
+                            dimensions: fallbackDimensions,
+                        });
+
+                        nextItemInsights[itemId] = {
+                            fileName: fallbackName,
+                            extension: fallbackExt,
+                            sizeBytes: fallbackSizeBytes,
+                            dimensions: fallbackDimensions,
+                            qualityStatus: fallbackQuality.status,
+                            qualityText: fallbackQuality.text,
+                            isImage: fallbackIsImage,
+                        };
+
+                        if (directUrl && fallbackIsImage) {
+                            nextPreviewUrls[itemId] = directUrl;
+                        }
                     }
                 })
             );
@@ -271,6 +608,16 @@ export default function Datasets() {
             }
 
             setSecurePreviewUrls(nextPreviewUrls);
+            setItemInsights((prev) => {
+                const merged = { ...prev };
+                Object.entries(nextItemInsights).forEach(([itemId, nextInsight]) => {
+                    const current = merged[itemId];
+                    merged[itemId] = getInsightScore(nextInsight) >= getInsightScore(current)
+                        ? nextInsight
+                        : current;
+                });
+                return merged;
+            });
             secureBlobUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
             secureBlobUrlsRef.current = freshBlobUrls;
         };
@@ -280,11 +627,16 @@ export default function Datasets() {
         return () => {
             disposed = true;
         };
-    }, [detailItems, showDetailModal]);
+    }, [detailItems, showDetailModal, selectedDataset]);
 
     const getPreviewSrc = (item, idx) => {
         const itemId = getItemId(item, idx);
         return securePreviewUrls[itemId] || resolvePreviewUrl(item);
+    };
+
+    const openImagePreview = (src, name) => {
+        if (!src) return;
+        setPreviewImage({ src, name: name || "Dataset image" });
     };
 
     // ================= FETCH DATA =================
@@ -307,7 +659,7 @@ export default function Datasets() {
                     datasetRes.data?.data ||
                     datasetRes.data ||
                     [];
-            } catch (datasetErr) {
+            } catch {
                 setError("Không thể tải dữ liệu dataset.");
             }
 
@@ -322,13 +674,61 @@ export default function Datasets() {
                     projRes.data?.data ||
                     projRes.data ||
                     [];
-            } catch (projectErr) {
+            } catch {
                 projectList = [];
             }
 
             const safeDatasets = Array.isArray(datasetList) ? datasetList : [];
             setDatasets(safeDatasets);
             setProjects(Array.isArray(projectList) ? projectList : []);
+
+            // Some backends do not return item counts on the dataset list endpoint.
+            const countResults = await Promise.allSettled(
+                safeDatasets.map(async (dataset) => {
+                    const datasetId = getDatasetId(dataset);
+                    if (!datasetId) {
+                        return { datasetId: null, itemCount: 0 };
+                    }
+
+                    const itemsRes = await requestSequential([
+                        () => api.get(`/datasets/${datasetId}/items`),
+                        () => api.get(`/Datasets/${datasetId}/items`),
+                    ]);
+
+                    return {
+                        datasetId,
+                        itemCount: normalizeDatasetItems(itemsRes?.data).length,
+                    };
+                })
+            );
+
+            const countMap = new Map();
+            countResults.forEach((result) => {
+                if (result.status !== "fulfilled") return;
+                const datasetId = result.value?.datasetId;
+                if (!datasetId) return;
+                countMap.set(String(datasetId), Number(result.value?.itemCount || 0));
+            });
+
+            if (countMap.size > 0) {
+                setDatasets((prev) =>
+                    prev.map((dataset) => {
+                        const datasetId = getDatasetId(dataset);
+                        if (!datasetId) return dataset;
+                        const itemCount = countMap.get(String(datasetId));
+                        if (itemCount === undefined) return dataset;
+
+                        return {
+                            ...dataset,
+                            itemsCount: itemCount,
+                            imagesCount: itemCount,
+                            totalItems: itemCount,
+                            itemCount,
+                            imageCount: itemCount,
+                        };
+                    })
+                );
+            }
         } catch (err) {
             console.error(err);
             setError("Không tải được dữ liệu.");
@@ -363,6 +763,31 @@ export default function Datasets() {
         setUploadType("images");
     };
 
+    const buildInsightFromFile = async (file) => {
+        const fileName = String(file?.name || "");
+        const extension = fileName.includes(".")
+            ? fileName.split(".").pop().toLowerCase()
+            : getExtensionFromMimeType(file?.type || "");
+        const isImage = String(file?.type || "").toLowerCase().startsWith("image/") || IMAGE_EXTENSIONS.includes(extension);
+        const dimensions = isImage ? await readImageDimensionsFromBlob(file) : null;
+        const sizeBytes = Number(file?.size || 0);
+        const quality = getQualityFromMetrics({
+            isImage,
+            sizeBytes,
+            dimensions,
+        });
+
+        return {
+            fileName: fileName || "uploaded-file",
+            extension: extension || "unknown",
+            sizeBytes,
+            dimensions,
+            qualityStatus: quality.status,
+            qualityText: quality.text,
+            isImage,
+        };
+    };
+
     const handleCreateDataset = async () => {
         if (!newDataset.name.trim()) {
             alert("Vui lòng nhập tên Dataset");
@@ -381,6 +806,7 @@ export default function Datasets() {
 
         try {
             setLoading(true);
+            const uploadedInsights = {};
 
             // 1. Create Dataset
             const createRes = await requestSequential([
@@ -405,11 +831,25 @@ export default function Datasets() {
                     const formData = new FormData();
                     formData.append("File", file);
                     formData.append("Name", file.name);
-                    await requestSequential([
+                    const uploadRes = await requestSequential([
                         () => api.post(`/datasets/${datasetId}/items`, formData),
                         () => api.post(`/Datasets/${datasetId}/items`, formData),
                     ]);
+                    const uploadedItemId =
+                        uploadRes?.data?.id ??
+                        uploadRes?.data?.itemId ??
+                        uploadRes?.data?.datasetItemId ??
+                        uploadRes?.data?.data?.id ??
+                        uploadRes?.data?.data?.itemId ??
+                        null;
+                    if (uploadedItemId) {
+                        uploadedInsights[String(uploadedItemId)] = await buildInsightFromFile(file);
+                    }
                 }
+            }
+
+            if (Object.keys(uploadedInsights).length > 0) {
+                setItemInsights((prev) => ({ ...prev, ...uploadedInsights }));
             }
 
             alert("Tạo dataset thành công!");
@@ -503,7 +943,7 @@ export default function Datasets() {
 
         return {
             dataset: infoRes?.data,
-            items: itemsRes?.data?.items || itemsRes?.data || [],
+            items: normalizeDatasetItems(itemsRes?.data, datasetId),
         };
     };
 
@@ -516,6 +956,7 @@ export default function Datasets() {
             const detail = await fetchDatasetDetail(id);
             setSelectedDataset(detail.dataset);
             setDetailItems(detail.items);
+            patchDatasetCount(id, detail.items.length);
         } catch (err) {
             console.error("Fetch dataset details error:", err);
             setSelectedDataset(ds); // Fallback to list info
@@ -539,6 +980,7 @@ export default function Datasets() {
             const detail = await fetchDatasetDetail(id);
             setSelectedDataset(detail.dataset);
             setDetailItems(detail.items);
+            patchDatasetCount(id, detail.items.length);
         } catch (err) {
             console.error("Fetch dataset details for edit error:", err);
         } finally {
@@ -575,19 +1017,37 @@ export default function Datasets() {
 
         try {
             setUploadingDetailItems(true);
+            const uploadedInsights = {};
             for (const file of files) {
                 const formData = new FormData();
                 formData.append("File", file);
                 formData.append("Name", file.name);
-                await requestSequential([
+                const uploadRes = await requestSequential([
                     () => api.post(`/datasets/${dsId}/items`, formData),
                     () => api.post(`/Datasets/${dsId}/items`, formData),
                 ]);
+
+                const uploadedItemId =
+                    uploadRes?.data?.id ??
+                    uploadRes?.data?.itemId ??
+                    uploadRes?.data?.datasetItemId ??
+                    uploadRes?.data?.data?.id ??
+                    uploadRes?.data?.data?.itemId ??
+                    null;
+
+                if (uploadedItemId && editUploadType === "images") {
+                    uploadedInsights[String(uploadedItemId)] = await buildInsightFromFile(file);
+                }
+            }
+
+            if (Object.keys(uploadedInsights).length > 0) {
+                setItemInsights((prev) => ({ ...prev, ...uploadedInsights }));
             }
 
             const detail = await fetchDatasetDetail(dsId);
             setSelectedDataset(detail.dataset);
             setDetailItems(detail.items);
+            patchDatasetCount(dsId, detail.items.length);
             setEditImages([]);
             setEditZipFile(null);
             fetchData();
@@ -619,6 +1079,17 @@ export default function Datasets() {
             ]);
 
             setDetailItems((prev) => prev.filter((it) => String(it?.id || it?.itemId || it?.datasetItemId) !== String(itemId)));
+            patchDatasetCount(dsId, Math.max(detailItems.length - 1, 0));
+            setItemInsights((prev) => {
+                const next = { ...prev };
+                delete next[String(itemId)];
+                return next;
+            });
+            setSecurePreviewUrls((prev) => {
+                const next = { ...prev };
+                delete next[String(itemId)];
+                return next;
+            });
             fetchData();
         } catch (err) {
             alert("Xóa file thất bại: " + (err.response?.data?.message || err.message));
@@ -633,9 +1104,17 @@ export default function Datasets() {
     );
 
     const totalDetailFiles = detailItems.length;
-    const totalDetailSize = detailItems.reduce((sum, item) => sum + getItemSizeBytes(item), 0);
+    const totalDetailSize = detailItems.reduce((sum, item, index) => {
+        const itemId = getItemId(item, index);
+        const insight = itemInsights[itemId];
+        return sum + Number(insight?.sizeBytes ?? getItemSizeBytes(item) ?? 0);
+    }, 0);
     const lowQualityCount = detailItems.reduce((sum, item, index) => {
-        const quality = getQualityInfo(item, index);
+        const itemId = getItemId(item, index);
+        const insight = itemInsights[itemId];
+        const quality = insight
+            ? { status: insight.qualityStatus, text: insight.qualityText }
+            : getQualityInfo(item, index);
         return quality.status === "low" ? sum + 1 : sum;
     }, 0);
 
@@ -653,7 +1132,7 @@ export default function Datasets() {
                     className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl transition-all shadow-lg shadow-indigo-200 font-bold"
                 >
                     <Plus className="w-5 h-5" />
-                    T?o Dataset m?i
+                    Tạo Dataset mới
                 </button>
             </div>
 
@@ -794,7 +1273,7 @@ export default function Datasets() {
                     <div className="bg-white rounded-[32px] w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
                         <div className="p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                             <div>
-                                <h2 className="text-2xl font-bold text-gray-900">T?o Dataset m?i</h2>
+                                <h2 className="text-2xl font-bold text-gray-900">Tạo Dataset mới</h2>
                                 <p className="text-sm text-gray-500 mt-1">Chuẩn bị dữ liệu cho quy trình gán nhãn của bạn</p>
                             </div>
                             <button onClick={() => { setShowAddModal(false); resetAddForm(); }} className="p-2 hover:bg-white rounded-full transition-all border border-transparent hover:border-gray-200">
@@ -817,7 +1296,7 @@ export default function Datasets() {
 
                             {/* Upload Section */}
                             <div className="space-y-4">
-                                <label className="text-sm font-bold text-gray-700 ml-1">Ngu?n dữ liệu *</label>
+                                <label className="text-sm font-bold text-gray-700 ml-1">Nguồn dữ liệu *</label>
                                 <div className="flex gap-4 p-1 bg-gray-100 rounded-2xl w-fit">
                                     <button
                                         onClick={() => setUploadType("images")}
@@ -831,7 +1310,7 @@ export default function Datasets() {
                                         className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${uploadType === "zip" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
                                     >
                                         <FileArchive className="w-4 h-4" />
-                                        T?p ZIP
+                                        Tệp ZIP
                                     </button>
                                 </div>
 
@@ -845,7 +1324,7 @@ export default function Datasets() {
                                     <div className="text-center">
                                         <p className="font-bold text-gray-700">Kéo thả hoặc click để tải lên</p>
                                         <p className="text-xs text-gray-400 mt-1 uppercase tracking-wider font-black">
-                                            {uploadType === "images" ? "Ch?p nh?n: .jpg, .png, .jpeg" : "Ch?p nh?n: .zip (T?i da 500MB)"}
+                                            {uploadType === "images" ? "Chấp nhận: .jpg, .png, .jpeg" : "Chấp nhận: .zip (Tối đa 500MB)"}
                                         </p>
                                     </div>
                                     <input
@@ -878,7 +1357,7 @@ export default function Datasets() {
                                                             images: prev.images.filter((_, i) => i !== index),
                                                         }))}
                                                         className="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white hover:bg-black/70"
-                                                        title="Bo anh nay"
+                                                        title="Bỏ ảnh này"
                                                     >
                                                         <X className="w-3 h-3" />
                                                     </button>
@@ -914,7 +1393,7 @@ export default function Datasets() {
                                 onClick={() => { setShowAddModal(false); resetAddForm(); }}
                                 className="px-6 py-3 text-sm font-bold text-gray-500 hover:text-gray-700 transition-colors"
                             >
-                                H?y b?
+                                Hủy bỏ
                             </button>
                             <button
                                 onClick={handleCreateDataset}
@@ -954,14 +1433,14 @@ export default function Datasets() {
                             </div>
 
                             <div className="space-y-4 border rounded-2xl p-4 bg-gray-50/40">
-                                <p className="text-sm font-bold text-gray-700">Thêm dữ liệu (?nh ho?c ZIP)</p>
+                                <p className="text-sm font-bold text-gray-700">Thêm dữ liệu (Ảnh hoặc ZIP)</p>
                                 <div className="flex gap-2">
                                     <button
                                         type="button"
                                         onClick={() => setEditUploadType("images")}
                                         className={`px-4 py-2 rounded-lg text-sm font-semibold ${editUploadType === "images" ? "bg-indigo-600 text-white" : "bg-white border"}`}
                                     >
-                                        ?nh
+                                        Ảnh
                                     </button>
                                     <button
                                         type="button"
@@ -973,7 +1452,7 @@ export default function Datasets() {
                                 </div>
 
                                 <div className="flex gap-3">
-                                    <button type="button" onClick={() => editFileInputRef.current?.click()} className="px-4 py-2 border rounded-lg bg-white hover:bg-gray-50 text-sm font-semibold">Ch?n file</button>
+                                    <button type="button" onClick={() => editFileInputRef.current?.click()} className="px-4 py-2 border rounded-lg bg-white hover:bg-gray-50 text-sm font-semibold">Chọn file</button>
                                     <button type="button" onClick={uploadFilesToDataset} disabled={uploadingDetailItems} className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold disabled:opacity-50">
                                         {uploadingDetailItems ? "Đang upload..." : "Upload vào dataset"}
                                     </button>
@@ -998,7 +1477,7 @@ export default function Datasets() {
                                                         type="button"
                                                         onClick={() => setEditImages((prev) => prev.filter((_, i) => i !== index))}
                                                         className="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white hover:bg-black/70"
-                                                        title="Bo anh nay"
+                                                        title="Bỏ ảnh này"
                                                     >
                                                         <X className="w-3 h-3" />
                                                     </button>
@@ -1021,24 +1500,27 @@ export default function Datasets() {
                                 ) : (
                                     <div className="max-h-[260px] overflow-y-auto border rounded-xl divide-y">
                                         {detailItems.map((item, idx) => {
-                                            const fileName = getItemName(item, idx);
-                                            const previewUrl = getPreviewSrc(item, idx);
                                             const itemId = String(item?.id || item?.itemId || item?.datasetItemId || idx);
+                                            const insight = itemInsights[itemId];
+                                            const fileName = insight?.fileName || getItemName(item, idx);
+                                            const previewUrl = getPreviewSrc(item, idx);
+                                            const sizeBytes = insight?.sizeBytes ?? getItemSizeBytes(item);
                                             const deleting = deletingItemIds.includes(itemId);
+                                            const canRenderAsImage = Boolean(previewUrl) && (Boolean(securePreviewUrls[itemId]) || insight?.isImage || isImageItem(item, idx));
 
                                             return (
                                                 <div key={itemId} className="flex items-center justify-between gap-3 px-3 py-2">
-                                                    <div className="flex items-center gap-3 min-w-0">
-                                                        {previewUrl && isImageItem(item, idx) ? (
-                                                            <img src={previewUrl} alt={fileName} className="w-10 h-10 rounded object-cover border" />
+                                                    <div className="flex items-center gap-4 min-w-0">
+                                                        {canRenderAsImage ? (
+                                                            <img src={previewUrl} alt={fileName} className="w-12 h-12 rounded object-cover border" />
                                                         ) : (
-                                                            <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-gray-500">
+                                                            <div className="w-12 h-12 rounded bg-gray-100 flex items-center justify-center text-gray-500">
                                                                 <FileArchive className="w-4 h-4" />
                                                             </div>
                                                         )}
                                                         <div className="min-w-0">
                                                             <p className="text-sm font-medium truncate">{fileName}</p>
-                                                            <p className="text-xs text-gray-500">{formatBytes(getItemSizeBytes(item))}</p>
+                                                            <p className="text-xs text-gray-500">{formatBytes(sizeBytes)}</p>
                                                         </div>
                                                     </div>
                                                     <button onClick={() => handleDeleteDatasetItem(item)} disabled={deleting} className="p-2 rounded hover:bg-red-50 text-red-600 disabled:opacity-50" title="Xóa file">
@@ -1097,7 +1579,7 @@ export default function Datasets() {
                         </div>
 
                         <div className="p-6 border-t bg-gray-50/50 text-center">
-                            <button onClick={() => setShowAssignModal(false)} className="text-sm font-bold text-gray-500 hover:text-gray-700">H?y b?</button>
+                            <button onClick={() => setShowAssignModal(false)} className="text-sm font-bold text-gray-500 hover:text-gray-700">Hủy bỏ</button>
                         </div>
                     </div>
                 </div>
@@ -1121,7 +1603,7 @@ export default function Datasets() {
                                         </div>
                                         <div className="flex items-center gap-1.5 text-sm font-bold text-indigo-600 bg-white px-3 py-1 rounded-full border border-indigo-100">
                                             <ImageIcon className="w-4 h-4" />
-                                            {selectedDataset?.imagesCount || selectedDataset?.itemsCount || selectedDataset?.totalItems || 0} items
+                                            {totalDetailFiles} items
                                         </div>
                                         <div className="text-xs font-black uppercase text-gray-400 tracking-widest">
                                             ID: {selectedDataset?.id || selectedDataset?.datasetId}
@@ -1130,7 +1612,10 @@ export default function Datasets() {
                                 </div>
                             </div>
                             <button
-                                onClick={() => setShowDetailModal(false)}
+                                onClick={() => {
+                                    setShowDetailModal(false);
+                                    setPreviewImage(null);
+                                }}
                                 className="p-2 hover:bg-white rounded-2xl transition-all border border-transparent hover:border-gray-200"
                             >
                                 <X className="w-6 h-6 text-gray-400" />
@@ -1141,15 +1626,15 @@ export default function Datasets() {
                         <div className="flex-1 overflow-y-auto p-8 space-y-10 custom-scrollbar">
                             <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-100">
-                                    <p className="text-xs font-black uppercase text-indigo-400">Tong file</p>
+                                    <p className="text-xs font-black uppercase text-indigo-400">Tổng file</p>
                                     <p className="text-2xl font-black text-indigo-700 mt-1">{totalDetailFiles}</p>
                                 </div>
                                 <div className="p-4 rounded-2xl bg-blue-50 border border-blue-100">
-                                    <p className="text-xs font-black uppercase text-blue-400">Tong dung luong</p>
+                                    <p className="text-xs font-black uppercase text-blue-400">Tổng dung lượng</p>
                                     <p className="text-2xl font-black text-blue-700 mt-1">{formatBytes(totalDetailSize)}</p>
                                 </div>
                                 <div className="p-4 rounded-2xl bg-amber-50 border border-amber-100">
-                                    <p className="text-xs font-black uppercase text-amber-400">File chat luong thap</p>
+                                    <p className="text-xs font-black uppercase text-amber-400">File chất lượng thấp</p>
                                     <p className="text-2xl font-black text-amber-700 mt-1">{lowQualityCount}</p>
                                 </div>
                             </section>
@@ -1159,10 +1644,10 @@ export default function Datasets() {
                                 <div className="flex items-center justify-between">
                                     <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 flex items-center gap-2">
                                         <ImageIcon className="w-4 h-4" />
-                                        Danh sach file trong dataset
+                                        Danh sách file trong dataset
                                     </h3>
                                     <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-md uppercase">
-                                        Archive va image deu ho tro
+                                        Archive và image đều hỗ trợ
                                     </span>
                                 </div>
 
@@ -1175,33 +1660,45 @@ export default function Datasets() {
                                     <div className="border border-gray-100 rounded-2xl overflow-hidden">
                                         <div className="grid grid-cols-12 gap-2 px-4 py-3 bg-gray-50 text-[11px] font-black uppercase tracking-wider text-gray-500">
                                             <div className="col-span-5">File</div>
-                                            <div className="col-span-2">Loai</div>
-                                            <div className="col-span-2">Dung luong</div>
-                                            <div className="col-span-2">Kich thuoc</div>
-                                            <div className="col-span-1">Chat luong</div>
+                                            <div className="col-span-2">Loại</div>
+                                            <div className="col-span-2">Dung lượng</div>
+                                            <div className="col-span-2">Kích thước</div>
+                                            <div className="col-span-1">Chất lượng</div>
                                         </div>
 
                                         <div className="max-h-[420px] overflow-y-auto divide-y divide-gray-100">
                                             {detailItems.map((item, idx) => {
-                                                const fileName = getItemName(item, idx);
-                                                const ext = getItemExtension(item, idx);
-                                                const sizeBytes = getItemSizeBytes(item);
-                                                const dims = getItemDimensions(item);
-                                                const quality = getQualityInfo(item, idx);
+                                                const itemId = getItemId(item, idx);
+                                                const insight = itemInsights[itemId];
+                                                const fileName = insight?.fileName || getItemName(item, idx);
+                                                const ext = insight?.extension || getItemExtension(item, idx);
+                                                const sizeBytes = insight?.sizeBytes ?? getItemSizeBytes(item);
+                                                const dims = insight?.dimensions ?? getItemDimensions(item);
+                                                const quality = insight
+                                                    ? { status: insight.qualityStatus, text: insight.qualityText }
+                                                    : getQualityInfo(item, idx);
                                                 const previewUrl = getPreviewSrc(item, idx);
+                                                const canRenderAsImage = Boolean(previewUrl) && (Boolean(securePreviewUrls[itemId]) || insight?.isImage || isImageItem(item, idx));
 
                                                 return (
                                                     <div key={`${fileName}-${idx}`} className="grid grid-cols-12 gap-2 px-4 py-3 text-sm items-center">
-                                                        <div className="col-span-5 flex items-center gap-3 min-w-0">
-                                                            {previewUrl && isImageItem(item, idx) ? (
-                                                                <img
-                                                                    src={previewUrl}
-                                                                    alt={fileName}
-                                                                    className="w-10 h-10 rounded-lg object-cover border border-gray-100"
-                                                                />
+                                                        <div className="col-span-5 flex items-center gap-4 min-w-0">
+                                                            {canRenderAsImage ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => openImagePreview(previewUrl, fileName)}
+                                                                    className="rounded-lg overflow-hidden border border-indigo-100 hover:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                                                                    title="Xem ảnh lớn"
+                                                                >
+                                                                    <img
+                                                                        src={previewUrl}
+                                                                        alt={fileName}
+                                                                        className="w-14 h-14 rounded-lg object-cover"
+                                                                    />
+                                                                </button>
                                                             ) : (
-                                                                <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500">
-                                                                    <FileArchive className="w-4 h-4" />
+                                                                <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500">
+                                                                    <FileArchive className="w-5 h-5" />
                                                                 </div>
                                                             )}
                                                             <span className="truncate font-medium text-gray-800">{fileName}</span>
@@ -1238,12 +1735,41 @@ export default function Datasets() {
                         {/* Modal Footer */}
                         <div className="p-8 border-t bg-gray-50/50 flex justify-end">
                             <button
-                                onClick={() => setShowDetailModal(false)}
+                                onClick={() => {
+                                    setShowDetailModal(false);
+                                    setPreviewImage(null);
+                                }}
                                 className="px-10 py-4 bg-gray-900 text-white rounded-[20px] text-sm font-black hover:bg-black transition-all shadow-xl shadow-gray-200"
                             >
-                                Close Detailed View
+                                Đóng chi tiết
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {previewImage && (
+                <div
+                    className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+                    onClick={() => setPreviewImage(null)}
+                >
+                    <div
+                        className="relative max-w-5xl w-full"
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <button
+                            type="button"
+                            onClick={() => setPreviewImage(null)}
+                            className="absolute -top-12 right-0 text-white/90 hover:text-white p-2"
+                        >
+                            <X className="w-7 h-7" />
+                        </button>
+                        <img
+                            src={previewImage.src}
+                            alt={previewImage.name}
+                            className="max-h-[85vh] w-full object-contain rounded-2xl bg-slate-900"
+                        />
+                        <p className="mt-3 text-center text-sm font-semibold text-white/90 truncate">{previewImage.name}</p>
                     </div>
                 </div>
             )}

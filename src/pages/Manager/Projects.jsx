@@ -43,7 +43,7 @@ const getProjectId = (project) =>
 
 export default function ManagerProjects() {
   const [projects, setProjects] = useState([]);
-  const [categories, setCategories] = useState([]);
+  const [_categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
@@ -56,7 +56,7 @@ export default function ManagerProjects() {
 
   // Modal Gán Dataset state
   const [showDatasetModal, setShowDatasetModal] = useState(false);
-  const [selectedProject, setSelectedProject] = useState(null);
+  const [selectedProject, _setSelectedProject] = useState(null);
   const [datasets, setDatasets] = useState([]);
   const [loadingDatasets, setLoadingDatasets] = useState(false);
 

@@ -134,11 +134,6 @@ export default function ManagerProjectDetail() {
     return Array.from(byName.values());
   }, [selectedCategory]);
 
-  const categoryLabels = useMemo(
-    () => categoryLabelItems.map((item) => item.name),
-    [categoryLabelItems]
-  );
-
   const allLabels = useMemo(() => normalizeLabelNames(project, labelSets), [project, labelSets]);
   const selectedCategoryName = useMemo(() => {
     const cid = String(project?.categoryId || project?.category?.id || "");
@@ -260,7 +255,7 @@ export default function ManagerProjectDetail() {
         }
         return String(fetchedAnnotators[0]?.id || fetchedAnnotators[0]?.userId || "");
       });
-    } catch (err) {
+    } catch {
       setError("Không thể tải thông tin chi tiết dự án. Vui lòng thử lại sau.");
     } finally {
       setLoading(false);
@@ -422,7 +417,7 @@ export default function ManagerProjectDetail() {
     const categoryId = String(editForm.categoryId || "");
     if (!categoryId) return;
 
-    if (!window.confirm(`Bạn có chắc chắn muốn xóa nhãn \"${label.name}\"?`)) return;
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa nhãn "${label.name}"?`)) return;
 
     setLabelActionTargetId(String(label.id));
     try {

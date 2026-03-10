@@ -14,16 +14,22 @@ import {
     Image as ImageIcon
 } from "lucide-react";
 import api from "../../config/api";
-
-const toArrayData = (value) => {
-    if (Array.isArray(value)) return value;
-    if (Array.isArray(value?.items)) return value.items;
-    if (Array.isArray(value?.data)) return value.data;
-    return [];
-};
+import {
+    toArrayData,
+    requestSequential,
+    isActiveProject,
+    isCompletedProject,
+    getProjectStatusMeta,
+    getProjectItemCount,
+    getProjectTypeLabel,
+    sortProjectsByNewest,
+    getProjectUpdatedAt,
+    formatRelativeDateVi,
+} from "../../utils/projectDashboardHelpers";
 
 export default function ManagerDashboard() {
     const navigate = useNavigate();
+    const [projectList, setProjectList] = useState([]);
     const [statsData, setStatsData] = useState({
         totalProjects: 4,
         activeProjects: 2,
@@ -35,9 +41,18 @@ export default function ManagerDashboard() {
         const loadStats = async () => {
             try {
                 const [projectsRes, usersRes, rolesRes] = await Promise.allSettled([
-                    api.get("/projects"),
-                    api.get("/users"),
-                    api.get("/roles"),
+                    requestSequential([
+                        () => api.get("/projects"),
+                        () => api.get("/Projects"),
+                    ]),
+                    requestSequential([
+                        () => api.get("/users"),
+                        () => api.get("/Users"),
+                    ]),
+                    requestSequential([
+                        () => api.get("/roles"),
+                        () => api.get("/Roles"),
+                    ]),
                 ]);
 
                 const projects = projectsRes.status === "fulfilled"
@@ -61,21 +76,16 @@ export default function ManagerDashboard() {
                     ? toArrayData(usersRes.value?.data)
                     : [];
 
+                setProjectList(projects);
+
                 const annotatorCount = users.filter((user) => {
                     const mappedRoleById = roleMap[String(user?.roleId ?? user?.roleID ?? user?.role_id ?? user?.role?.id ?? user?.role?.roleId ?? "")];
                     const rawRole = user?.roleName ?? user?.role?.name ?? user?.role ?? mappedRoleById;
                     return String(rawRole || "").toLowerCase() === "annotator";
                 }).length;
 
-                const normalizeStatus = (status) => String(status || "").trim().toLowerCase();
-                const activeProjects = projects.filter((project) => {
-                    const status = normalizeStatus(project?.status);
-                    return status === "active" || status === "in_progress" || status === "ongoing" || status === "đang hoạt động";
-                }).length;
-                const completedProjects = projects.filter((project) => {
-                    const status = normalizeStatus(project?.status);
-                    return status === "completed" || status === "done" || status === "finished" || status === "hoàn thành";
-                }).length;
+                const activeProjects = projects.filter((project) => isActiveProject(project)).length;
+                const completedProjects = projects.filter((project) => isCompletedProject(project)).length;
 
                 setStatsData((prev) => ({
                     ...prev,
@@ -127,7 +137,7 @@ export default function ManagerDashboard() {
         },
     ];
 
-    const projects = [
+    const fallbackProjects = [
         {
             name: "Phân loại chó mèo",
             type: "Phân loại",
@@ -153,6 +163,20 @@ export default function ManagerDashboard() {
             updated: "Hôm qua"
         },
     ];
+
+    const projects = projectList.length > 0
+        ? sortProjectsByNewest(projectList).slice(0, 3).map((project) => {
+            const statusMeta = getProjectStatusMeta(project);
+            return {
+                name: project?.name || "Dự án không tên",
+                type: getProjectTypeLabel(project),
+                images: getProjectItemCount(project),
+                status: statusMeta.label,
+                statusType: statusMeta.statusType,
+                updated: formatRelativeDateVi(getProjectUpdatedAt(project)),
+            };
+        })
+        : fallbackProjects;
 
     const progress = [
         {

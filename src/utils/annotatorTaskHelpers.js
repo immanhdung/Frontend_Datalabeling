@@ -5,7 +5,7 @@ const readJsonStorage = (key, fallbackValue) => {
       return fallbackValue;
     }
     return JSON.parse(rawValue);
-  } catch (error) {
+  } catch {
     return fallbackValue;
   }
 };
@@ -178,7 +178,7 @@ export const fetchAssignedTasksForUser = async (taskApi, userIdOrIds) => {
     const myTasksResponse = await taskApi.getMyTasks();
     const myTasks = resolveApiData(myTasksResponse);
     return normalizeTasks(myTasks).filter(isMatch);
-  } catch (myTaskError) {
+  } catch {
     const allTasksResponse = await taskApi.getAll();
     const allTasks = resolveApiData(allTasksResponse);
     return normalizeTasks(allTasks).filter(isMatch);

@@ -26,7 +26,7 @@ const findLocalDevUser = (usernameOrEmail) => {
       const byEmail = String(user?.email || "").toLowerCase() === normalized;
       return byUsername || byEmail;
     }) || null;
-  } catch (error) {
+  } catch {
     return null;
   }
 };

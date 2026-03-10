@@ -4,7 +4,7 @@ const readReviewHistory = () => {
   try {
     const saved = localStorage.getItem('reviewHistory');
     return saved ? JSON.parse(saved) : [];
-  } catch (error) {
+  } catch {
     return [];
   }
 };

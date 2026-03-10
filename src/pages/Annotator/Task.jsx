@@ -448,7 +448,6 @@ const AnnotatorTask = () => {
     );
   }
 
-  const currentItem = task.items?.[currentItemIndex];
   const progress = task.items ? Math.round(((currentItemIndex + 1) / task.items.length) * 100) : 0;
 
   return (
