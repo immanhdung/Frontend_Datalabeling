@@ -94,9 +94,9 @@ export default function ManagerProjectDetail() {
   const [projectTasks, setProjectTasks] = useState([]);
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [selectedAssigneeId, setSelectedAssigneeId] = useState("");
-  const [selectedMemberToAddId, setSelectedMemberToAddId] = useState("");
   const [memberSearch, setMemberSearch] = useState("");
   const [memberRoleFilter, setMemberRoleFilter] = useState("all");
+  const [memberPage, setMemberPage] = useState(1);
   const [addingMember, setAddingMember] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState("");
   const [assigningTask, setAssigningTask] = useState(false);
@@ -219,6 +219,14 @@ export default function ManagerProjectDetail() {
     });
   }, [availableUsersToAdd, memberRoleFilter, memberSearch]);
 
+  const USERS_PER_PAGE = 10;
+  const totalMemberPages = Math.max(1, Math.ceil(filteredUsersToAdd.length / USERS_PER_PAGE));
+  const paginatedUsersToAdd = useMemo(() => {
+    const page = Math.min(Math.max(memberPage, 1), totalMemberPages);
+    const start = (page - 1) * USERS_PER_PAGE;
+    return filteredUsersToAdd.slice(start, start + USERS_PER_PAGE);
+  }, [filteredUsersToAdd, memberPage, totalMemberPages]);
+
   const fetchProjectDetail = async () => {
     try {
       setLoading(true);
@@ -319,17 +327,6 @@ export default function ManagerProjectDetail() {
         return getEntityId(fetchedAnnotators[0]);
       });
 
-      setSelectedMemberToAddId((prev) => {
-        const availableIds = toArray(usersRes?.data)
-          .map((user) => getEntityId(user))
-          .filter((userId) => userId && !new Set(fetchedMembers.map((member) => getEntityId(member))).has(userId));
-
-        if (prev && availableIds.includes(String(prev))) {
-          return prev;
-        }
-
-        return String(availableIds[0] || "");
-      });
     } catch {
       setError("Không thể tải thông tin chi tiết dự án. Vui lòng thử lại sau.");
     } finally {
@@ -385,8 +382,8 @@ export default function ManagerProjectDetail() {
     }
   };
 
-  const handleAddMemberToProject = async () => {
-    const memberId = String(selectedMemberToAddId || "");
+  const handleAddMemberToProject = async (targetMemberId) => {
+    const memberId = String(targetMemberId || "");
     if (!memberId) {
       alert("Vui lòng chọn user để thêm vào dự án");
       return;
@@ -415,6 +412,16 @@ export default function ManagerProjectDetail() {
   useEffect(() => {
     if (id) fetchProjectDetail();
   }, [id]);
+
+  useEffect(() => {
+    setMemberPage(1);
+  }, [memberSearch, memberRoleFilter]);
+
+  useEffect(() => {
+    if (memberPage > totalMemberPages) {
+      setMemberPage(totalMemberPages);
+    }
+  }, [memberPage, totalMemberPages]);
 
   useEffect(() => {
     setEditingCategoryLabelId("");
@@ -962,37 +969,65 @@ export default function ManagerProjectDetail() {
               : "Không có user phù hợp với bộ lọc hiện tại."}
           </p>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium mb-1">User</label>
-              <select
-                value={selectedMemberToAddId}
-                onChange={(e) => setSelectedMemberToAddId(e.target.value)}
-                className="w-full border rounded px-3 py-2"
-              >
-                <option value="">-- Chọn user --</option>
-                {filteredUsersToAdd.map((user, idx) => {
-                  const userId = getEntityId(user);
-                  const role = getEntityRole(user);
-                  const roleLabel = role ? ` (${role})` : "";
-                  return (
-                    <option key={userId || `user-${idx}`} value={userId}>
-                      {getEntityDisplayName(user, `User ${idx + 1}`)}{roleLabel}
-                    </option>
-                  );
-                })}
-              </select>
+          <div className="space-y-3">
+            <div className="overflow-x-auto border border-gray-200 rounded-lg">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">Username</th>
+                    <th className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">Họ tên</th>
+                    <th className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">Role</th>
+                    <th className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase text-right">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedUsersToAdd.map((user, idx) => {
+                    const userId = getEntityId(user);
+                    const role = getEntityRole(user);
+                    return (
+                      <tr key={userId || `user-${idx}`} className="border-b border-gray-100 last:border-0">
+                        <td className="px-4 py-3 text-sm text-gray-700">{user?.username || "---"}</td>
+                        <td className="px-4 py-3 text-sm text-gray-900">{getEntityDisplayName(user, `User ${idx + 1}`)}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{role || "---"}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleAddMemberToProject(userId)}
+                            disabled={addingMember || !userId}
+                            className="px-3 py-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50 text-sm"
+                          >
+                            {addingMember ? "Đang thêm..." : "Thêm"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
 
-            <div>
-              <button
-                type="button"
-                onClick={handleAddMemberToProject}
-                disabled={addingMember || !selectedMemberToAddId}
-                className="w-full px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
-              >
-                {addingMember ? "Đang thêm..." : "Thêm vào dự án"}
-              </button>
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-500">
+                Trang {Math.min(memberPage, totalMemberPages)}/{totalMemberPages} - {filteredUsersToAdd.length} user
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMemberPage((prev) => Math.max(prev - 1, 1))}
+                  disabled={memberPage <= 1}
+                  className="px-3 py-1.5 border rounded text-sm disabled:opacity-50"
+                >
+                  Truoc
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMemberPage((prev) => Math.min(prev + 1, totalMemberPages))}
+                  disabled={memberPage >= totalMemberPages}
+                  className="px-3 py-1.5 border rounded text-sm disabled:opacity-50"
+                >
+                  Sau
+                </button>
+              </div>
             </div>
           </div>
         )}
