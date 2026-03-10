@@ -18,7 +18,7 @@ import {
     Database,
     Pencil
 } from "lucide-react";
-import api from "../../config/api";
+import api, { datasetAPI, API_BASE_URL } from "../../config/api";
 
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "bmp", "gif", "tif", "tiff"];
 const DEV_DATASETS_KEY = "devManagerDatasets";
@@ -76,8 +76,15 @@ const getItemExtension = (item, fallbackIndex) => {
 };
 
 const isImageItem = (item, fallbackIndex) => {
-    const ext = getItemExtension(item, fallbackIndex);
-    return IMAGE_EXTENSIONS.includes(ext);
+    const name = getItemName(item, fallbackIndex);
+    const ext = String(name).split(".").pop()?.toLowerCase();
+    if (ext && IMAGE_EXTENSIONS.includes(ext)) return true;
+
+    // Check contentType or mediaType if available
+    const type = (item?.contentType || item?.mediaType || "").toLowerCase();
+    if (type.startsWith("image/")) return true;
+
+    return false;
 };
 
 const getItemDimensions = (item) => {
@@ -465,42 +472,24 @@ export default function Datasets() {
         try {
             setLoading(true);
             const dsId = selectedDataset.id || selectedDataset.datasetId;
-            await requestSequential([
-                () => api.post(`/datasets/${dsId}/attach/${projectId}`, {}),
-                () => api.post(`/Datasets/${dsId}/attach/${projectId}`, {}),
-            ]);
+
+            await datasetAPI.attach(dsId, projectId);
             alert("Gán vào project thành công!");
             setShowAssignModal(false);
             fetchData();
         } catch (err) {
             console.error(err);
-            alert("Gán thất bại");
+            alert("Gán thất bại: " + (err.response?.data?.message || err.message));
         } finally {
             setLoading(false);
         }
     };
 
-    const fetchDatasetDetail = async (datasetId) => {
-        const [infoRes, itemsRes] = await Promise.all([
-            requestSequential([
-                () => api.get(`/datasets/${datasetId}`),
-                () => api.get(`/Datasets/${datasetId}`),
-            ]),
-            requestSequential([
-                () => api.get(`/datasets/${datasetId}/items`),
-                () => api.get(`/Datasets/${datasetId}/items`),
-            ]),
-        ]);
 
-        return {
-            dataset: infoRes?.data,
-            items: itemsRes?.data?.items || itemsRes?.data || [],
-        };
-    };
 
-    const handleViewDetail = async (ds) => {
+    const handleViewDetail = async (ds, openModal = true) => {
         const id = ds.id || ds.datasetId;
-        setShowDetailModal(true);
+        if (openModal) setShowDetailModal(true);
         setLoadingDetail(true);
 
         if (ds?.isLocalOnly) {
@@ -511,9 +500,15 @@ export default function Datasets() {
         }
 
         try {
-            const detail = await fetchDatasetDetail(id);
-            setSelectedDataset(detail.dataset);
-            setDetailItems(detail.items);
+
+            // Fetch fresh dataset info AND items
+            const [infoRes, itemsRes] = await Promise.all([
+                api.get(`/datasets/${id}`),
+                api.get(`/datasets/${id}/items`)
+            ]);
+            console.log("DEBUG: Dataset items data:", itemsRes.data);
+            setSelectedDataset(infoRes.data);
+            setDetailItems(itemsRes.data?.items || itemsRes.data || []);
         } catch (err) {
             console.error("Fetch dataset details error:", err);
             setSelectedDataset(ds); // Fallback to list info
@@ -522,54 +517,28 @@ export default function Datasets() {
             setLoadingDetail(false);
         }
     };
-
-    const openEditDatasetModal = async (ds) => {
-        const id = ds.id || ds.datasetId;
-        setSelectedDataset(ds);
-        setEditName(ds.name || "");
-        setEditUploadType("images");
-        setEditImages([]);
-        setEditZipFile(null);
-        setShowEditModal(true);
-
-        if (ds?.isLocalOnly) {
-            setDetailItems(Array.isArray(ds?.items) ? ds.items : []);
-            return;
-        }
-
+    const handleDeleteItem = async (itemId) => {
+        if (!window.confirm("Bạn có chắc muốn xóa tệp này?")) return;
         try {
-            setLoadingDetail(true);
-            const detail = await fetchDatasetDetail(id);
-            setSelectedDataset(detail.dataset);
-            setDetailItems(detail.items);
+            setLoading(true);
+            await api.delete(`/datasets/items/${itemId}`);
+            setDetailItems(prev => prev.filter(it => (it.id || it.itemId || it.datasetItemId || it.dataset_item_id) !== itemId));
+            // Also refresh dataset list to update counts/size
+            fetchData();
         } catch (err) {
-            console.error("Fetch dataset details for edit error:", err);
+            console.error(err);
+            alert("Xóa tệp thất bại");
         } finally {
-            setLoadingDetail(false);
+            setLoading(false);
         }
     };
 
-    const handleEditFilesChange = (e) => {
-        const files = Array.from(e.target.files || []);
-        if (editUploadType === "zip") {
-            setEditZipFile(files[0] || null);
-            if (e.target) e.target.value = "";
-            return;
-        }
-        setEditImages((prev) => [...prev, ...files]);
-        if (e.target) e.target.value = "";
-    };
-
-    const uploadFilesToDataset = async () => {
-        const dsId = selectedDataset?.id || selectedDataset?.datasetId;
-        if (!dsId) return;
-
-        if (editUploadType === "zip" && !editZipFile) {
+    const handleUploadMore = async () => {
+        if (uploadType === "zip" && !newDataset.zipFile) {
             alert("Vui lòng chọn file ZIP");
             return;
         }
-
-        if (editUploadType === "images" && editImages.length === 0) {
+        if (uploadType === "images" && newDataset.images.length === 0) {
             alert("Vui lòng chọn ít nhất một ảnh");
             return;
         }
@@ -811,6 +780,20 @@ export default function Datasets() {
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         setSelectedDataset(ds);
+                                                        setEditName(ds.name);
+                                                        setShowEditModal(true);
+                                                        setOpenMenuId(null);
+                                                        handleViewDetail(ds, false); // Fetch items for editing
+                                                    }}
+                                                    className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-amber-600 hover:bg-amber-50 transition-colors"
+                                                >
+                                                    <Pencil className="w-4 h-4" />
+                                                    Chỉnh sửa
+                                                </button>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSelectedDataset(ds);
                                                         setShowAssignModal(true);
                                                         setOpenMenuId(null);
                                                     }}
@@ -845,7 +828,10 @@ export default function Datasets() {
                                 <div className="mt-4 flex items-center gap-4 text-sm font-medium text-gray-500">
                                     <div className="flex items-center gap-1.5">
                                         <ImageIcon className="w-4 h-4" />
-                                        {ds.imagesCount || ds.itemsCount || ds.totalItems || ds.itemCount || ds.imageCount || ds.items?.length || 0} files
+                                        {(() => {
+                                            const count = ds.imagesCount ?? ds.itemsCount ?? ds.totalItems ?? ds.itemCount ?? ds.imageCount ?? (Array.isArray(ds.items) ? ds.items.length : 0);
+                                            return count || 0;
+                                        })()} files
                                     </div>
                                     <div className="flex items-center gap-1.5">
                                         <Database className="w-4 h-4" />
@@ -1006,15 +992,22 @@ export default function Datasets() {
             {/* EDIT MODAL */}
             {showEditModal && (
                 <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+
                     <div className="bg-white rounded-[32px] w-full max-w-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 max-h-[90vh] flex flex-col">
+
                         <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                            <h2 className="text-xl font-bold text-gray-900">Chỉnh sửa Dataset</h2>
-                            <button onClick={() => setShowEditModal(false)} className="p-2 hover:bg-white rounded-full transition-all">
+                            <div>
+                                <h2 className="text-xl font-bold text-gray-900">Chỉnh sửa Dataset</h2>
+                                <p className="text-sm text-gray-500">Quản lý tên và nội dung của dataset</p>
+                            </div>
+                            <button onClick={() => { setShowEditModal(false); resetAddForm(); }} className="p-2 hover:bg-white rounded-full transition-all">
                                 <X className="w-5 h-5 text-gray-400" />
                             </button>
                         </div>
+
                         <div className="p-6 space-y-6 overflow-y-auto">
                             <div className="space-y-3">
+
                                 <label className="text-sm font-bold text-gray-700 ml-1">Đổi tên Dataset</label>
                                 <div className="flex gap-3">
                                     <input
@@ -1127,6 +1120,7 @@ export default function Datasets() {
                         </div>
                         <div className="p-6 border-t bg-gray-50/50 flex justify-end gap-3">
                             <button onClick={() => setShowEditModal(false)} className="px-5 py-2.5 text-sm font-bold text-gray-500">Đóng</button>
+
                         </div>
                     </div>
                 </div>
@@ -1277,6 +1271,7 @@ export default function Datasets() {
                                                                     <FileArchive className="w-4 h-4" />
                                                                 </div>
                                                             )}
+
                                                             <span className="truncate font-medium text-gray-800">{fileName}</span>
                                                         </div>
 
@@ -1284,13 +1279,12 @@ export default function Datasets() {
                                                         <div className="col-span-2 text-gray-600">{formatBytes(sizeBytes)}</div>
                                                         <div className="col-span-2 text-gray-600">{dims ? `${dims.width}x${dims.height}` : "N/A"}</div>
                                                         <div className="col-span-1">
-                                                            <span className={`text-[11px] font-bold px-2 py-1 rounded-full ${
-                                                                quality.status === "low"
-                                                                    ? "bg-amber-100 text-amber-700"
-                                                                    : quality.status === "ok"
-                                                                        ? "bg-emerald-100 text-emerald-700"
-                                                                        : "bg-gray-100 text-gray-600"
-                                                            }`}>
+                                                            <span className={`text-[11px] font-bold px-2 py-1 rounded-full ${quality.status === "low"
+                                                                ? "bg-amber-100 text-amber-700"
+                                                                : quality.status === "ok"
+                                                                    ? "bg-emerald-100 text-emerald-700"
+                                                                    : "bg-gray-100 text-gray-600"
+                                                                }`}>
                                                                 {quality.text}
                                                             </span>
                                                         </div>

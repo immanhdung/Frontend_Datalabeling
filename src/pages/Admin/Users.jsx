@@ -15,11 +15,10 @@ import {
 const Users = () => {
   const { token } = useAuth();
   const enableDevFallback = import.meta.env.VITE_ENABLE_DEV_FALLBACK === "true";
-  const enableDevBypass = import.meta.env.VITE_BYPASS_LOGIN === "true";
-  const isDevLocalToken = token === "dev-fallback-token" || token === "dev-bypass-token";
+  const isDevLocalToken = token === "dev-fallback-token";
   const isDevFallbackSession =
     import.meta.env.DEV &&
-    (enableDevFallback || enableDevBypass) &&
+    enableDevFallback &&
     isDevLocalToken;
 
   const DEV_USERS_KEY = "devAdminUsers";

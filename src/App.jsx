@@ -36,14 +36,6 @@ import ReviewerAnalytics from "./pages/Reviewer/Analytics";
 function ProtectedRoute({ children, allowRoles }) {
   const { user, loading } = useAuth();
 
-  const isDevManagerBypass =
-    import.meta.env.DEV &&
-    Array.isArray(allowRoles) &&
-    allowRoles.length === 1 &&
-    allowRoles[0] === "manager";
-
-  if (isDevManagerBypass) return children;
-
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
 
@@ -56,12 +48,7 @@ function ProtectedRoute({ children, allowRoles }) {
 
 function RoleRedirect() {
   const { user, loading } = useAuth();
-  const isDevBypass = import.meta.env.DEV && import.meta.env.VITE_BYPASS_LOGIN === "true";
-
   if (loading) return null;
-  if (isDevBypass && !user) {
-    return <Navigate to="/admin/dashboard" replace />;
-  }
   if (!user) return <Navigate to="/login" replace />;
 
   switch (user.role.toLowerCase()) {

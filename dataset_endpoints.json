@@ -1,0 +1,8 @@
+[
+  "/api/datasets",
+  "/api/datasets/add/{projectId}",
+  "/api/datasets/items/{itemId}",
+  "/api/datasets/remove/{projectId}",
+  "/api/datasets/{datasetId}",
+  "/api/datasets/{datasetId}/items"
+]

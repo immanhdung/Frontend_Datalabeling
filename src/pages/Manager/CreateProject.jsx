@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../../config/api";
+import api, { datasetAPI } from "../../config/api";
 import {
   ArrowLeft,
   ArrowRight,
@@ -76,6 +76,7 @@ export default function CreateProjectPage() {
   const [loadingLabels, setLoadingLabels] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [existingProjects, setExistingProjects] = useState([]);
 
   const token = localStorage.getItem("accessToken");
   const enableDevFallback = import.meta.env.VITE_ENABLE_DEV_FALLBACK === "true";
@@ -167,8 +168,18 @@ export default function CreateProjectPage() {
       }
     };
 
+    const fetchExistingProjects = async () => {
+      try {
+        const res = await api.get("/projects");
+        setExistingProjects(toArray(res.data));
+      } catch (e) {
+        console.warn("Could not fetch projects for unique name check", e);
+      }
+    };
+
     fetchCategories();
     fetchDatasets();
+    fetchExistingProjects();
   }, []);
 
   useEffect(() => {
@@ -198,7 +209,9 @@ export default function CreateProjectPage() {
             id: item?.id ?? `api-label-${idx}`,
             name: item?.name ?? item?.labelName,
           })).filter((item) => item.name);
-        } catch {
+        } catch (err) {
+          // If 404, just use labels from category payload
+          console.warn("Extra labels API failed (expected if not supported), using category source", err);
           fromApi = [];
         }
 
@@ -267,10 +280,7 @@ export default function CreateProjectPage() {
 
     const results = await Promise.allSettled(
       datasetIds.map((datasetId) =>
-        requestSequential([
-          () => api.post(`/datasets/${datasetId}/attach/${projectId}`, {}),
-          () => api.post(`/Datasets/${datasetId}/attach/${projectId}`, {}),
-        ])
+        datasetAPI.attach(datasetId, projectId)
       )
     );
 
@@ -285,8 +295,15 @@ export default function CreateProjectPage() {
       return;
     }
 
+    // Check against existing projects, not categories
+    const nameExists = existingProjects.some(p => p.name?.toLowerCase() === projectName.trim().toLowerCase());
+    if (nameExists) {
+      setError("Tên dự án đã tồn tại trong hệ thống. Vui lòng chọn tên khác.");
+      setSubmitting(false);
+      return;
+    }
+
     setSubmitting(true);
-    setError("");
 
     if (isDevLocalSession) {
       const localProjectId = `local-project-${Date.now()}`;
@@ -371,14 +388,16 @@ export default function CreateProjectPage() {
       const attachResult = await attachDatasets(projectId);
 
       if (attachResult.failedCount > 0) {
-        alert(`Tao du an thanh cong. Da gan ${attachResult.attachedCount}/${selectedDatasetIds.length} dataset.`);
+        alert(`Tạo dự án thành công. Tuy nhiên đã gán thất bại ${attachResult.failedCount} dataset.`);
       } else {
-        alert("Tao du an thanh cong!");
+        alert("Tạo dự án thành công!");
       }
 
       navigate("/manager/projects");
     } catch (err) {
-      setError(err.response?.data?.message || err.message || "Tao du an that bai");
+      console.error("Project creation error details:", err.response?.data || err);
+      const serverMsg = err.response?.data?.message || err.response?.data?.title || err.message;
+      setError(`Lỗi tạo dự án (500): ${serverMsg}`);
     } finally {
       setSubmitting(false);
     }
@@ -394,7 +413,7 @@ export default function CreateProjectPage() {
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
-        <button className="p-2 rounded hover:bg-gray-100" onClick={() => navigate("/manager/projects")}> 
+        <button className="p-2 rounded hover:bg-gray-100" onClick={() => navigate("/manager/projects")}>
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div>
@@ -410,13 +429,12 @@ export default function CreateProjectPage() {
           <div key={s.number} className="flex items-center">
             <div className={`flex items-center gap-2 ${step >= s.number ? "text-indigo-600" : "text-gray-400"}`}>
               <div
-                className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  step > s.number
-                    ? "bg-indigo-600 text-white"
-                    : step === s.number
-                      ? "border-2 border-indigo-600"
-                      : "bg-gray-200"
-                }`}
+                className={`w-10 h-10 rounded-full flex items-center justify-center ${step > s.number
+                  ? "bg-indigo-600 text-white"
+                  : step === s.number
+                    ? "border-2 border-indigo-600"
+                    : "bg-gray-200"
+                  }`}
               >
                 {step > s.number ? <Check /> : <s.icon className="w-4 h-4" />}
               </div>
@@ -491,9 +509,8 @@ export default function CreateProjectPage() {
                             key={label.id}
                             onClick={() => toggleLabel(label.name)}
                             type="button"
-                            className={`px-3 py-1 rounded-full text-sm border ${
-                              selected ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-700 border-gray-300"
-                            }`}
+                            className={`px-3 py-1 rounded-full text-sm border ${selected ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-700 border-gray-300"
+                              }`}
                           >
                             {label.name}
                           </button>

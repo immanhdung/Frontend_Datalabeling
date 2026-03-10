@@ -1,0 +1,20 @@
+[
+  "/api/categories",
+  "/api/categories/{id}",
+  "/api/datasets",
+  "/api/datasets/{datasetId}",
+  "/api/datasets/{datasetId}/items",
+  "/api/guidelines",
+  "/api/guidelines/{id}",
+  "/api/labels",
+  "/api/project-templates",
+  "/api/project-templates/{id}",
+  "/api/projects",
+  "/api/projects/{id}",
+  "/api/projects/{id}/members",
+  "/api/roles",
+  "/api/roles/{id}",
+  "/api/tasks",
+  "/api/users",
+  "/api/users/{id}"
+]

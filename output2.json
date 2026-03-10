@@ -1,0 +1,98 @@
+{
+  "get": {
+    "tags": [
+      "Datasets"
+    ],
+    "summary": "Get all dataset items for a specific dataset.",
+    "parameters": [
+      {
+        "name": "datasetId",
+        "in": "path",
+        "required": true,
+        "style": "simple",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      {
+        "name": "Page",
+        "in": "query",
+        "style": "form",
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "PageSize",
+        "in": "query",
+        "style": "form",
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      {
+        "name": "Offset",
+        "in": "query",
+        "style": "form",
+        "schema": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "Success"
+      }
+    }
+  },
+  "post": {
+    "tags": [
+      "Datasets"
+    ],
+    "summary": "Upload a file or archive into an existing dataset.\r\nAccepts single image/audio/text or archive (zip/rar) containing allowed files.\r\nUploads rely on strategy detection; dataset mediaType field no longer exists.",
+    "parameters": [
+      {
+        "name": "datasetId",
+        "in": "path",
+        "required": true,
+        "style": "simple",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    ],
+    "requestBody": {
+      "content": {
+        "multipart/form-data": {
+          "schema": {
+            "required": [
+              "File"
+            ],
+            "type": "object",
+            "properties": {
+              "File": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          },
+          "encoding": {
+            "File": {
+              "style": "form"
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "Success"
+      }
+    }
+  }
+}

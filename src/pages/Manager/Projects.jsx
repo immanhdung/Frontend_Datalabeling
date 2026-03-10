@@ -10,10 +10,14 @@ import {
   Eye,
   Trash2,
   X,
+  UserCheck,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+
 import api, { labelAPI } from "../../config/api";
+
 import { useAuth } from "../../context/AuthContext";
+import AssignTasksModal from "../../components/manager/AssignTasksModal";
 
 const DEV_PROJECTS_KEY = "devManagerProjects";
 const DEV_CATEGORIES_KEY = "devManagerCategories";
@@ -33,6 +37,7 @@ export default function ManagerProjects() {
 
   // Modal Gán Dataset state
   const [showDatasetModal, setShowDatasetModal] = useState(false);
+  const [showAssignTasksModal, setShowAssignTasksModal] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
   const [datasets, setDatasets] = useState([]);
   const [loadingDatasets, setLoadingDatasets] = useState(false);
@@ -67,8 +72,8 @@ export default function ManagerProjects() {
       setSubmittingLabel(true);
       const projectId = selectedProject.id || selectedProject.projectId;
 
-      // Using the working endpoint pattern from Datasets.jsx with empty body
-      await api.post(`/Datasets/${datasetId}/attach/${projectId}`, {});
+      // Using the backend documented endpoint: POST /api/datasets/add/{projectId} with payload { datasetId }
+      await datasetAPI.attach(datasetId, projectId);
 
       alert(`Đã gán dataset cho dự án "${selectedProject.name}" thành công!`);
       setShowDatasetModal(false);
@@ -94,6 +99,8 @@ export default function ManagerProjects() {
       setLoadingDatasets(false);
     }
   };
+
+
 
   const fetchProjects = async () => {
     try {
@@ -181,6 +188,7 @@ export default function ManagerProjects() {
 
       if (successCount === 0) {
         throw new Error("Khong endpoint nao ho tro them nhan cho category");
+
       }
 
       alert(`Đã thêm nhãn cho ${successCount}/${uniqueTargetIds.size} category.`);
@@ -240,6 +248,7 @@ export default function ManagerProjects() {
     window.addEventListener("click", handleClickOutside);
     return () => window.removeEventListener("click", handleClickOutside);
   }, []);
+
 
   return (
     <div className="space-y-6">
@@ -443,7 +452,6 @@ export default function ManagerProjects() {
           </div>
         </div>
       )}
-
       {!loading && !error && projects.length === 0 && (
         <p className="text-gray-500">Chưa có dự án nào</p>
       )}
@@ -476,6 +484,16 @@ export default function ManagerProjects() {
 
                   {openMenuId === id && (
                     <div className="absolute right-0 mt-2 w-48 bg-white border rounded-xl shadow-xl z-20 py-2">
+                      <button
+                        onClick={() => {
+                          setSelectedProject(p);
+                          setShowAssignTasksModal(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-green-600 hover:bg-green-50"
+                      >
+                        <UserCheck className="w-4 h-4" />
+                        Giao việc
+                      </button>
                       <button
                         onClick={() => navigate(`/manager/projects/${id}`)}
                         className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
@@ -515,7 +533,11 @@ export default function ManagerProjects() {
               <div className="flex items-center justify-between text-sm text-gray-600 pt-2 border-t">
                 <div className="flex items-center gap-1">
                   <Image className="w-4 h-4" />
-                  {p.imagesCount ?? 0} ảnh
+                  {(() => {
+                    const attached = p.datasets || [];
+                    const sum = attached.reduce((acc, ds) => acc + (ds.imagesCount || ds.numberOfItems || ds.itemCount || 0), 0);
+                    return sum || p.imagesCount || 0;
+                  })()} ảnh
                 </div>
                 <div className="flex items-center gap-1">
                   <Tag className="w-4 h-4" />
@@ -536,6 +558,12 @@ export default function ManagerProjects() {
           );
         })}
       </div>
+
+      <AssignTasksModal
+        isOpen={showAssignTasksModal}
+        project={selectedProject}
+        onClose={() => setShowAssignTasksModal(false)}
+      />
     </div>
   );
 }
