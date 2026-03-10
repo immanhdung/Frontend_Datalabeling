@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
     Plus,
     Search,
@@ -21,19 +21,6 @@ import {
 import api, { datasetAPI, API_BASE_URL } from "../../config/api";
 
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "bmp", "gif", "tif", "tiff"];
-const DEV_DATASETS_KEY = "devManagerDatasets";
-
-const requestSequential = async (factories) => {
-    let lastError;
-    for (const factory of factories) {
-        try {
-            return await factory();
-        } catch (error) {
-            lastError = error;
-        }
-    }
-    throw lastError;
-};
 
 const formatBytes = (bytes) => {
     const numeric = Number(bytes || 0);
@@ -96,36 +83,6 @@ const getItemDimensions = (item) => {
     return null;
 };
 
-const resolvePreviewUrl = (item) => {
-    const candidate =
-        item?.thumbnailUrl ||
-        item?.thumbnailURL ||
-        item?.previewUrl ||
-        item?.previewURL ||
-        item?.imageUrl ||
-        item?.imageURL ||
-        item?.fileUrl ||
-        item?.fileURL ||
-        item?.url ||
-        item?.path ||
-        item?.filePath;
-
-    if (!candidate || typeof candidate !== "string") return "";
-
-    if (/^(https?:|data:|blob:)/i.test(candidate)) return candidate;
-
-    const configuredBase = import.meta.env.VITE_API_BASE_URL || "";
-    const originBase = configuredBase.startsWith("http")
-        ? configuredBase.replace(/\/$/, "")
-        : `${window.location.origin}${configuredBase}`.replace(/\/$/, "");
-
-    if (candidate.startsWith("/")) {
-        return `${originBase}${candidate}`;
-    }
-
-    return `${originBase}/${candidate}`;
-};
-
 const getQualityInfo = (item, fallbackIndex) => {
     if (!isImageItem(item, fallbackIndex)) {
         return { status: "na", text: "N/A" };
@@ -148,16 +105,6 @@ const getQualityInfo = (item, fallbackIndex) => {
     return { status: "unknown", text: "Chưa đủ dữ liệu" };
 };
 
-const buildLocalItemsFromFiles = (files) => {
-    return files.map((file, index) => ({
-        id: `local-item-${Date.now()}-${index}`,
-        name: file.name,
-        fileName: file.name,
-        size: file.size,
-        contentLength: file.size,
-    }));
-};
-
 export default function Datasets() {
     const [datasets, setDatasets] = useState([]);
     const [projects, setProjects] = useState([]);
@@ -173,8 +120,6 @@ export default function Datasets() {
     const [selectedDataset, setSelectedDataset] = useState(null);
     const [detailItems, setDetailItems] = useState([]);
     const [loadingDetail, setLoadingDetail] = useState(false);
-    const [uploadingDetailItems, setUploadingDetailItems] = useState(false);
-    const [deletingItemIds, setDeletingItemIds] = useState([]);
 
     // New Dataset State
     const [newDataset, setNewDataset] = useState({
@@ -187,63 +132,8 @@ export default function Datasets() {
 
     // Edit State
     const [editName, setEditName] = useState("");
-    const [editUploadType, setEditUploadType] = useState("images");
-    const [editImages, setEditImages] = useState([]);
-    const [editZipFile, setEditZipFile] = useState(null);
-    const editFileInputRef = useRef(null);
 
     const [openMenuId, setOpenMenuId] = useState(null);
-
-    const createImagePreviews = useMemo(
-        () => newDataset.images.map((file) => ({
-            name: file.name,
-            size: file.size,
-            url: URL.createObjectURL(file),
-        })),
-        [newDataset.images]
-    );
-
-    const editImagePreviews = useMemo(
-        () => editImages.map((file) => ({
-            name: file.name,
-            size: file.size,
-            url: URL.createObjectURL(file),
-        })),
-        [editImages]
-    );
-
-    const token = localStorage.getItem("accessToken");
-    const enableDevFallback = import.meta.env.VITE_ENABLE_DEV_FALLBACK === "true";
-    const enableDevBypass = import.meta.env.VITE_BYPASS_LOGIN === "true";
-    const isDevLocalToken = token === "dev-fallback-token" || token === "dev-bypass-token";
-    const isDevLocalSession = import.meta.env.DEV && (enableDevFallback || enableDevBypass) && isDevLocalToken;
-
-    const readLocalDatasets = () => {
-        try {
-            const raw = localStorage.getItem(DEV_DATASETS_KEY);
-            const parsed = raw ? JSON.parse(raw) : [];
-            return Array.isArray(parsed) ? parsed : [];
-        } catch {
-            return [];
-        }
-    };
-
-    const persistLocalDatasets = (next) => {
-        if (!isDevLocalSession) return;
-        localStorage.setItem(DEV_DATASETS_KEY, JSON.stringify(next));
-    };
-
-    useEffect(() => {
-        return () => {
-            createImagePreviews.forEach((item) => URL.revokeObjectURL(item.url));
-        };
-    }, [createImagePreviews]);
-
-    useEffect(() => {
-        return () => {
-            editImagePreviews.forEach((item) => URL.revokeObjectURL(item.url));
-        };
-    }, [editImagePreviews]);
 
     // ================= FETCH DATA =================
     const fetchData = async () => {
@@ -251,60 +141,28 @@ export default function Datasets() {
             setLoading(true);
             setError(null);
 
-            let datasetList = [];
-            let projectList = [];
+            const [datasetRes, projRes] = await Promise.all([
+                api.get("/datasets"),
+                api.get("/projects"),
+            ]);
 
-            try {
-                const datasetRes = await requestSequential([
-                    () => api.get("/datasets"),
-                    () => api.get("/Datasets"),
-                ]);
+            const datasetList =
+                datasetRes.data?.items ||
+                datasetRes.data?.data ||
+                datasetRes.data ||
+                [];
 
-                datasetList =
-                    datasetRes.data?.items ||
-                    datasetRes.data?.data ||
-                    datasetRes.data ||
-                    [];
-            } catch (datasetErr) {
-                if (isDevLocalSession) {
-                    datasetList = readLocalDatasets();
-                } else {
-                    setError("Khong the tai du lieu dataset.");
-                }
-            }
+            const projectList =
+                projRes.data?.items ||
+                projRes.data?.data ||
+                projRes.data ||
+                [];
 
-            try {
-                const projRes = await requestSequential([
-                    () => api.get("/projects"),
-                    () => api.get("/Projects"),
-                ]);
-
-                projectList =
-                    projRes.data?.items ||
-                    projRes.data?.data ||
-                    projRes.data ||
-                    [];
-            } catch (projectErr) {
-                projectList = [];
-            }
-
-            const safeDatasets = Array.isArray(datasetList) ? datasetList : [];
-            setDatasets(safeDatasets);
-            setProjects(Array.isArray(projectList) ? projectList : []);
-
-            if (isDevLocalSession && safeDatasets.length > 0) {
-                persistLocalDatasets(safeDatasets);
-            }
+            setDatasets(datasetList);
+            setProjects(projectList);
         } catch (err) {
             console.error(err);
-            if (isDevLocalSession) {
-                const localDatasets = readLocalDatasets();
-                setDatasets(localDatasets);
-                setProjects([]);
-                setError(null);
-            } else {
-                setError("Không thể tải dữ liệu.");
-            }
+            setError("Không thể tải dữ liệu.");
         } finally {
             setLoading(false);
         }
@@ -324,10 +182,6 @@ export default function Datasets() {
             setNewDataset(prev => ({ ...prev, zipFile: files[0] }));
         } else {
             setNewDataset(prev => ({ ...prev, images: [...prev.images, ...files] }));
-        }
-
-        if (e.target) {
-            e.target.value = "";
         }
     };
 
@@ -356,10 +210,9 @@ export default function Datasets() {
             setLoading(true);
 
             // 1. Create Dataset
-            const createRes = await requestSequential([
-                () => api.post("/datasets", { name: newDataset.name }),
-                () => api.post("/Datasets", { name: newDataset.name }),
-            ]);
+            const createRes = await api.post("/datasets", {
+                name: newDataset.name
+            });
 
             const datasetId = createRes.data?.id || createRes.data?.datasetId;
             if (!datasetId) throw new Error("Không tạo được dataset");
@@ -369,19 +222,13 @@ export default function Datasets() {
                 const formData = new FormData();
                 formData.append("File", newDataset.zipFile);
                 formData.append("Name", newDataset.zipFile.name);
-                await requestSequential([
-                    () => api.post(`/datasets/${datasetId}/items`, formData),
-                    () => api.post(`/Datasets/${datasetId}/items`, formData),
-                ]);
+                await api.post(`/datasets/${datasetId}/items`, formData);
             } else {
                 for (const file of newDataset.images) {
                     const formData = new FormData();
                     formData.append("File", file);
                     formData.append("Name", file.name);
-                    await requestSequential([
-                        () => api.post(`/datasets/${datasetId}/items`, formData),
-                        () => api.post(`/Datasets/${datasetId}/items`, formData),
-                    ]);
+                    await api.post(`/datasets/${datasetId}/items`, formData);
                 }
             }
 
@@ -391,32 +238,6 @@ export default function Datasets() {
             fetchData();
         } catch (err) {
             console.error(err);
-            if (isDevLocalSession && err?.response?.status === 401) {
-                const localFiles = uploadType === "zip" ? [newDataset.zipFile] : newDataset.images;
-                const localItems = buildLocalItemsFromFiles(localFiles.filter(Boolean));
-                const localId = `local-dataset-${Date.now()}`;
-
-                const localDataset = {
-                    id: localId,
-                    datasetId: localId,
-                    name: newDataset.name.trim(),
-                    createdAt: new Date().toISOString(),
-                    itemsCount: localItems.length,
-                    imagesCount: localItems.length,
-                    totalItems: localItems.length,
-                    items: localItems,
-                    isLocalOnly: true,
-                };
-
-                const nextDatasets = [localDataset, ...datasets];
-                setDatasets(nextDatasets);
-                persistLocalDatasets(nextDatasets);
-                setShowAddModal(false);
-                resetAddForm();
-                alert("Backend tu choi token demo (401). Da tao dataset local de ban tiep tuc test UI.");
-                return;
-            }
-
             alert("Thêm dataset thất bại: " + (err.response?.data?.message || err.message));
         } finally {
             setLoading(false);
@@ -428,10 +249,7 @@ export default function Datasets() {
         try {
             setLoading(true);
             const id = selectedDataset.id || selectedDataset.datasetId;
-            await requestSequential([
-                () => api.put(`/datasets/${id}`, { name: editName }),
-                () => api.put(`/Datasets/${id}`, { name: editName }),
-            ]);
+            await api.put(`/datasets/${id}`, { name: editName });
             alert("Cập nhật thành công!");
             setShowEditModal(false);
             fetchData();
@@ -449,10 +267,7 @@ export default function Datasets() {
         try {
             setLoading(true);
             // Standarizing to uppercase for this resource
-            await requestSequential([
-                () => api.delete(`/datasets/${id}`),
-                () => api.delete(`/Datasets/${id}`),
-            ]);
+            await api.delete(`/datasets/${id}`);
             setDatasets(prev => prev.filter(d => (d.id || d.datasetId) !== id));
             alert("Đã xóa dataset thành công!");
         } catch (err) {
@@ -472,7 +287,6 @@ export default function Datasets() {
         try {
             setLoading(true);
             const dsId = selectedDataset.id || selectedDataset.datasetId;
-
             await datasetAPI.attach(dsId, projectId);
             alert("Gán vào project thành công!");
             setShowAssignModal(false);
@@ -486,27 +300,16 @@ export default function Datasets() {
     };
 
 
-
     const handleViewDetail = async (ds, openModal = true) => {
         const id = ds.id || ds.datasetId;
         if (openModal) setShowDetailModal(true);
         setLoadingDetail(true);
-
-        if (ds?.isLocalOnly) {
-            setSelectedDataset(ds);
-            setDetailItems(Array.isArray(ds?.items) ? ds.items : []);
-            setLoadingDetail(false);
-            return;
-        }
-
         try {
-
             // Fetch fresh dataset info AND items
             const [infoRes, itemsRes] = await Promise.all([
                 api.get(`/datasets/${id}`),
                 api.get(`/datasets/${id}/items`)
             ]);
-            console.log("DEBUG: Dataset items data:", itemsRes.data);
             setSelectedDataset(infoRes.data);
             setDetailItems(itemsRes.data?.items || itemsRes.data || []);
         } catch (err) {
@@ -517,6 +320,7 @@ export default function Datasets() {
             setLoadingDetail(false);
         }
     };
+
     const handleDeleteItem = async (itemId) => {
         if (!window.confirm("Bạn có chắc muốn xóa tệp này?")) return;
         try {
@@ -543,130 +347,34 @@ export default function Datasets() {
             return;
         }
 
-        const files = editUploadType === "zip" ? [editZipFile] : editImages;
-        const applyFilesLocal = () => {
-            const appendedItems = buildLocalItemsFromFiles(files.filter(Boolean));
-            const nextDatasets = datasets.map((dataset) => {
-                const currentId = dataset?.id || dataset?.datasetId;
-                if (String(currentId) !== String(dsId)) return dataset;
-
-                const prevItems = Array.isArray(dataset?.items) ? dataset.items : [];
-                const mergedItems = [...prevItems, ...appendedItems];
-                return {
-                    ...dataset,
-                    items: mergedItems,
-                    itemsCount: mergedItems.length,
-                    imageCount: mergedItems.length,
-                    imagesCount: mergedItems.length,
-                    totalItems: mergedItems.length,
-                    isLocalOnly: true,
-                };
-            });
-
-            const updated = nextDatasets.find((dataset) => String(dataset?.id || dataset?.datasetId) === String(dsId));
-            setDatasets(nextDatasets);
-            persistLocalDatasets(nextDatasets);
-            setSelectedDataset(updated || selectedDataset);
-            setDetailItems(Array.isArray(updated?.items) ? updated.items : []);
-            setEditImages([]);
-            setEditZipFile(null);
-        };
-
-        if (selectedDataset?.isLocalOnly) {
-            applyFilesLocal();
-            return;
-        }
-
         try {
-            setUploadingDetailItems(true);
-            for (const file of files) {
+            setLoading(true);
+            const datasetId = selectedDataset.id || selectedDataset.datasetId;
+
+            if (uploadType === "zip") {
                 const formData = new FormData();
-                formData.append("File", file);
-                formData.append("Name", file.name);
-                await requestSequential([
-                    () => api.post(`/datasets/${dsId}/items`, formData),
-                    () => api.post(`/Datasets/${dsId}/items`, formData),
-                ]);
+                formData.append("File", newDataset.zipFile);
+                formData.append("Name", newDataset.zipFile.name);
+                await api.post(`/datasets/${datasetId}/items`, formData);
+            } else {
+                for (const file of newDataset.images) {
+                    const formData = new FormData();
+                    formData.append("File", file);
+                    formData.append("Name", file.name);
+                    await api.post(`/datasets/${datasetId}/items`, formData);
+                }
             }
 
-            const detail = await fetchDatasetDetail(dsId);
-            setSelectedDataset(detail.dataset);
-            setDetailItems(detail.items);
-            setEditImages([]);
-            setEditZipFile(null);
-            fetchData();
-            alert("Đã cập nhật dữ liệu dataset");
-        } catch (err) {
-            if (isDevLocalSession && [401, 404].includes(Number(err?.response?.status))) {
-                applyFilesLocal();
-                alert("Backend khong ho tro endpoint upload cho token demo. Da luu local de ban test tiep.");
-                return;
-            }
-            alert("Thêm file thất bại: " + (err.response?.data?.message || err.message));
-        } finally {
-            setUploadingDetailItems(false);
-        }
-    };
-
-    const handleDeleteDatasetItem = async (item) => {
-        const dsId = selectedDataset?.id || selectedDataset?.datasetId;
-        const itemId = item?.id || item?.itemId || item?.datasetItemId;
-        if (!dsId || !itemId) {
-            alert("Khong xac dinh duoc file can xoa");
-            return;
-        }
-
-        if (!window.confirm("Ban co chac chan muon xoa file nay?")) return;
-
-        const removeItemLocal = () => {
-            const nextDatasets = datasets.map((dataset) => {
-                const currentId = dataset?.id || dataset?.datasetId;
-                if (String(currentId) !== String(dsId)) return dataset;
-
-                const prevItems = Array.isArray(dataset?.items) ? dataset.items : [];
-                const nextItems = prevItems.filter((it) => String(it?.id || it?.itemId || it?.datasetItemId) !== String(itemId));
-                return {
-                    ...dataset,
-                    items: nextItems,
-                    itemsCount: nextItems.length,
-                    imageCount: nextItems.length,
-                    imagesCount: nextItems.length,
-                    totalItems: nextItems.length,
-                    isLocalOnly: true,
-                };
-            });
-
-            const updated = nextDatasets.find((dataset) => String(dataset?.id || dataset?.datasetId) === String(dsId));
-            setDatasets(nextDatasets);
-            persistLocalDatasets(nextDatasets);
-            setSelectedDataset(updated || selectedDataset);
-            setDetailItems(Array.isArray(updated?.items) ? updated.items : []);
-        };
-
-        if (selectedDataset?.isLocalOnly) {
-            removeItemLocal();
-            return;
-        }
-
-        try {
-            setDeletingItemIds((prev) => [...prev, String(itemId)]);
-            await requestSequential([
-                () => api.delete(`/datasets/${dsId}/items/${itemId}`),
-                () => api.delete(`/Datasets/${dsId}/items/${itemId}`),
-                () => api.delete(`/datasets/items/${itemId}`),
-                () => api.delete(`/DatasetItems/${itemId}`),
-            ]);
-
-            setDetailItems((prev) => prev.filter((it) => String(it?.id || it?.itemId || it?.datasetItemId) !== String(itemId)));
+            alert("Tải lên thêm thành công!");
+            resetAddForm();
+            // Refresh items list
+            handleViewDetail(selectedDataset, false);
             fetchData();
         } catch (err) {
-            if (isDevLocalSession && [401, 404].includes(Number(err?.response?.status))) {
-                removeItemLocal();
-                return;
-            }
-            alert("Xoa file that bai: " + (err.response?.data?.message || err.message));
+            console.error(err);
+            alert("Tải lên thất bại: " + (err.response?.data?.message || err.message));
         } finally {
-            setDeletingItemIds((prev) => prev.filter((id) => id !== String(itemId)));
+            setLoading(false);
         }
     };
 
@@ -764,17 +472,6 @@ export default function Datasets() {
                                                 >
                                                     <Eye className="w-4 h-4" />
                                                     Xem chi tiết
-                                                </button>
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        openEditDatasetModal(ds);
-                                                        setOpenMenuId(null);
-                                                    }}
-                                                    className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
-                                                >
-                                                    <Pencil className="w-4 h-4" />
-                                                    Chinh sua dataset
                                                 </button>
                                                 <button
                                                     onClick={(e) => {
@@ -919,35 +616,11 @@ export default function Datasets() {
                                 </div>
 
                                 {uploadType === "images" && newDataset.images.length > 0 && (
-                                    <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
-                                        <div className="flex flex-wrap gap-2 items-center">
-                                            <span className="bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-xl text-xs font-bold">
-                                                {newDataset.images.length} tệp đã chọn
-                                            </span>
-                                            <button onClick={() => setNewDataset(p => ({ ...p, images: [] }))} className="text-xs font-bold text-red-500 hover:underline">Xóa tất cả</button>
-                                        </div>
-
-                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                                            {createImagePreviews.map((item, index) => (
-                                                <div key={`${item.name}-${index}`} className="relative border rounded-xl overflow-hidden bg-white">
-                                                    <img src={item.url} alt={item.name} className="w-full h-24 object-cover" />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setNewDataset((prev) => ({
-                                                            ...prev,
-                                                            images: prev.images.filter((_, i) => i !== index),
-                                                        }))}
-                                                        className="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white hover:bg-black/70"
-                                                        title="Bo anh nay"
-                                                    >
-                                                        <X className="w-3 h-3" />
-                                                    </button>
-                                                    <div className="px-2 py-1 text-[10px] text-gray-600 truncate">
-                                                        {item.name}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
+                                    <div className="flex flex-wrap gap-2 animate-in fade-in slide-in-from-bottom-2">
+                                        <span className="bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-xl text-xs font-bold">
+                                            {newDataset.images.length} tệp đã chọn
+                                        </span>
+                                        <button onClick={() => setNewDataset(p => ({ ...p, images: [] }))} className="text-xs font-bold text-red-500 hover:underline">Xóa tất cả</button>
                                     </div>
                                 )}
                                 {uploadType === "zip" && newDataset.zipFile && (
@@ -992,9 +665,7 @@ export default function Datasets() {
             {/* EDIT MODAL */}
             {showEditModal && (
                 <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-
-                    <div className="bg-white rounded-[32px] w-full max-w-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 max-h-[90vh] flex flex-col">
-
+                    <div className="bg-white rounded-[32px] w-full max-w-4xl max-h-[90vh] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in duration-200">
                         <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                             <div>
                                 <h2 className="text-xl font-bold text-gray-900">Chỉnh sửa Dataset</h2>
@@ -1005,122 +676,171 @@ export default function Datasets() {
                             </button>
                         </div>
 
-                        <div className="p-6 space-y-6 overflow-y-auto">
-                            <div className="space-y-3">
-
+                        <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+                            {/* Rename Section */}
+                            <div className="space-y-4">
                                 <label className="text-sm font-bold text-gray-700 ml-1">Đổi tên Dataset</label>
                                 <div className="flex gap-3">
                                     <input
                                         type="text"
                                         value={editName}
                                         onChange={(e) => setEditName(e.target.value)}
-                                        className="flex-1 px-5 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 focus:bg-white transition-all text-lg font-bold"
+                                        className="flex-1 px-5 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 focus:bg-white transition-all font-bold"
                                     />
-                                    <button onClick={handleEditDataset} className="px-6 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100">Lưu tên</button>
+                                    <button
+                                        onClick={handleEditDataset}
+                                        disabled={loading || !editName.trim() || editName === selectedDataset?.name}
+                                        className="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 transition-all font-sans"
+                                    >
+                                        Đổi tên
+                                    </button>
                                 </div>
                             </div>
 
-                            <div className="space-y-4 border rounded-2xl p-4 bg-gray-50/40">
-                                <p className="text-sm font-bold text-gray-700">Thêm dữ liệu (ảnh hoặc ZIP)</p>
-                                <div className="flex gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => setEditUploadType("images")}
-                                        className={`px-4 py-2 rounded-lg text-sm font-semibold ${editUploadType === "images" ? "bg-indigo-600 text-white" : "bg-white border"}`}
-                                    >
-                                        Ảnh
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setEditUploadType("zip")}
-                                        className={`px-4 py-2 rounded-lg text-sm font-semibold ${editUploadType === "zip" ? "bg-indigo-600 text-white" : "bg-white border"}`}
-                                    >
-                                        ZIP
-                                    </button>
-                                </div>
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                {/* Manage Items List */}
+                                <div className="space-y-4">
+                                    <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 flex items-center gap-2">
+                                        <Database className="w-4 h-4" />
+                                        Danh sách tệp tin hiện tại
+                                    </h3>
+                                    <div className="border border-gray-100 rounded-2xl overflow-hidden bg-gray-50/30">
+                                        {loadingDetail ? (
+                                            <div className="p-10 text-center">
+                                                <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mx-auto mb-2" />
+                                                <p className="text-xs text-gray-400 font-bold">Đang tải...</p>
+                                            </div>
+                                        ) : detailItems.length === 0 ? (
+                                            <div className="p-10 text-center text-gray-400 text-sm font-medium italic">Trống</div>
+                                        ) : (
+                                            <div className="max-h-[300px] overflow-y-auto divide-y divide-gray-100">
+                                                {detailItems.map((item, idx) => {
+                                                    const name = getItemName(item, idx);
+                                                    const itemId = item.id || item.itemId || item.datasetItemId || item.dataset_item_id;
 
-                                <div className="flex gap-3">
-                                    <button type="button" onClick={() => editFileInputRef.current?.click()} className="px-4 py-2 border rounded-lg bg-white hover:bg-gray-50 text-sm font-semibold">Chọn file</button>
-                                    <button type="button" onClick={uploadFilesToDataset} disabled={uploadingDetailItems} className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold disabled:opacity-50">
-                                        {uploadingDetailItems ? "Đang upload..." : "Upload vào dataset"}
-                                    </button>
-                                </div>
-                                <input
-                                    ref={editFileInputRef}
-                                    type="file"
-                                    className="hidden"
-                                    multiple={editUploadType === "images"}
-                                    accept={editUploadType === "images" ? "image/*" : ".zip"}
-                                    onChange={handleEditFilesChange}
-                                />
+                                                    let displayUrl = item.url || item.thumbnailUrl || item.fileUrl || item.path || "";
+                                                    if (displayUrl && !displayUrl.startsWith("http") && !displayUrl.startsWith("data:")) {
+                                                        const base = API_BASE_URL.replace("/api", "");
+                                                        displayUrl = `${base}${displayUrl.startsWith("/") ? "" : "/"}${displayUrl}`;
+                                                    }
 
-                                {editUploadType === "images" && editImages.length > 0 && (
-                                    <div className="space-y-2">
-                                        <p className="text-xs text-gray-500">Da chon {editImages.length} anh de them</p>
-                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                                            {editImagePreviews.map((item, index) => (
-                                                <div key={`${item.name}-${index}`} className="relative border rounded-xl overflow-hidden bg-white">
-                                                    <img src={item.url} alt={item.name} className="w-full h-20 object-cover" />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setEditImages((prev) => prev.filter((_, i) => i !== index))}
-                                                        className="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white hover:bg-black/70"
-                                                        title="Bo anh nay"
-                                                    >
-                                                        <X className="w-3 h-3" />
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                                {editUploadType === "zip" && editZipFile && (
-                                    <p className="text-xs text-gray-500">Da chon ZIP: {editZipFile.name}</p>
-                                )}
-                            </div>
-
-                            <div className="space-y-3">
-                                <p className="text-sm font-bold text-gray-700">Danh sách file hiện có</p>
-                                {loadingDetail ? (
-                                    <div className="py-8 text-center text-sm text-gray-500">Dang tai file...</div>
-                                ) : detailItems.length === 0 ? (
-                                    <div className="py-8 text-center text-sm text-gray-500 border rounded-xl">Dataset chua co file</div>
-                                ) : (
-                                    <div className="max-h-[260px] overflow-y-auto border rounded-xl divide-y">
-                                        {detailItems.map((item, idx) => {
-                                            const fileName = getItemName(item, idx);
-                                            const previewUrl = resolvePreviewUrl(item);
-                                            const itemId = String(item?.id || item?.itemId || item?.datasetItemId || idx);
-                                            const deleting = deletingItemIds.includes(itemId);
-
-                                            return (
-                                                <div key={itemId} className="flex items-center justify-between gap-3 px-3 py-2">
-                                                    <div className="flex items-center gap-3 min-w-0">
-                                                        {previewUrl && isImageItem(item, idx) ? (
-                                                            <img src={previewUrl} alt={fileName} className="w-10 h-10 rounded object-cover border" />
-                                                        ) : (
-                                                            <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-gray-500">
-                                                                <FileArchive className="w-4 h-4" />
+                                                    return (
+                                                        <div key={idx} className="flex items-center justify-between p-3 hover:bg-white transition-colors group">
+                                                            <div className="flex items-center gap-3 min-w-0">
+                                                                {displayUrl && isImageItem(item, idx) ? (
+                                                                    <img
+                                                                        src={displayUrl}
+                                                                        alt={name}
+                                                                        className="w-8 h-8 rounded shrink-0 object-cover bg-gray-100 border border-gray-200"
+                                                                        onError={(e) => {
+                                                                            e.target.onerror = null;
+                                                                            e.target.src = "https://via.placeholder.com/40?text=IMG";
+                                                                        }}
+                                                                    />
+                                                                ) : (
+                                                                    <div className="w-8 h-8 rounded bg-gray-100 flex items-center justify-center text-gray-400 shrink-0 border border-gray-100">
+                                                                        <ImageIcon className="w-4 h-4" />
+                                                                    </div>
+                                                                )}
+                                                                <span className="text-sm truncate font-medium text-gray-700">{name}</span>
                                                             </div>
-                                                        )}
-                                                        <div className="min-w-0">
-                                                            <p className="text-sm font-medium truncate">{fileName}</p>
-                                                            <p className="text-xs text-gray-500">{formatBytes(getItemSizeBytes(item))}</p>
+                                                            <button
+                                                                onClick={() => handleDeleteItem(itemId)}
+                                                                className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
                                                         </div>
-                                                    </div>
-                                                    <button onClick={() => handleDeleteDatasetItem(item)} disabled={deleting} className="p-2 rounded hover:bg-red-50 text-red-600 disabled:opacity-50" title="Xoa file">
-                                                        <Trash2 className="w-4 h-4" />
-                                                    </button>
-                                                </div>
-                                            );
-                                        })}
+                                                    );
+                                                })}
+
+                                            </div>
+                                        )}
                                     </div>
-                                )}
+                                </div>
+
+                                {/* Upload More Section */}
+                                <div className="space-y-4">
+                                    <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 flex items-center gap-2">
+                                        <Plus className="w-4 h-4" />
+                                        Thêm tệp mới
+                                    </h3>
+
+                                    <div className="flex gap-2 p-1 bg-gray-100 rounded-xl w-fit">
+                                        <button
+                                            onClick={() => setUploadType("images")}
+                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${uploadType === "images" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500"}`}
+                                        >
+                                            Ảnh
+                                        </button>
+                                        <button
+                                            onClick={() => setUploadType("zip")}
+                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${uploadType === "zip" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500"}`}
+                                        >
+                                            ZIP
+                                        </button>
+                                    </div>
+
+                                    <div
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="border-2 border-dashed border-gray-200 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 hover:border-indigo-400 hover:bg-indigo-50/30 transition-all cursor-pointer group"
+                                    >
+                                        <Upload className="w-6 h-6 text-gray-400 group-hover:text-indigo-500" />
+                                        <p className="text-xs font-bold text-gray-500">Nhấp để tải lên</p>
+                                        <input
+                                            type="file"
+                                            ref={fileInputRef}
+                                            onChange={handleFileChange}
+                                            multiple={uploadType === "images"}
+                                            accept={uploadType === "images" ? "image/*" : ".zip"}
+                                            className="hidden"
+                                        />
+                                    </div>
+
+                                    {uploadType === "images" && newDataset.images.length > 0 && (
+                                        <div className="flex items-center justify-between p-3 bg-indigo-50 rounded-xl border border-indigo-100">
+                                            <span className="text-xs font-bold text-indigo-700">{newDataset.images.length} tệp đã chọn</span>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => resetAddForm()} className="text-[10px] font-black uppercase text-gray-400 hover:text-red-500">Hủy</button>
+                                                <button
+                                                    onClick={handleUploadMore}
+                                                    disabled={loading}
+                                                    className="bg-indigo-600 text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase hover:bg-indigo-700 disabled:opacity-50"
+                                                >
+                                                    Tải lên
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {uploadType === "zip" && newDataset.zipFile && (
+                                        <div className="flex items-center justify-between p-3 bg-indigo-50 rounded-xl border border-indigo-100">
+                                            <div className="flex-1 min-w-0 pr-4">
+                                                <p className="text-xs font-bold text-indigo-900 truncate">{newDataset.zipFile.name}</p>
+                                            </div>
+                                            <div className="flex gap-2 shrink-0">
+                                                <button onClick={() => resetAddForm()} className="text-[10px] font-black uppercase text-gray-400 hover:text-red-500">Hủy</button>
+                                                <button
+                                                    onClick={handleUploadMore}
+                                                    disabled={loading}
+                                                    className="bg-indigo-600 text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase hover:bg-indigo-700 disabled:opacity-50"
+                                                >
+                                                    Tải lên
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
-                        <div className="p-6 border-t bg-gray-50/50 flex justify-end gap-3">
-                            <button onClick={() => setShowEditModal(false)} className="px-5 py-2.5 text-sm font-bold text-gray-500">Đóng</button>
 
+                        <div className="p-6 border-t bg-gray-50/50 flex justify-end">
+                            <button
+                                onClick={() => { setShowEditModal(false); resetAddForm(); }}
+                                className="px-8 py-2.5 bg-gray-800 text-white rounded-xl text-sm font-bold hover:bg-black shadow-lg"
+                            >
+                                Xong
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1260,18 +980,31 @@ export default function Datasets() {
                                                 return (
                                                     <div key={`${fileName}-${idx}`} className="grid grid-cols-12 gap-2 px-4 py-3 text-sm items-center">
                                                         <div className="col-span-5 flex items-center gap-3 min-w-0">
-                                                            {resolvePreviewUrl(item) && isImageItem(item, idx) ? (
-                                                                <img
-                                                                    src={resolvePreviewUrl(item)}
-                                                                    alt={fileName}
-                                                                    className="w-10 h-10 rounded-lg object-cover border border-gray-100"
-                                                                />
-                                                            ) : (
-                                                                <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500">
-                                                                    <FileArchive className="w-4 h-4" />
-                                                                </div>
-                                                            )}
+                                                            {(() => {
+                                                                let displayUrl = item.url || item.thumbnailUrl || item.fileUrl || item.path || "";
 
+                                                                // Handle relative paths from backend
+                                                                if (displayUrl && !displayUrl.startsWith("http") && !displayUrl.startsWith("data:")) {
+                                                                    const base = API_BASE_URL.replace("/api", "");
+                                                                    displayUrl = `${base}${displayUrl.startsWith("/") ? "" : "/"}${displayUrl}`;
+                                                                }
+
+                                                                return displayUrl && isImageItem(item, idx) ? (
+                                                                    <img
+                                                                        src={displayUrl}
+                                                                        alt={fileName}
+                                                                        className="w-10 h-10 rounded-lg object-cover border border-gray-100"
+                                                                        onError={(e) => {
+                                                                            e.target.onerror = null;
+                                                                            e.target.src = "https://via.placeholder.com/40?text=IMG";
+                                                                        }}
+                                                                    />
+                                                                ) : (
+                                                                    <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500">
+                                                                        <FileArchive className="w-4 h-4" />
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                             <span className="truncate font-medium text-gray-800">{fileName}</span>
                                                         </div>
 
