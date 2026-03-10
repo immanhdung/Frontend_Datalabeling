@@ -12,8 +12,11 @@ import {
   X,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import api from "../../config/api";
+import api, { labelAPI } from "../../config/api";
 import { useAuth } from "../../context/AuthContext";
+
+const DEV_PROJECTS_KEY = "devManagerProjects";
+const DEV_CATEGORIES_KEY = "devManagerCategories";
 
 export default function ManagerProjects() {
   const [projects, setProjects] = useState([]);
@@ -37,8 +40,26 @@ export default function ManagerProjects() {
   const navigate = useNavigate();
   const { logout, token } = useAuth();
   const enableDevFallback = import.meta.env.VITE_ENABLE_DEV_FALLBACK === "true";
+  const enableDevBypass = import.meta.env.VITE_BYPASS_LOGIN === "true";
+  const isDevLocalToken = token === "dev-fallback-token" || token === "dev-bypass-token";
   const isDevFallbackSession = import.meta.env.DEV && enableDevFallback && token === "dev-fallback-token";
+  const isDevLocalSession = import.meta.env.DEV && (enableDevFallback || enableDevBypass) && isDevLocalToken;
   const isDevMode = import.meta.env.DEV;
+
+  const readLocalProjects = () => {
+    try {
+      const raw = localStorage.getItem(DEV_PROJECTS_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const persistLocalProjects = (nextProjects) => {
+    if (!isDevLocalSession) return;
+    localStorage.setItem(DEV_PROJECTS_KEY, JSON.stringify(nextProjects));
+  };
 
   const handleAssignDataset = async (datasetId) => {
     if (!selectedProject || !datasetId) return;
@@ -84,15 +105,31 @@ export default function ManagerProjects() {
         api.get("/categories").catch(() => ({ data: [] })),
       ]);
 
-      setProjects(Array.isArray(projRes.data?.items) ? projRes.data.items : []);
-      setCategories(Array.isArray(catRes.data) ? catRes.data : []);
+      const serverProjects = Array.isArray(projRes.data?.items) ? projRes.data.items : [];
+      const serverCategories = Array.isArray(catRes.data) ? catRes.data : [];
+
+      setProjects(serverProjects);
+      setCategories(serverCategories);
+
+      if (isDevLocalSession && serverProjects.length > 0) {
+        persistLocalProjects(serverProjects);
+      }
     } catch (err) {
       console.error("Fetch projects error:", err);
       if (err.response?.status === 401) {
         if (isDevMode || isDevFallbackSession) {
-          setError("Backend dang loi xac thuc. Ban dang o che do demo local, vui long tiep tuc test UI.");
-          setProjects([]);
-          setCategories([]);
+          const localProjects = readLocalProjects();
+          let localCategories = [];
+          try {
+            const localCategoriesRaw = localStorage.getItem(DEV_CATEGORIES_KEY);
+            localCategories = localCategoriesRaw ? JSON.parse(localCategoriesRaw) : [];
+          } catch {
+            localCategories = [];
+          }
+
+          setError(null);
+          setProjects(localProjects);
+          setCategories(Array.isArray(localCategories) ? localCategories : []);
           return;
         }
 
@@ -114,28 +151,39 @@ export default function ManagerProjects() {
 
     try {
       setSubmittingLabel(true);
+      const normalizedLabelName = labelName.trim();
 
       const uniqueTargetIds = new Set();
       selectedProjectIds.forEach((id) => {
         const project = projects.find((p) => (p.id || p.projectId) === id);
-        if (project?.categoryId) {
-          uniqueTargetIds.add(project.categoryId);
+        const categoryId =
+          project?.categoryId ||
+          project?.category?.id ||
+          project?.category?.categoryId;
+
+        if (categoryId) {
+          uniqueTargetIds.add(String(categoryId));
         }
       });
 
       if (uniqueTargetIds.size === 0) {
         alert("Không tìm thấy Category ID của các dự án đã chọn.");
-        setSubmittingLabel(false);
         return;
       }
 
-      for (const targetId of uniqueTargetIds) {
-        await api.post(`/labelsets/${targetId}/labels`, {
-          name: labelName,
-        });
+      const results = await Promise.allSettled(
+        Array.from(uniqueTargetIds).map((targetId) =>
+          labelAPI.create(targetId, { name: normalizedLabelName })
+        )
+      );
+
+      const successCount = results.filter((item) => item.status === "fulfilled").length;
+
+      if (successCount === 0) {
+        throw new Error("Khong endpoint nao ho tro them nhan cho category");
       }
 
-      alert("Thêm nhãn cho các dự án thành công!");
+      alert(`Đã thêm nhãn cho ${successCount}/${uniqueTargetIds.size} category.`);
       setShowLabelModal(false);
       setLabelName("");
       setSelectedProjectIds([]);
@@ -161,11 +209,18 @@ export default function ManagerProjects() {
   const handleDelete = async (id) => {
     if (!window.confirm("Bạn có chắc chắn muốn xóa dự án này?")) return;
 
+    if (String(id).startsWith("local-project-")) {
+      const nextProjects = projects.filter((p) => (p.projectId || p.id) !== id);
+      setProjects(nextProjects);
+      persistLocalProjects(nextProjects);
+      return;
+    }
+
     try {
       await api.delete(`/projects/${id}`);
-      setProjects((prev) =>
-        prev.filter((p) => (p.projectId || p.id) !== id)
-      );
+      const nextProjects = projects.filter((p) => (p.projectId || p.id) !== id);
+      setProjects(nextProjects);
+      persistLocalProjects(nextProjects);
 
       alert("Xóa dự án thành công!");
     } catch (err) {

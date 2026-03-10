@@ -92,4 +92,32 @@ export const userAPI = {
   getAll: () => api.get("/users"),
 };
 
+export const labelAPI = {
+  create: (categoryId, payload) =>
+    trySequential([
+      () => api.post(`/categories/${categoryId}/labels`, payload),
+      () => api.post(`/Categories/${categoryId}/labels`, payload),
+      () => api.post(`/labelsets/${categoryId}/labels`, payload),
+      () => api.post(`/LabelSets/${categoryId}/labels`, payload),
+    ]),
+  update: (categoryId, labelId, payload) =>
+    trySequential([
+      () => api.put(`/categories/${categoryId}/labels/${labelId}`, payload),
+      () => api.patch(`/categories/${categoryId}/labels/${labelId}`, payload),
+      () => api.put(`/Categories/${categoryId}/labels/${labelId}`, payload),
+      () => api.patch(`/Categories/${categoryId}/labels/${labelId}`, payload),
+      () => api.put(`/labelsets/${categoryId}/labels/${labelId}`, payload),
+      () => api.patch(`/labelsets/${categoryId}/labels/${labelId}`, payload),
+    ]),
+  remove: (categoryId, labelId, labelName) =>
+    trySequential([
+      () => api.delete(`/categories/${categoryId}/labels/${labelId}`),
+      () => api.delete(`/Categories/${categoryId}/labels/${labelId}`),
+      () => api.delete(`/labelsets/${categoryId}/labels/${labelId}`),
+      () => api.delete(`/LabelSets/${categoryId}/labels/${labelId}`),
+      () => api.delete(`/categories/${categoryId}/labels`, { data: { name: labelName } }),
+      () => api.delete(`/labelsets/${categoryId}/labels`, { data: { name: labelName } }),
+    ]),
+};
+
 export default api;

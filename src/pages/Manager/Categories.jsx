@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import api from "../../config/api";
-import { Plus, Folder, ChevronRight, Tag, X, Layers3 } from "lucide-react";
+import api, { labelAPI } from "../../config/api";
+import { Plus, Folder, ChevronRight, Tag, X, Layers3, Pencil, Trash2, Check } from "lucide-react";
 
 const DEV_CATEGORIES_KEY = "devManagerCategories";
 
@@ -87,6 +87,9 @@ export default function Categories() {
 
   const [labelName, setLabelName] = useState("");
   const [addingLabel, setAddingLabel] = useState(false);
+  const [editingLabelId, setEditingLabelId] = useState("");
+  const [editingLabelName, setEditingLabelName] = useState("");
+  const [processingLabelId, setProcessingLabelId] = useState("");
   const [searchKeyword, setSearchKeyword] = useState("");
   const [activeLabelFilter, setActiveLabelFilter] = useState("");
 
@@ -240,6 +243,68 @@ export default function Categories() {
     syncCategoriesState(nextCategories, categoryId);
   };
 
+  const updateLabelInState = (categoryId, labelId, nextLabelName) => {
+    const normalizedName = String(nextLabelName || "").trim();
+    if (!normalizedName) return;
+
+    const nextCategories = categories.map((category) => {
+      if (String(category.id) !== String(categoryId)) {
+        return category;
+      }
+
+      const duplicate = category.labels.some(
+        (label) =>
+          String(label.id) !== String(labelId) &&
+          String(label.name).trim().toLowerCase() === normalizedName.toLowerCase()
+      );
+
+      if (duplicate) {
+        return category;
+      }
+
+      const nextLabels = category.labels.map((label) => {
+        if (String(label.id) !== String(labelId)) return label;
+        return {
+          ...label,
+          name: normalizedName,
+        };
+      });
+
+      return {
+        ...category,
+        labels: nextLabels,
+        labelsCount: nextLabels.length,
+      };
+    });
+
+    syncCategoriesState(nextCategories, categoryId);
+  };
+
+  const removeLabelFromState = (categoryId, labelId, labelNameToRemove) => {
+    const nextCategories = categories.map((category) => {
+      if (String(category.id) !== String(categoryId)) {
+        return category;
+      }
+
+      const nextLabels = category.labels.filter((label) => {
+        if (String(label.id) === String(labelId)) return false;
+        return String(label.name).trim().toLowerCase() !== String(labelNameToRemove).trim().toLowerCase();
+      });
+
+      return {
+        ...category,
+        labels: nextLabels,
+        labelsCount: nextLabels.length,
+      };
+    });
+
+    if (String(activeLabelFilter).toLowerCase() === String(labelNameToRemove).trim().toLowerCase()) {
+      setActiveLabelFilter("");
+    }
+
+    syncCategoriesState(nextCategories, categoryId);
+  };
+
   const handleCreateCategory = async () => {
     const name = newName.trim();
     if (!name) {
@@ -251,6 +316,25 @@ export default function Categories() {
       name,
       description: newDesc.trim(),
     };
+
+    if (isDevLocalSession) {
+      const localCategory = normalizeCategory(
+        {
+          id: `local-category-${Date.now()}`,
+          name,
+          description: newDesc.trim(),
+          labels: [],
+        },
+        categories.length
+      );
+
+      const nextCategories = [localCategory, ...categories];
+      syncCategoriesState(nextCategories, localCategory.id);
+      setShowModal(false);
+      setNewName("");
+      setNewDesc("");
+      return;
+    }
 
     try {
       await requestSequential([
@@ -304,22 +388,133 @@ export default function Categories() {
     }
 
     setAddingLabel(true);
+    if (isDevLocalSession) {
+      applyLabelToState(selectedCategory.id, nextLabelName);
+      setLabelName("");
+      setAddingLabel(false);
+      return;
+    }
+
     try {
-      await requestSequential([
-        () => api.post(`/categories/${selectedCategory.id}/labels`, { name: nextLabelName }),
-        () => api.post(`/Categories/${selectedCategory.id}/labels`, { name: nextLabelName }),
-        () => api.post(`/labelsets/${selectedCategory.id}/labels`, { name: nextLabelName }),
-      ]);
+      await labelAPI.create(selectedCategory.id, { name: nextLabelName });
 
       applyLabelToState(selectedCategory.id, nextLabelName);
       setLabelName("");
       alert("Them nhan thanh cong");
     } catch (error) {
+      if (!isDevLocalSession) {
+        alert(error?.response?.data?.message || error?.response?.data?.title || "Them nhan that bai");
+        return;
+      }
+
       applyLabelToState(selectedCategory.id, nextLabelName);
       setLabelName("");
-      alert("Backend chua ho tro endpoint labels. Da luu nhan local de tiep tuc.");
+      alert("Backend loi, da luu nhan local o che do demo.");
     } finally {
       setAddingLabel(false);
+    }
+  };
+
+  const handleStartEditLabel = (label) => {
+    setEditingLabelId(String(label.id));
+    setEditingLabelName(String(label.name || ""));
+  };
+
+  const handleCancelEditLabel = () => {
+    setEditingLabelId("");
+    setEditingLabelName("");
+  };
+
+  const handleSaveLabel = async (label) => {
+    const nextName = editingLabelName.trim();
+    if (!selectedCategory || !nextName) {
+      alert("Vui long nhap ten nhan hop le");
+      return;
+    }
+
+    const sameName = String(label.name).trim().toLowerCase() === nextName.toLowerCase();
+    if (sameName) {
+      handleCancelEditLabel();
+      return;
+    }
+
+    const duplicate = selectedCategory.labels.some(
+      (item) =>
+        String(item.id) !== String(label.id) &&
+        String(item.name).trim().toLowerCase() === nextName.toLowerCase()
+    );
+
+    if (duplicate) {
+      alert("Ten nhan da ton tai trong category");
+      return;
+    }
+
+    setProcessingLabelId(String(label.id));
+    if (isDevLocalSession) {
+      updateLabelInState(selectedCategory.id, label.id, nextName);
+      handleCancelEditLabel();
+      setProcessingLabelId("");
+      return;
+    }
+
+    try {
+      await labelAPI.update(selectedCategory.id, label.id, { name: nextName });
+
+      updateLabelInState(selectedCategory.id, label.id, nextName);
+      handleCancelEditLabel();
+      alert("Cap nhat nhan thanh cong");
+    } catch (error) {
+      if (!isDevLocalSession) {
+        alert(error?.response?.data?.message || error?.response?.data?.title || "Cap nhat nhan that bai");
+        return;
+      }
+
+      updateLabelInState(selectedCategory.id, label.id, nextName);
+      handleCancelEditLabel();
+      alert("Backend loi, da cap nhat local o che do demo.");
+    } finally {
+      setProcessingLabelId("");
+    }
+  };
+
+  const handleDeleteLabel = async (label) => {
+    if (!selectedCategory) return;
+
+    if (!window.confirm(`Ban co chac chan muon xoa nhan \"${label.name}\"?`)) {
+      return;
+    }
+
+    setProcessingLabelId(String(label.id));
+    if (isDevLocalSession) {
+      removeLabelFromState(selectedCategory.id, label.id, label.name);
+      if (String(editingLabelId) === String(label.id)) {
+        handleCancelEditLabel();
+      }
+      setProcessingLabelId("");
+      return;
+    }
+
+    try {
+      await labelAPI.remove(selectedCategory.id, label.id, label.name);
+
+      removeLabelFromState(selectedCategory.id, label.id, label.name);
+      if (String(editingLabelId) === String(label.id)) {
+        handleCancelEditLabel();
+      }
+      alert("Xoa nhan thanh cong");
+    } catch (error) {
+      if (!isDevLocalSession) {
+        alert(error?.response?.data?.message || error?.response?.data?.title || "Xoa nhan that bai");
+        return;
+      }
+
+      removeLabelFromState(selectedCategory.id, label.id, label.name);
+      if (String(editingLabelId) === String(label.id)) {
+        handleCancelEditLabel();
+      }
+      alert("Backend loi, da xoa local o che do demo.");
+    } finally {
+      setProcessingLabelId("");
     }
   };
 
@@ -487,19 +682,80 @@ export default function Categories() {
                     >
                       Tat ca
                     </button>
-                    {selectedCategory.labels.map((label) => (
-                      <button
-                        key={label.id}
-                        onClick={() => setActiveLabelFilter(label.name)}
-                        className={`px-3 py-1 rounded-full text-xs font-semibold border ${
-                          activeLabelFilter === label.name
-                            ? "bg-indigo-600 text-white border-indigo-600"
-                            : "bg-white text-indigo-700 border-indigo-200"
-                        }`}
-                      >
-                        #{label.name}
-                      </button>
-                    ))}
+                    {selectedCategory.labels.map((label) => {
+                      const isEditing = String(editingLabelId) === String(label.id);
+                      const isProcessing = String(processingLabelId) === String(label.id);
+
+                      return (
+                        <div
+                          key={label.id}
+                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 ${
+                            activeLabelFilter === label.name
+                              ? "bg-indigo-600 text-white border-indigo-600"
+                              : "bg-white text-indigo-700 border-indigo-200"
+                          }`}
+                        >
+                          {isEditing ? (
+                            <>
+                              <input
+                                value={editingLabelName}
+                                onChange={(event) => setEditingLabelName(event.target.value)}
+                                className="w-28 border border-indigo-200 rounded px-2 py-0.5 text-xs text-slate-700"
+                                placeholder="Ten nhan"
+                                disabled={isProcessing}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleSaveLabel(label)}
+                                disabled={isProcessing || !editingLabelName.trim()}
+                                className="p-1 rounded hover:bg-white/20 disabled:opacity-50"
+                                title="Luu"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleCancelEditLabel}
+                                disabled={isProcessing}
+                                className="p-1 rounded hover:bg-white/20 disabled:opacity-50"
+                                title="Huy"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setActiveLabelFilter(label.name)}
+                                className="px-1 text-xs font-semibold"
+                                title="Loc theo nhan"
+                              >
+                                #{label.name}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditLabel(label)}
+                                disabled={isProcessing}
+                                className="p-1 rounded hover:bg-white/20 disabled:opacity-50"
+                                title="Sua nhan"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteLabel(label)}
+                                disabled={isProcessing}
+                                className="p-1 rounded hover:bg-white/20 disabled:opacity-50"
+                                title="Xoa nhan"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

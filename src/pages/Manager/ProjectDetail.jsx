@@ -7,10 +7,12 @@ import {
   Pencil,
   Save,
   X,
+  Trash2,
+  Check,
 } from "lucide-react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
-import api from "../../config/api";
+import api, { labelAPI } from "../../config/api";
 
 const toArray = (value) => {
   if (Array.isArray(value)) return value;
@@ -50,9 +52,36 @@ const normalizeDatasetIds = (project) => {
   return Array.from(new Set([...fromList, ...fromSingle]));
 };
 
+const normalizeLabelItem = (item, index) => {
+  if (typeof item === "string") {
+    const name = String(item).trim();
+    if (!name) return null;
+    return {
+      id: `label-local-${index}-${name}`,
+      name,
+    };
+  }
+
+  const name = item?.name ?? item?.labelName ?? item?.title;
+  if (!name) return null;
+
+  return {
+    id: item?.id ?? item?.labelId ?? `label-local-${index}-${name}`,
+    name: String(name).trim(),
+  };
+};
+
 export default function ManagerProjectDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const token = localStorage.getItem("accessToken");
+  const enableDevFallback = import.meta.env.VITE_ENABLE_DEV_FALLBACK === "true";
+  const enableDevBypass = import.meta.env.VITE_BYPASS_LOGIN === "true";
+  const isDevLocalToken = token === "dev-fallback-token" || token === "dev-bypass-token";
+  const isDevLocalSession =
+    import.meta.env.DEV &&
+    (enableDevFallback || enableDevBypass) &&
+    isDevLocalToken;
 
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -65,6 +94,9 @@ export default function ManagerProjectDetail() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [customLabelInput, setCustomLabelInput] = useState("");
+  const [editingCategoryLabelId, setEditingCategoryLabelId] = useState("");
+  const [editingCategoryLabelName, setEditingCategoryLabelName] = useState("");
+  const [labelActionTargetId, setLabelActionTargetId] = useState("");
   const [editForm, setEditForm] = useState({
     name: "",
     description: "",
@@ -82,21 +114,26 @@ export default function ManagerProjectDetail() {
     [categories, editForm.categoryId]
   );
 
-  const categoryLabels = useMemo(() => {
+  const categoryLabelItems = useMemo(() => {
     const candidates = [
       ...toArray(selectedCategory?.labels),
       ...toArray(selectedCategory?.labelSets).flatMap((set) => toArray(set?.labels)),
     ];
 
     const byName = new Map();
-    candidates.forEach((item) => {
-      const name = typeof item === "string" ? item : item?.name;
-      if (!name) return;
-      byName.set(String(name).trim().toLowerCase(), String(name).trim());
+    candidates.forEach((item, index) => {
+      const normalized = normalizeLabelItem(item, index);
+      if (!normalized?.name) return;
+      byName.set(String(normalized.name).trim().toLowerCase(), normalized);
     });
 
     return Array.from(byName.values());
   }, [selectedCategory]);
+
+  const categoryLabels = useMemo(
+    () => categoryLabelItems.map((item) => item.name),
+    [categoryLabelItems]
+  );
 
   const allLabels = useMemo(() => normalizeLabelNames(project, labelSets), [project, labelSets]);
 
@@ -151,6 +188,208 @@ export default function ManagerProjectDetail() {
     if (id) fetchProjectDetail();
   }, [id]);
 
+  useEffect(() => {
+    setEditingCategoryLabelId("");
+    setEditingCategoryLabelName("");
+    setLabelActionTargetId("");
+  }, [editForm.categoryId]);
+
+  const patchSelectedCategoryLabels = (updater) => {
+    const selectedCategoryId = String(editForm.categoryId || "");
+    if (!selectedCategoryId) return;
+
+    setCategories((prev) =>
+      prev.map((category) => {
+        const currentCategoryId = String(category?.id ?? category?.categoryId ?? "");
+        if (currentCategoryId !== selectedCategoryId) {
+          return category;
+        }
+
+        const normalizedLabels = toArray(category?.labels)
+          .map((item, index) => normalizeLabelItem(item, index))
+          .filter(Boolean);
+
+        const nextLabels = updater(normalizedLabels);
+
+        return {
+          ...category,
+          labels: nextLabels,
+          labelsCount: nextLabels.length,
+        };
+      })
+    );
+  };
+
+  const startEditCategoryLabel = (label) => {
+    setEditingCategoryLabelId(String(label.id));
+    setEditingCategoryLabelName(String(label.name || ""));
+  };
+
+  const cancelEditCategoryLabel = () => {
+    setEditingCategoryLabelId("");
+    setEditingCategoryLabelName("");
+  };
+
+  const handleAddCategoryLabel = async () => {
+    const categoryId = String(editForm.categoryId || "");
+    const nextName = customLabelInput.trim();
+
+    if (!categoryId || !nextName) {
+      alert("Vui long chon category va nhap ten nhan");
+      return;
+    }
+
+    const duplicate = categoryLabelItems.some(
+      (item) => String(item.name).trim().toLowerCase() === nextName.toLowerCase()
+    );
+
+    if (duplicate) {
+      alert("Nhan da ton tai trong category");
+      return;
+    }
+
+    setLabelActionTargetId("new");
+    try {
+      await labelAPI.create(categoryId, { name: nextName });
+      patchSelectedCategoryLabels((prev) => [
+        ...prev,
+        { id: `label-${Date.now()}`, name: nextName },
+      ]);
+      setEditForm((prev) => ({
+        ...prev,
+        labels: prev.labels.includes(nextName) ? prev.labels : [...prev.labels, nextName],
+      }));
+      setCustomLabelInput("");
+    } catch (error) {
+      if (!isDevLocalSession) {
+        alert(error?.response?.data?.message || error?.response?.data?.title || "Them nhan that bai");
+        return;
+      }
+
+      patchSelectedCategoryLabels((prev) => [
+        ...prev,
+        { id: `label-${Date.now()}`, name: nextName },
+      ]);
+      setEditForm((prev) => ({
+        ...prev,
+        labels: prev.labels.includes(nextName) ? prev.labels : [...prev.labels, nextName],
+      }));
+      setCustomLabelInput("");
+      alert("Backend loi, da cap nhat local o che do demo.");
+    } finally {
+      setLabelActionTargetId("");
+    }
+  };
+
+  const handleSaveCategoryLabel = async (label) => {
+    const categoryId = String(editForm.categoryId || "");
+    const nextName = editingCategoryLabelName.trim();
+
+    if (!categoryId || !nextName) {
+      alert("Ten nhan khong hop le");
+      return;
+    }
+
+    const currentName = String(label.name || "").trim();
+    if (currentName.toLowerCase() === nextName.toLowerCase()) {
+      cancelEditCategoryLabel();
+      return;
+    }
+
+    const duplicate = categoryLabelItems.some(
+      (item) =>
+        String(item.id) !== String(label.id) &&
+        String(item.name).trim().toLowerCase() === nextName.toLowerCase()
+    );
+    if (duplicate) {
+      alert("Ten nhan da ton tai trong category");
+      return;
+    }
+
+    setLabelActionTargetId(String(label.id));
+    try {
+      await labelAPI.update(categoryId, label.id, { name: nextName });
+      patchSelectedCategoryLabels((prev) =>
+        prev.map((item) =>
+          String(item.id) === String(label.id) ? { ...item, name: nextName } : item
+        )
+      );
+      setEditForm((prev) => ({
+        ...prev,
+        labels: prev.labels.map((item) =>
+          String(item).trim().toLowerCase() === currentName.toLowerCase() ? nextName : item
+        ),
+      }));
+      cancelEditCategoryLabel();
+    } catch (error) {
+      if (!isDevLocalSession) {
+        alert(error?.response?.data?.message || error?.response?.data?.title || "Cap nhat nhan that bai");
+        return;
+      }
+
+      patchSelectedCategoryLabels((prev) =>
+        prev.map((item) =>
+          String(item.id) === String(label.id) ? { ...item, name: nextName } : item
+        )
+      );
+      setEditForm((prev) => ({
+        ...prev,
+        labels: prev.labels.map((item) =>
+          String(item).trim().toLowerCase() === currentName.toLowerCase() ? nextName : item
+        ),
+      }));
+      cancelEditCategoryLabel();
+      alert("Backend loi, da cap nhat local o che do demo.");
+    } finally {
+      setLabelActionTargetId("");
+    }
+  };
+
+  const handleDeleteCategoryLabel = async (label) => {
+    const categoryId = String(editForm.categoryId || "");
+    if (!categoryId) return;
+
+    if (!window.confirm(`Ban co chac chan muon xoa nhan \"${label.name}\"?`)) return;
+
+    setLabelActionTargetId(String(label.id));
+    try {
+      await labelAPI.remove(categoryId, label.id, label.name);
+      patchSelectedCategoryLabels((prev) =>
+        prev.filter((item) => String(item.id) !== String(label.id))
+      );
+      setEditForm((prev) => ({
+        ...prev,
+        labels: prev.labels.filter(
+          (item) => String(item).trim().toLowerCase() !== String(label.name).trim().toLowerCase()
+        ),
+      }));
+      if (String(editingCategoryLabelId) === String(label.id)) {
+        cancelEditCategoryLabel();
+      }
+    } catch (error) {
+      if (!isDevLocalSession) {
+        alert(error?.response?.data?.message || error?.response?.data?.title || "Xoa nhan that bai");
+        return;
+      }
+
+      patchSelectedCategoryLabels((prev) =>
+        prev.filter((item) => String(item.id) !== String(label.id))
+      );
+      setEditForm((prev) => ({
+        ...prev,
+        labels: prev.labels.filter(
+          (item) => String(item).trim().toLowerCase() !== String(label.name).trim().toLowerCase()
+        ),
+      }));
+      if (String(editingCategoryLabelId) === String(label.id)) {
+        cancelEditCategoryLabel();
+      }
+      alert("Backend loi, da xoa local o che do demo.");
+    } finally {
+      setLabelActionTargetId("");
+    }
+  };
+
   const toggleLabel = (name) => {
     const normalized = String(name || "").trim();
     if (!normalized) return;
@@ -161,17 +400,6 @@ export default function ManagerProjectDetail() {
         ? prev.labels.filter((item) => item !== normalized)
         : [...prev.labels, normalized],
     }));
-  };
-
-  const addCustomLabel = () => {
-    const normalized = customLabelInput.trim();
-    if (!normalized) return;
-
-    const exists = editForm.labels.some((item) => item.toLowerCase() === normalized.toLowerCase());
-    if (!exists) {
-      setEditForm((prev) => ({ ...prev, labels: [...prev.labels, normalized] }));
-    }
-    setCustomLabelInput("");
   };
 
   const toggleDataset = (datasetId) => {
@@ -324,19 +552,48 @@ export default function ManagerProjectDetail() {
 
           <div className="space-y-2">
             <p className="text-sm font-medium">Labels</p>
-            {categoryLabels.length > 0 && (
+            {categoryLabelItems.length > 0 && (
               <div className="flex flex-wrap gap-2">
-                {categoryLabels.map((name) => {
-                  const checked = editForm.labels.includes(name);
+                {categoryLabelItems.map((label) => {
+                  const checked = editForm.labels.includes(label.name);
+                  const isEditing = String(editingCategoryLabelId) === String(label.id);
+                  const isBusy = String(labelActionTargetId) === String(label.id);
+
                   return (
-                    <button
-                      type="button"
-                      key={name}
-                      onClick={() => toggleLabel(name)}
-                      className={`px-3 py-1 rounded-full text-sm border ${checked ? "bg-indigo-600 text-white border-indigo-600" : "bg-white border-gray-300"}`}
-                    >
-                      {name}
-                    </button>
+                    <div key={label.id} className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-sm border ${checked ? "bg-indigo-600 text-white border-indigo-600" : "bg-white border-gray-300 text-slate-700"}`}>
+                      {isEditing ? (
+                        <>
+                          <input
+                            value={editingCategoryLabelName}
+                            onChange={(e) => setEditingCategoryLabelName(e.target.value)}
+                            className="w-28 border rounded px-2 py-0.5 text-xs text-slate-700"
+                            disabled={isBusy}
+                          />
+                          <button type="button" onClick={() => handleSaveCategoryLabel(label)} disabled={isBusy || !editingCategoryLabelName.trim()} className="p-1 rounded hover:bg-black/10 disabled:opacity-50">
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                          <button type="button" onClick={cancelEditCategoryLabel} disabled={isBusy} className="p-1 rounded hover:bg-black/10 disabled:opacity-50">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => toggleLabel(label.name)}
+                            className="px-1"
+                          >
+                            {label.name}
+                          </button>
+                          <button type="button" onClick={() => startEditCategoryLabel(label)} disabled={isBusy} className="p-1 rounded hover:bg-black/10 disabled:opacity-50">
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button type="button" onClick={() => handleDeleteCategoryLabel(label)} disabled={isBusy} className="p-1 rounded hover:bg-black/10 disabled:opacity-50">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -344,7 +601,14 @@ export default function ManagerProjectDetail() {
 
             <div className="flex gap-2">
               <input value={customLabelInput} onChange={(e) => setCustomLabelInput(e.target.value)} className="flex-1 border rounded px-3 py-2" placeholder="Them label custom..." />
-              <button type="button" onClick={addCustomLabel} className="px-3 py-2 bg-gray-900 text-white rounded">Them</button>
+              <button
+                type="button"
+                onClick={handleAddCategoryLabel}
+                disabled={labelActionTargetId === "new" || !customLabelInput.trim() || !editForm.categoryId}
+                className="px-3 py-2 bg-gray-900 text-white rounded disabled:opacity-50"
+              >
+                Them
+              </button>
             </div>
 
             <div className="flex flex-wrap gap-2">

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 const DEV_CATEGORIES_KEY = "devManagerCategories";
+const DEV_PROJECTS_KEY = "devManagerProjects";
 
 const toArray = (value) => {
   if (Array.isArray(value)) return value;
@@ -75,6 +76,30 @@ export default function CreateProjectPage() {
   const [loadingLabels, setLoadingLabels] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  const token = localStorage.getItem("accessToken");
+  const enableDevFallback = import.meta.env.VITE_ENABLE_DEV_FALLBACK === "true";
+  const enableDevBypass = import.meta.env.VITE_BYPASS_LOGIN === "true";
+  const isDevLocalToken = token === "dev-fallback-token" || token === "dev-bypass-token";
+  const isDevLocalSession =
+    import.meta.env.DEV &&
+    (enableDevFallback || enableDevBypass) &&
+    isDevLocalToken;
+
+  const readLocalProjects = () => {
+    try {
+      const raw = localStorage.getItem(DEV_PROJECTS_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const persistLocalProjects = (nextProjects) => {
+    if (!isDevLocalSession) return;
+    localStorage.setItem(DEV_PROJECTS_KEY, JSON.stringify(nextProjects));
+  };
 
   const selectedCategory = useMemo(
     () => categories.find((c) => String(c.id || c.categoryId) === String(selectedCategoryId)),
@@ -263,22 +288,81 @@ export default function CreateProjectPage() {
     setSubmitting(true);
     setError("");
 
-    try {
-      const payload = {
+    if (isDevLocalSession) {
+      const localProjectId = `local-project-${Date.now()}`;
+      const localProject = {
+        id: localProjectId,
+        projectId: localProjectId,
         name: projectName.trim(),
         description: projectDescription.trim(),
         categoryId: selectedCategoryId,
         guideline: guidelines.trim(),
+        status: "active",
+        type: "image",
+        labels: allSelectedLabels,
+        labelNames: allSelectedLabels,
+        labelsCount: allSelectedLabels.length,
+        datasets: selectedDatasetIds,
+        imagesCount: 0,
+        membersCount: 0,
+        createdAt: new Date().toISOString(),
+        isLocalOnly: true,
+      };
+
+      const nextProjects = [localProject, ...readLocalProjects()];
+      persistLocalProjects(nextProjects);
+      setSubmitting(false);
+      navigate("/manager/projects");
+      return;
+    }
+
+    try {
+      const normalizedCategoryId = /^\d+$/.test(String(selectedCategoryId))
+        ? Number(selectedCategoryId)
+        : selectedCategoryId;
+
+      const payload = {
+        name: projectName.trim(),
+        description: projectDescription.trim(),
+        categoryId: normalizedCategoryId,
+        guideline: guidelines.trim(),
+        guidelines: guidelines.trim(),
+        status: "active",
+        type: "image",
         labels: allSelectedLabels,
         labelNames: allSelectedLabels,
       };
 
-      const createRes = await api.post("/projects", payload);
-      const projectId =
+      const createRes = await requestSequential([
+        () => api.post("/projects", payload),
+        () => api.post("/Projects", payload),
+        () => api.post("/projects", {
+          name: projectName.trim(),
+          description: projectDescription.trim(),
+          categoryId: normalizedCategoryId,
+          guideline: guidelines.trim(),
+        }),
+      ]);
+
+      let projectId =
         createRes.data?.id ||
         createRes.data?.projectId ||
         createRes.data?.data?.id ||
         createRes.data?.data?.projectId;
+
+      if (!projectId) {
+        const refreshProjects = await requestSequential([
+          () => api.get("/projects"),
+          () => api.get("/Projects"),
+        ]);
+
+        const projectList = toArray(refreshProjects?.data);
+        const latestMatch = projectList
+          .filter((item) => String(item?.name || "").trim() === projectName.trim())
+          .sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0))[0];
+
+        projectId = latestMatch?.id || latestMatch?.projectId;
+      }
 
       if (!projectId) {
         throw new Error("Tao du an xong nhung khong lay duoc projectId");
