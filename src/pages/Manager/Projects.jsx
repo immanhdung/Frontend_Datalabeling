@@ -41,6 +41,26 @@ const getProjectId = (project) =>
   project?.ProjectId ??
   null;
 
+const normalizeVietnameseProjectText = (value, fallback = "") => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return fallback;
+
+  const compact = raw
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase();
+
+  const mapped = {
+    "dang hoat dong": "Đang hoạt động",
+    "chua xac": "Chưa xác định",
+    "chua xac dinh": "Chưa xác định",
+  }[compact];
+
+  return mapped || raw;
+};
+
 export default function ManagerProjects() {
   const [projects, setProjects] = useState([]);
   const [_categories, setCategories] = useState([]);
@@ -436,6 +456,8 @@ export default function ManagerProjects() {
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {projects.map((p) => {
             const id = getProjectId(p);
+            const displayStatus = normalizeVietnameseProjectText(p.status, "Đang hoạt động");
+            const displayType = normalizeVietnameseProjectText(p.type, "Chưa xác định");
           return (
             <div key={id} className="bg-white border rounded-xl shadow-sm p-5 space-y-4">
               <div className="flex items-start justify-between">
@@ -444,7 +466,7 @@ export default function ManagerProjects() {
                     {p.name || "Chưa có tên"}
                   </h3>
                   <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
-                    {p.status || "Đang hoạt động"}
+                    {displayStatus}
                   </span>
                 </div>
 
@@ -475,7 +497,7 @@ export default function ManagerProjects() {
                         className="w-full flex items-center gap-2 px-4 py-2 text-sm text-indigo-600 hover:bg-indigo-50"
                       >
                         <Image className="w-4 h-4" />
-                        Quan ly trong chi tiet
+                        Quản lý trong chi tiết
                       </button>
                       <button
                         onClick={() => handleDelete(id)}
@@ -493,7 +515,7 @@ export default function ManagerProjects() {
 
               <div className="flex items-center gap-2 text-sm text-indigo-600">
                 <Tag className="w-4 h-4" />
-                {p.type || "Chưa xác định"}
+                {displayType}
               </div>
 
               <div className="flex items-center justify-between text-sm text-gray-600 pt-2 border-t">

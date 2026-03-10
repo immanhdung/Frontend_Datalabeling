@@ -221,11 +221,11 @@ export default function ManagerProjectDetail() {
 
   const USERS_PER_PAGE = 10;
   const totalMemberPages = Math.max(1, Math.ceil(filteredUsersToAdd.length / USERS_PER_PAGE));
+  const currentMemberPage = Math.min(Math.max(memberPage, 1), totalMemberPages);
   const paginatedUsersToAdd = useMemo(() => {
-    const page = Math.min(Math.max(memberPage, 1), totalMemberPages);
-    const start = (page - 1) * USERS_PER_PAGE;
+    const start = (currentMemberPage - 1) * USERS_PER_PAGE;
     return filteredUsersToAdd.slice(start, start + USERS_PER_PAGE);
-  }, [filteredUsersToAdd, memberPage, totalMemberPages]);
+  }, [filteredUsersToAdd, currentMemberPage]);
 
   const fetchProjectDetail = async () => {
     try {
@@ -1005,22 +1005,24 @@ export default function ManagerProjectDetail() {
 
             <div className="flex items-center justify-between">
               <p className="text-sm text-gray-500">
-                Trang {Math.min(memberPage, totalMemberPages)}/{totalMemberPages} - {filteredUsersToAdd.length} user
+                Trang {currentMemberPage}/{totalMemberPages} - {filteredUsersToAdd.length} user
               </p>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setMemberPage((prev) => Math.max(prev - 1, 1))}
-                  disabled={memberPage <= 1}
-                  className="px-3 py-1.5 border rounded text-sm disabled:opacity-50"
+                  onClick={() =>
+                    setMemberPage((prev) => (prev <= 1 ? totalMemberPages : prev - 1))
+                  }
+                  className="px-3 py-1.5 border rounded text-sm hover:bg-gray-50"
                 >
                   Trước
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMemberPage((prev) => Math.min(prev + 1, totalMemberPages))}
-                  disabled={memberPage >= totalMemberPages}
-                  className="px-3 py-1.5 border rounded text-sm disabled:opacity-50"
+                  onClick={() =>
+                    setMemberPage((prev) => (prev >= totalMemberPages ? 1 : prev + 1))
+                  }
+                  className="px-3 py-1.5 border rounded text-sm hover:bg-gray-50"
                 >
                   Sau
                 </button>

@@ -1,4 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api, { categoryAPI, labelAPI } from "../../config/api";
 import { Plus, Folder, ChevronRight, Tag, X, Layers3, Pencil, Trash2, Check } from "lucide-react";
 
@@ -110,6 +111,7 @@ const normalizeCategory = (category, index, labelsByCategory = {}) => {
 };
 
 export default function Categories() {
+  const navigate = useNavigate();
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
@@ -600,7 +602,7 @@ export default function Categories() {
                   />
                   <button
                     onClick={handleAddLabel}
-                    disabled={addingLabel || !labelName.trim()}
+                    disabled={addingLabel}
                     className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
                   >
                     {addingLabel ? "Đang thêm..." : "Thêm nhãn"}
@@ -715,16 +717,22 @@ export default function Categories() {
                 ) : (
                   <div className="grid grid-cols-2 gap-4">
                     {filteredProjects.map((project) => (
-                      <div
+                      <button
                         key={project.id || project.projectId}
-                        className="p-4 border border-gray-100 rounded-xl bg-gray-50/30"
+                        type="button"
+                        onClick={() => {
+                          const projectId = project?.id || project?.projectId;
+                          if (!projectId) return;
+                          navigate(`/manager/projects/${projectId}`);
+                        }}
+                        className="p-4 border border-gray-100 rounded-xl bg-gray-50/30 text-left hover:border-blue-200 hover:bg-blue-50/40 transition-colors"
                       >
                         <h4 className="font-bold text-gray-900">{project.name}</h4>
                         <p className="text-sm text-gray-500 line-clamp-2 mt-1">
                           {project.description || "Chưa có mô tả"}
                         </p>
                         <div className="mt-3 text-xs text-gray-500">Trang thai: {project.status || "N/A"}</div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 )}
