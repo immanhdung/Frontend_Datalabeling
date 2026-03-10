@@ -1210,7 +1210,7 @@ export default function Datasets() {
                                                     className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
                                                 >
                                                     <Pencil className="w-4 h-4" />
-                                                    Chinh sua dataset
+                                                    Chỉnh sửa dataset
                                                 </button>
                                                 <button
                                                     onClick={(e) => {

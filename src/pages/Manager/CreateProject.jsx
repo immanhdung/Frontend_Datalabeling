@@ -551,7 +551,7 @@ export default function CreateProjectPage() {
       <div className="flex justify-between">
         <button className="border px-4 py-2 rounded" onClick={() => setStep(step - 1)} disabled={step === 1}>
           <ArrowLeft className="inline w-4 h-4 mr-1" />
-          Quay lai
+          Quay lại
         </button>
 
         {step < 4 ? (

@@ -74,14 +74,29 @@ const normalizeLabels = (category) => {
   return Array.from(byName.values());
 };
 
-const normalizeCategory = (category, index) => {
-  const id =
-    category?.categoryId ??
-    category?.categoryID ??
-    category?.CategoryId ??
-    category?.id ??
-    `category-${index}`;
-  const labels = normalizeLabels(category);
+const getCategoryIdValue = (category) =>
+  category?.categoryId ??
+  category?.categoryID ??
+  category?.CategoryId ??
+  category?.id ??
+  null;
+
+const getLabelCategoryId = (label) =>
+  label?.categoryId ??
+  label?.categoryID ??
+  label?.CategoryId ??
+  label?.category?.id ??
+  label?.category?.categoryId ??
+  null;
+
+const normalizeCategory = (category, index, labelsByCategory = {}) => {
+  const id = getCategoryIdValue(category) ?? `category-${index}`;
+  const externalLabels = asArray(labelsByCategory[String(id)]);
+  const mergedCategory = {
+    ...category,
+    labels: [...asArray(category?.labels), ...externalLabels],
+  };
+  const labels = normalizeLabels(mergedCategory);
 
   return {
     ...category,
@@ -139,8 +154,33 @@ export default function Categories() {
     try {
       setLoading(true);
       const response = await categoryAPI.getAll();
+      const rawCategories = readArray(response?.data);
 
-      const nextCategories = readArray(response?.data).map(normalizeCategory);
+      let labelsByCategory = {};
+      try {
+        const labelsRes = await requestSequential([
+          () => api.get("/labels"),
+          () => api.get("/Labels"),
+        ]);
+        const allLabels = readArray(labelsRes?.data);
+        labelsByCategory = allLabels.reduce((acc, label) => {
+          const categoryId = getLabelCategoryId(label);
+          if (!categoryId) return acc;
+
+          const key = String(categoryId);
+          if (!acc[key]) {
+            acc[key] = [];
+          }
+          acc[key].push(label);
+          return acc;
+        }, {});
+      } catch {
+        labelsByCategory = {};
+      }
+
+      const nextCategories = rawCategories.map((category, index) =>
+        normalizeCategory(category, index, labelsByCategory)
+      );
       if (nextCategories.length > 0) {
         syncCategoriesState(nextCategories, preferredId || selectedCategoryId);
       } else {

@@ -296,7 +296,7 @@ const Users = () => {
             (u) => String(u.username || "").toLowerCase() === formData.username.toLowerCase()
           );
           if (existed) {
-            setError("Username da ton tai trong che do demo.");
+            setError("Username đã tồn tại trong chế độ demo.");
             return;
           }
 

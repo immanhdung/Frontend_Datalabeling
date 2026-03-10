@@ -661,7 +661,7 @@ export default function ManagerProjectDetail() {
         <AlertCircle className="w-12 h-12 text-red-500" />
         <p className="text-gray-800 font-bold text-lg">{error || "Không tìm thấy dự án"}</p>
         <button onClick={() => navigate("/manager/projects")} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-          Quay lai danh sach
+          Quay lại danh sách
         </button>
       </div>
     );
@@ -684,11 +684,11 @@ export default function ManagerProjectDetail() {
         <div className="flex gap-3">
           <button className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50">
             <Download className="w-4 h-4" />
-            Xuat du lieu
+            Xuất dữ liệu
           </button>
           <button onClick={() => setIsEditMode((prev) => !prev)} className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-black">
             {isEditMode ? <X className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
-            {isEditMode ? "Dong sua" : "Chinh sua"}
+            {isEditMode ? "Đóng chỉnh sửa" : "Chỉnh sửa"}
           </button>
         </div>
       </div>
@@ -714,7 +714,7 @@ export default function ManagerProjectDetail() {
 
       {isEditMode && (
         <div className="bg-white rounded-xl p-5 shadow space-y-5 border border-indigo-100">
-          <h3 className="font-semibold text-indigo-700">Chinh sua project details</h3>
+          <h3 className="font-semibold text-indigo-700">Chỉnh sửa chi tiết dự án</h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -722,11 +722,11 @@ export default function ManagerProjectDetail() {
               <input className="w-full border rounded px-3 py-2" value={editForm.name} onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))} />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Loai</label>
+              <label className="block text-sm font-medium mb-1">Loại</label>
               <input className="w-full border rounded px-3 py-2" value={editForm.type} onChange={(e) => setEditForm((prev) => ({ ...prev, type: e.target.value }))} />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Trang thai</label>
+              <label className="block text-sm font-medium mb-1">Trạng thái</label>
               <input className="w-full border rounded px-3 py-2" value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))} />
             </div>
             <div>
@@ -736,12 +736,12 @@ export default function ManagerProjectDetail() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Mo ta</label>
+            <label className="block text-sm font-medium mb-1">Mô tả</label>
             <textarea className="w-full border rounded px-3 py-2" rows={3} value={editForm.description} onChange={(e) => setEditForm((prev) => ({ ...prev, description: e.target.value }))} />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Huong dan</label>
+            <label className="block text-sm font-medium mb-1">Hướng dẫn</label>
             <textarea className="w-full border rounded px-3 py-2" rows={3} value={editForm.guideline} onChange={(e) => setEditForm((prev) => ({ ...prev, guideline: e.target.value }))} />
           </div>
 
@@ -810,14 +810,14 @@ export default function ManagerProjectDetail() {
             )}
 
             <div className="flex gap-2">
-              <input value={customLabelInput} onChange={(e) => setCustomLabelInput(e.target.value)} className="flex-1 border rounded px-3 py-2" placeholder="Them label custom..." />
+              <input value={customLabelInput} onChange={(e) => setCustomLabelInput(e.target.value)} className="flex-1 border rounded px-3 py-2" placeholder="Thêm nhãn tùy chỉnh..." />
               <button
                 type="button"
                 onClick={handleAddCategoryLabel}
                 disabled={labelActionTargetId === "new" || !customLabelInput.trim() || !editForm.categoryId}
                 className="px-3 py-2 bg-gray-900 text-white rounded disabled:opacity-50"
               >
-                Them
+                Thêm
               </button>
             </div>
 
@@ -1014,7 +1014,7 @@ export default function ManagerProjectDetail() {
                   disabled={memberPage <= 1}
                   className="px-3 py-1.5 border rounded text-sm disabled:opacity-50"
                 >
-                  Truoc
+                  Trước
                 </button>
                 <button
                   type="button"
@@ -1050,7 +1050,7 @@ export default function ManagerProjectDetail() {
                       disabled={busy}
                       className="ml-1 text-red-600 hover:text-red-700 disabled:opacity-50"
                     >
-                      {busy ? "..." : "xoa"}
+                      {busy ? "..." : "xóa"}
                     </button>
                   </div>
                 );
