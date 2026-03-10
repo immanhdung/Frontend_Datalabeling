@@ -16,7 +16,7 @@ import {
   Clock,
   Zap,
   ThumbsUp,
-  Image,
+  Image as ImageIcon,
   FileText,
   Volume2,
   Video,
@@ -293,7 +293,7 @@ const AnnotatorDashboard = () => {
                       task.type === 'text' ? 'bg-emerald-50 text-emerald-600' :
                         task.type === 'audio' ? 'bg-purple-50 text-purple-600' : 'bg-orange-50 text-orange-600'
                       }`}>
-                      {task.type === 'image' && <Image className="w-6 h-6" />}
+                      {task.type === 'image' && <ImageIcon className="w-6 h-6" />}
                       {task.type === 'text' && <FileText className="w-6 h-6" />}
                       {task.type === 'audio' && <Volume2 className="w-6 h-6" />}
                       {task.type === 'video' && <Video className="w-6 h-6" />}

@@ -5,7 +5,7 @@ import {
   Filter,
   MoreHorizontal,
   Tag,
-  Image,
+  Image as ImageIcon,
   Users,
   Eye,
   Trash2,
@@ -21,6 +21,18 @@ import AssignTasksModal from "../../components/manager/AssignTasksModal";
 
 const DEV_PROJECTS_KEY = "devManagerProjects";
 const DEV_CATEGORIES_KEY = "devManagerCategories";
+
+const requestSequential = async (factories) => {
+  let lastError;
+  for (const factory of factories) {
+    try {
+      return await factory();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+};
 
 export default function ManagerProjects() {
   const [projects, setProjects] = useState([]);
@@ -225,7 +237,10 @@ export default function ManagerProjects() {
     }
 
     try {
-      await api.delete(`/projects/${id}`);
+      await requestSequential([
+        () => api.delete(`/projects/${id}`),
+        () => api.delete(`/Projects/${id}`)
+      ]);
       const nextProjects = projects.filter((p) => (p.projectId || p.id) !== id);
       setProjects(nextProjects);
       persistLocalProjects(nextProjects);
@@ -233,6 +248,13 @@ export default function ManagerProjects() {
       alert("Xóa dự án thành công!");
     } catch (err) {
       console.error("Delete project error:", err);
+      if ([500, 401, 404, 405].includes(Number(err?.response?.status))) {
+        const nextProjects = projects.filter((p) => (p.projectId || p.id) !== id);
+        setProjects(nextProjects);
+        persistLocalProjects(nextProjects);
+        alert(`Backend từ chối yêu cầu xoá (Lỗi ${err?.response?.status}). Đã ẩn dự án này khỏi giao diện để bạn tiếp tục test.`);
+        return;
+      }
       alert(
         "Xóa dự án thất bại: " +
         (err.response?.data?.message || err.message)
@@ -427,7 +449,7 @@ export default function ManagerProjects() {
                     >
                       <div className="flex items-center gap-3 text-wrap text-left">
                         <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center group-hover:bg-indigo-100 transition-colors shrink-0">
-                          <Image className="w-5 h-5 text-indigo-600" />
+                          <ImageIcon className="w-5 h-5 text-indigo-600" />
                         </div>
                         <div className="min-w-0">
                           <p className="font-bold text-gray-800 truncate">{ds.name}</p>
@@ -508,7 +530,7 @@ export default function ManagerProjects() {
                         }}
                         className="w-full flex items-center gap-2 px-4 py-2 text-sm text-indigo-600 hover:bg-indigo-50"
                       >
-                        <Image className="w-4 h-4" />
+                        <ImageIcon className="w-4 h-4" />
                         Gán Datasets
                       </button>
                       <button
@@ -532,7 +554,7 @@ export default function ManagerProjects() {
 
               <div className="flex items-center justify-between text-sm text-gray-600 pt-2 border-t">
                 <div className="flex items-center gap-1">
-                  <Image className="w-4 h-4" />
+                  <ImageIcon className="w-4 h-4" />
                   {(() => {
                     const attached = p.datasets || [];
                     const sum = attached.reduce((acc, ds) => acc + (ds.imagesCount || ds.numberOfItems || ds.itemCount || 0), 0);
