@@ -90,9 +90,15 @@ export default function ManagerProjectDetail() {
   const [categories, setCategories] = useState([]);
   const [datasets, setDatasets] = useState([]);
   const [projectMembers, setProjectMembers] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
   const [projectTasks, setProjectTasks] = useState([]);
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [selectedAssigneeId, setSelectedAssigneeId] = useState("");
+  const [selectedMemberToAddId, setSelectedMemberToAddId] = useState("");
+  const [memberSearch, setMemberSearch] = useState("");
+  const [memberRoleFilter, setMemberRoleFilter] = useState("all");
+  const [addingMember, setAddingMember] = useState(false);
+  const [removingMemberId, setRemovingMemberId] = useState("");
   const [assigningTask, setAssigningTask] = useState(false);
 
   const [isEditMode, setIsEditMode] = useState(false);
@@ -158,12 +164,67 @@ export default function ManagerProjectDetail() {
     [projectMembers]
   );
 
+  const getEntityId = (entity) =>
+    String(
+      entity?.userId ??
+        entity?.id ??
+        entity?.memberId ??
+        entity?.user?.id ??
+        entity?.user?._id ??
+        entity?.user?.userId ??
+        entity?._id ??
+        ""
+    );
+
+  const getEntityDisplayName = (entity, fallbackPrefix = "User") =>
+    entity?.displayName ||
+    entity?.name ||
+    entity?.username ||
+    entity?.email ||
+    `${fallbackPrefix}`;
+
+  const getEntityRole = (entity) =>
+    String(entity?.roleName || entity?.role?.name || entity?.role || "").toLowerCase();
+
+  const projectMemberIdSet = useMemo(() => {
+    const ids = projectMembers
+      .map((member) => getEntityId(member))
+      .filter(Boolean)
+      .map((item) => String(item));
+
+    return new Set(ids);
+  }, [projectMembers]);
+
+  const availableUsersToAdd = useMemo(
+    () => allUsers.filter((user) => !projectMemberIdSet.has(getEntityId(user))),
+    [allUsers, projectMemberIdSet]
+  );
+
+  const filteredUsersToAdd = useMemo(() => {
+    const keyword = String(memberSearch || "").trim().toLowerCase();
+    return availableUsersToAdd.filter((user) => {
+      const role = getEntityRole(user);
+      const displayName = String(getEntityDisplayName(user, "User")).toLowerCase();
+      const email = String(user?.email || "").toLowerCase();
+      const username = String(user?.username || "").toLowerCase();
+
+      const matchRole = memberRoleFilter === "all" || role === memberRoleFilter;
+      const matchKeyword =
+        !keyword ||
+        displayName.includes(keyword) ||
+        email.includes(keyword) ||
+        username.includes(keyword);
+
+      return matchRole && matchKeyword;
+    });
+  }, [availableUsersToAdd, memberRoleFilter, memberSearch]);
+
   const fetchProjectDetail = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const [projectRes, labelSetsRes, categoriesRes, datasetsRes, projectDatasetsRes, membersRes, tasksRes, projectLabelsRes] = await Promise.all([
+      const [projectRes, labelSetsRes, categoriesRes, datasetsRes, projectDatasetsRes, membersRes, tasksRes, projectLabelsRes, usersRes] = await Promise.all([
         api.get(`/projects/${id}`),
         api.get(`/projects/${id}/label-sets`).catch(() => ({ data: [] })),
         requestSequential([
@@ -178,6 +239,7 @@ export default function ManagerProjectDetail() {
         api.get(`/projects/${id}/members`).catch(() => ({ data: [] })),
         api.get("/tasks").catch(() => ({ data: [] })),
         api.get(`/labels?ProjectId=${id}`).catch(() => ({ data: [] })),
+        api.get("/users").catch(() => ({ data: [] })),
       ]);
 
       const fetchedProject =
@@ -209,6 +271,7 @@ export default function ManagerProjectDetail() {
       setDatasets(Array.from(datasetMap.values()));
       setProjectMembers(fetchedMembers);
       setProjectTasks(fetchedTasks);
+      setAllUsers(toArray(usersRes?.data));
 
       const initialLabels = normalizeLabelNames(fetchedProject, fetchedLabelSets);
       const initialDatasetIds = Array.from(
@@ -248,17 +311,56 @@ export default function ManagerProjectDetail() {
 
       setSelectedAssigneeId((prev) => {
         const validAssigneeIds = fetchedAnnotators
-          .map((member) => String(member?.id || member?.userId || ""))
+          .map((member) => getEntityId(member))
           .filter(Boolean);
         if (prev && validAssigneeIds.includes(String(prev))) {
           return prev;
         }
-        return String(fetchedAnnotators[0]?.id || fetchedAnnotators[0]?.userId || "");
+        return getEntityId(fetchedAnnotators[0]);
+      });
+
+      setSelectedMemberToAddId((prev) => {
+        const availableIds = toArray(usersRes?.data)
+          .map((user) => getEntityId(user))
+          .filter((userId) => userId && !new Set(fetchedMembers.map((member) => getEntityId(member))).has(userId));
+
+        if (prev && availableIds.includes(String(prev))) {
+          return prev;
+        }
+
+        return String(availableIds[0] || "");
       });
     } catch {
       setError("Không thể tải thông tin chi tiết dự án. Vui lòng thử lại sau.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRemoveMemberFromProject = async (member) => {
+    const memberId = getEntityId(member);
+    if (!memberId) {
+      alert("Không tìm thấy member ID để xóa");
+      return;
+    }
+
+    const memberName = getEntityDisplayName(member, "Member");
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa ${memberName} khỏi dự án?`)) {
+      return;
+    }
+
+    try {
+      setRemovingMemberId(memberId);
+      await requestSequential([
+        () => api.delete(`/projects/${id}/members/${memberId}`),
+        () => api.delete(`/Projects/${id}/members/${memberId}`),
+      ]);
+      alert("Đã xóa thành viên khỏi dự án");
+      await fetchProjectDetail();
+    } catch (err) {
+      alert(err?.response?.data?.message || "Xóa thành viên thất bại");
+    } finally {
+      setRemovingMemberId("");
     }
   };
 
@@ -280,6 +382,33 @@ export default function ManagerProjectDetail() {
       alert(err?.response?.data?.message || "Giao việc thất bại");
     } finally {
       setAssigningTask(false);
+    }
+  };
+
+  const handleAddMemberToProject = async () => {
+    const memberId = String(selectedMemberToAddId || "");
+    if (!memberId) {
+      alert("Vui lòng chọn user để thêm vào dự án");
+      return;
+    }
+
+    if (projectMemberIdSet.has(memberId)) {
+      alert("User này đã thuộc dự án");
+      return;
+    }
+
+    try {
+      setAddingMember(true);
+      await requestSequential([
+        () => api.post(`/projects/${id}/members/${memberId}`),
+        () => api.post(`/Projects/${id}/members/${memberId}`),
+      ]);
+      alert("Thêm thành viên vào dự án thành công");
+      await fetchProjectDetail();
+    } catch (err) {
+      alert(err?.response?.data?.message || "Thêm thành viên thất bại");
+    } finally {
+      setAddingMember(false);
     }
   };
 
@@ -797,6 +926,103 @@ export default function ManagerProjectDetail() {
               >
                 {assigningTask ? "Đang giao..." : "Giao task"}
               </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl p-5 shadow border border-emerald-100 space-y-4">
+        <h3 className="font-semibold text-emerald-700">Thêm thành viên vào dự án</h3>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <input
+            type="text"
+            value={memberSearch}
+            onChange={(e) => setMemberSearch(e.target.value)}
+            placeholder="Tìm theo tên, username, email..."
+            className="md:col-span-2 border rounded px-3 py-2"
+          />
+          <select
+            value={memberRoleFilter}
+            onChange={(e) => setMemberRoleFilter(e.target.value)}
+            className="border rounded px-3 py-2"
+          >
+            <option value="all">Tất cả role</option>
+            <option value="annotator">Annotator</option>
+            <option value="reviewer">Reviewer</option>
+            <option value="manager">Manager</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+
+        {filteredUsersToAdd.length === 0 ? (
+          <p className="text-sm text-gray-500">
+            {availableUsersToAdd.length === 0
+              ? "Tất cả users hiện đã thuộc dự án này."
+              : "Không có user phù hợp với bộ lọc hiện tại."}
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium mb-1">User</label>
+              <select
+                value={selectedMemberToAddId}
+                onChange={(e) => setSelectedMemberToAddId(e.target.value)}
+                className="w-full border rounded px-3 py-2"
+              >
+                <option value="">-- Chọn user --</option>
+                {filteredUsersToAdd.map((user, idx) => {
+                  const userId = getEntityId(user);
+                  const role = getEntityRole(user);
+                  const roleLabel = role ? ` (${role})` : "";
+                  return (
+                    <option key={userId || `user-${idx}`} value={userId}>
+                      {getEntityDisplayName(user, `User ${idx + 1}`)}{roleLabel}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            <div>
+              <button
+                type="button"
+                onClick={handleAddMemberToProject}
+                disabled={addingMember || !selectedMemberToAddId}
+                className="w-full px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {addingMember ? "Đang thêm..." : "Thêm vào dự án"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {projectMembers.length > 0 && (
+          <div className="pt-2 border-t border-gray-100">
+            <p className="text-sm font-medium text-gray-700 mb-2">Thành viên hiện tại ({projectMembers.length})</p>
+            <div className="flex flex-wrap gap-2">
+              {projectMembers.map((member, idx) => {
+                const role = getEntityRole(member);
+                const memberId = getEntityId(member);
+                const busy = removingMemberId === memberId;
+                return (
+                  <div
+                    key={`${getEntityId(member)}-${idx}`}
+                    className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs bg-gray-100 text-gray-700"
+                  >
+                    {getEntityDisplayName(member, `Member ${idx + 1}`)}
+                    {role ? <span className="text-gray-500">({role})</span> : null}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveMemberFromProject(member)}
+                      disabled={busy}
+                      className="ml-1 text-red-600 hover:text-red-700 disabled:opacity-50"
+                    >
+                      {busy ? "..." : "xoa"}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
