@@ -21,14 +21,29 @@ const requestSequential = async (requestFactories) => {
   throw lastError;
 };
 
+const asArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.items)) return value.items;
+  if (Array.isArray(value?.data)) return value.data;
+  return [];
+};
+
 const normalizeLabels = (category) => {
-  const labelCandidates =
-    category?.labels ??
-    category?.labelSets ??
-    category?.labelSet?.labels ??
-    category?.labelset?.labels ??
-    category?.tags ??
-    [];
+  const directLabels = asArray(category?.labels);
+  const tagLabels = asArray(category?.tags);
+  const labelSetLabels = asArray(category?.labelSet?.labels);
+  const lowerLabelSetLabels = asArray(category?.labelset?.labels);
+  const groupedLabelSetLabels = asArray(category?.labelSets).flatMap((set) =>
+    asArray(set?.labels)
+  );
+
+  const labelCandidates = [
+    ...directLabels,
+    ...tagLabels,
+    ...labelSetLabels,
+    ...lowerLabelSetLabels,
+    ...groupedLabelSetLabels,
+  ];
 
   const normalized = labelCandidates
     .map((item, index) => {
@@ -39,11 +54,11 @@ const normalizeLabels = (category) => {
         };
       }
 
-      const name = item?.name ?? item?.labelName ?? item?.title;
+      const name = item?.name ?? item?.labelName ?? item?.title ?? item?.tagName;
       if (!name) return null;
 
       return {
-        id: item?.id ?? item?.labelId ?? `label-${index}-${name}`,
+        id: item?.id ?? item?.labelId ?? item?.labelID ?? `label-${index}-${name}`,
         name,
       };
     })
@@ -60,7 +75,12 @@ const normalizeLabels = (category) => {
 };
 
 const normalizeCategory = (category, index) => {
-  const id = category?.categoryId ?? category?.id ?? `category-${index}`;
+  const id =
+    category?.categoryId ??
+    category?.categoryID ??
+    category?.CategoryId ??
+    category?.id ??
+    `category-${index}`;
   const labels = normalizeLabels(category);
 
   return {
@@ -317,6 +337,7 @@ export default function Categories() {
 
       applyLabelToState(selectedCategory.id, nextLabelName);
       setLabelName("");
+      await fetchCategories(selectedCategory.id);
       alert("Thêm nhãn thành công");
     } catch (error) {
       alert(error?.response?.data?.message || error?.response?.data?.title || "Thêm nhãn thất bại");
@@ -365,6 +386,7 @@ export default function Categories() {
 
       updateLabelInState(selectedCategory.id, label.id, nextName);
       handleCancelEditLabel();
+      await fetchCategories(selectedCategory.id);
       alert("Cập nhật nhãn thành công");
     } catch (error) {
       alert(error?.response?.data?.message || error?.response?.data?.title || "Cập nhật nhãn thất bại");
@@ -388,6 +410,7 @@ export default function Categories() {
       if (String(editingLabelId) === String(label.id)) {
         handleCancelEditLabel();
       }
+      await fetchCategories(selectedCategory.id);
       alert("Xóa nhãn thành công");
     } catch (error) {
       alert(error?.response?.data?.message || error?.response?.data?.title || "Xóa nhãn thất bại");
