@@ -1,7 +1,6 @@
-import {
+﻿import {
   ArrowLeft,
   Download,
-  Plus,
   Loader2,
   AlertCircle,
   Pencil,
@@ -12,13 +11,21 @@ import {
 } from "lucide-react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
-import api, { labelAPI } from "../../config/api";
+import api, { labelAPI, taskAPI } from "../../config/api";
 
 const toArray = (value) => {
   if (Array.isArray(value)) return value;
   if (Array.isArray(value?.items)) return value.items;
   if (Array.isArray(value?.data)) return value.data;
   return [];
+};
+
+const toObject = (value) => {
+  if (!value) return null;
+  if (value?.data && typeof value.data === "object" && !Array.isArray(value.data)) {
+    return value.data;
+  }
+  return typeof value === "object" && !Array.isArray(value) ? value : null;
 };
 
 const requestSequential = async (factories) => {
@@ -74,14 +81,10 @@ const normalizeLabelItem = (item, index) => {
 export default function ManagerProjectDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const token = localStorage.getItem("accessToken");
-  const enableDevFallback = import.meta.env.VITE_ENABLE_DEV_FALLBACK === "true";
-  const enableDevBypass = import.meta.env.VITE_BYPASS_LOGIN === "true";
-  const isDevLocalToken = token === "dev-fallback-token" || token === "dev-bypass-token";
-  const isDevLocalSession =
-    import.meta.env.DEV &&
-    (enableDevFallback || enableDevBypass) &&
-    isDevLocalToken;
+  const isEndpointMissing = (error) => {
+    const status = error?.response?.status;
+    return import.meta.env.DEV && (status === 404 || status === 405 || status === 500 || status === 501);
+  };
 
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -90,6 +93,11 @@ export default function ManagerProjectDetail() {
 
   const [categories, setCategories] = useState([]);
   const [datasets, setDatasets] = useState([]);
+  const [projectMembers, setProjectMembers] = useState([]);
+  const [projectTasks, setProjectTasks] = useState([]);
+  const [selectedTaskId, setSelectedTaskId] = useState("");
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState("");
+  const [assigningTask, setAssigningTask] = useState(false);
 
   const [isEditMode, setIsEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -136,13 +144,35 @@ export default function ManagerProjectDetail() {
   );
 
   const allLabels = useMemo(() => normalizeLabelNames(project, labelSets), [project, labelSets]);
+  const selectedCategoryName = useMemo(() => {
+    const cid = String(project?.categoryId || project?.category?.id || "");
+    const matched = categories.find((item) => String(item?.id || item?.categoryId || "") === cid);
+    return matched?.name || project?.category?.name || "N/A";
+  }, [project, categories]);
+
+  const linkedDatasets = useMemo(() => {
+    const targetIds = new Set(editForm.datasetIds.map((item) => String(item)));
+    return datasets.filter((dataset, index) => {
+      const dsId = String(dataset?.id ?? dataset?.datasetId ?? `ds-${index}`);
+      return targetIds.has(dsId);
+    });
+  }, [datasets, editForm.datasetIds]);
+
+  const annotatorMembers = useMemo(
+    () =>
+      projectMembers.filter((member) => {
+        const role = String(member?.roleName || member?.role?.name || member?.role || "").toLowerCase();
+        return role === "annotator";
+      }),
+    [projectMembers]
+  );
 
   const fetchProjectDetail = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const [projectRes, labelSetsRes, categoriesRes, datasetsRes] = await Promise.all([
+      const [projectRes, labelSetsRes, categoriesRes, datasetsRes, projectDatasetsRes, membersRes, tasksRes, projectLabelsRes] = await Promise.all([
         api.get(`/projects/${id}`),
         api.get(`/projects/${id}/label-sets`).catch(() => ({ data: [] })),
         requestSequential([
@@ -153,18 +183,52 @@ export default function ManagerProjectDetail() {
           () => api.get("/datasets"),
           () => api.get("/Datasets"),
         ]).catch(() => ({ data: [] })),
+        api.get(`/datasets?ProjectId=${id}`).catch(() => ({ data: [] })),
+        api.get(`/projects/${id}/members`).catch(() => ({ data: [] })),
+        api.get("/tasks").catch(() => ({ data: [] })),
+        api.get(`/labels?ProjectId=${id}`).catch(() => ({ data: [] })),
       ]);
 
-      const fetchedProject = projectRes.data;
+      const fetchedProject =
+        toObject(projectRes?.data) ||
+        toObject(projectRes?.data?.project) ||
+        projectRes?.data;
       const fetchedLabelSets = toArray(labelSetsRes?.data);
+      const fetchedMembers = toArray(membersRes?.data);
+      const allTasks = toArray(tasksRes?.data);
+      const fetchedTasks = allTasks.filter(
+        (task) => String(task?.projectId || task?.project?.id || "") === String(id)
+      );
+      const projectLabels = toArray(projectLabelsRes?.data);
+
+      if (projectLabels.length > 0) {
+        fetchedProject.labels = projectLabels;
+      }
 
       setProject(fetchedProject);
       setLabelSets(fetchedLabelSets);
       setCategories(toArray(categoriesRes?.data));
-      setDatasets(toArray(datasetsRes?.data));
+      const allDatasets = toArray(datasetsRes?.data);
+      const projectDatasets = toArray(projectDatasetsRes?.data);
+      const datasetMap = new Map();
+      [...allDatasets, ...projectDatasets].forEach((dataset, idx) => {
+        const dsId = String(dataset?.id ?? dataset?.datasetId ?? `dataset-${idx}`);
+        datasetMap.set(dsId, dataset);
+      });
+      setDatasets(Array.from(datasetMap.values()));
+      setProjectMembers(fetchedMembers);
+      setProjectTasks(fetchedTasks);
 
       const initialLabels = normalizeLabelNames(fetchedProject, fetchedLabelSets);
-      const initialDatasetIds = normalizeDatasetIds(fetchedProject);
+      const initialDatasetIds = Array.from(
+        new Set([
+          ...normalizeDatasetIds(fetchedProject),
+          ...toArray(projectDatasetsRes?.data)
+            .map((dataset) => dataset?.id ?? dataset?.datasetId)
+            .filter(Boolean)
+            .map((datasetId) => String(datasetId)),
+        ])
+      );
 
       setEditForm({
         name: fetchedProject?.name || "",
@@ -177,10 +241,54 @@ export default function ManagerProjectDetail() {
         labels: initialLabels,
         datasetIds: initialDatasetIds,
       });
+
+      const fetchedAnnotators = fetchedMembers.filter((member) => {
+        const role = String(member?.roleName || member?.role?.name || member?.role || "").toLowerCase();
+        return role === "annotator";
+      });
+
+      setSelectedTaskId((prev) => {
+        const validTaskIds = fetchedTasks.map((task) => String(task?.id || task?.taskId || "")).filter(Boolean);
+        if (prev && validTaskIds.includes(String(prev))) {
+          return prev;
+        }
+        return String(fetchedTasks[0]?.id || fetchedTasks[0]?.taskId || "");
+      });
+
+      setSelectedAssigneeId((prev) => {
+        const validAssigneeIds = fetchedAnnotators
+          .map((member) => String(member?.id || member?.userId || ""))
+          .filter(Boolean);
+        if (prev && validAssigneeIds.includes(String(prev))) {
+          return prev;
+        }
+        return String(fetchedAnnotators[0]?.id || fetchedAnnotators[0]?.userId || "");
+      });
     } catch (err) {
-      setError("Khong the tai thong tin chi tiet du an. Vui long thu lai sau.");
+      setError("Không thể tải thông tin chi tiết dự án. Vui lòng thử lại sau.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAssignTask = async () => {
+    const taskId = String(selectedTaskId || "");
+    const assigneeId = String(selectedAssigneeId || "");
+
+    if (!taskId || !assigneeId) {
+      alert("Vui lòng chọn task và annotator");
+      return;
+    }
+
+    try {
+      setAssigningTask(true);
+      await taskAPI.assign(taskId, assigneeId, id);
+      alert("Giao việc thành công");
+      await fetchProjectDetail();
+    } catch (err) {
+      alert(err?.response?.data?.message || "Giao việc thất bại");
+    } finally {
+      setAssigningTask(false);
     }
   };
 
@@ -235,7 +343,7 @@ export default function ManagerProjectDetail() {
     const nextName = customLabelInput.trim();
 
     if (!categoryId || !nextName) {
-      alert("Vui long chon category va nhap ten nhan");
+      alert("Vui lòng chọn category và nhập tên nhãn");
       return;
     }
 
@@ -244,7 +352,7 @@ export default function ManagerProjectDetail() {
     );
 
     if (duplicate) {
-      alert("Nhan da ton tai trong category");
+      alert("Nhãn đã tồn tại trong category");
       return;
     }
 
@@ -261,8 +369,8 @@ export default function ManagerProjectDetail() {
       }));
       setCustomLabelInput("");
     } catch (error) {
-      if (!isDevLocalSession) {
-        alert(error?.response?.data?.message || error?.response?.data?.title || "Them nhan that bai");
+      if (!isEndpointMissing(error)) {
+        alert(error?.response?.data?.message || error?.response?.data?.title || "Thêm nhãn thất bại");
         return;
       }
 
@@ -286,7 +394,7 @@ export default function ManagerProjectDetail() {
     const nextName = editingCategoryLabelName.trim();
 
     if (!categoryId || !nextName) {
-      alert("Ten nhan khong hop le");
+      alert("Tên nhãn không hợp lệ");
       return;
     }
 
@@ -302,7 +410,7 @@ export default function ManagerProjectDetail() {
         String(item.name).trim().toLowerCase() === nextName.toLowerCase()
     );
     if (duplicate) {
-      alert("Ten nhan da ton tai trong category");
+      alert("Tên nhãn đã tồn tại trong category");
       return;
     }
 
@@ -322,8 +430,8 @@ export default function ManagerProjectDetail() {
       }));
       cancelEditCategoryLabel();
     } catch (error) {
-      if (!isDevLocalSession) {
-        alert(error?.response?.data?.message || error?.response?.data?.title || "Cap nhat nhan that bai");
+      if (!isEndpointMissing(error)) {
+        alert(error?.response?.data?.message || error?.response?.data?.title || "Cập nhật nhãn thất bại");
         return;
       }
 
@@ -349,7 +457,7 @@ export default function ManagerProjectDetail() {
     const categoryId = String(editForm.categoryId || "");
     if (!categoryId) return;
 
-    if (!window.confirm(`Ban co chac chan muon xoa nhan \"${label.name}\"?`)) return;
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa nhãn \"${label.name}\"?`)) return;
 
     setLabelActionTargetId(String(label.id));
     try {
@@ -367,8 +475,8 @@ export default function ManagerProjectDetail() {
         cancelEditCategoryLabel();
       }
     } catch (error) {
-      if (!isDevLocalSession) {
-        alert(error?.response?.data?.message || error?.response?.data?.title || "Xoa nhan that bai");
+      if (!isEndpointMissing(error)) {
+        alert(error?.response?.data?.message || error?.response?.data?.title || "Xóa nhãn thất bại");
         return;
       }
 
@@ -384,7 +492,7 @@ export default function ManagerProjectDetail() {
       if (String(editingCategoryLabelId) === String(label.id)) {
         cancelEditCategoryLabel();
       }
-      alert("Backend loi, da xoa local o che do demo.");
+      alert("Backend lỗi, đã xóa local ở chế độ demo.");
     } finally {
       setLabelActionTargetId("");
     }
@@ -419,21 +527,29 @@ export default function ManagerProjectDetail() {
       const payload = {
         name: editForm.name.trim(),
         description: editForm.description.trim(),
-        guideline: editForm.guideline,
-        categoryId: editForm.categoryId || null,
-        status: editForm.status,
-        type: editForm.type,
-        deadline: editForm.deadline || null,
-        labels: editForm.labels,
-        labelNames: editForm.labels,
+        isActive: String(editForm.status || "").toLowerCase() !== "inactive",
       };
 
-      await api.put(`/projects/${id}`, payload);
+      await requestSequential([
+        () => api.put(`/projects/${id}`, payload),
+        () =>
+          api.put(`/projects/${id}`, {
+            ...payload,
+            guideline: editForm.guideline,
+            categoryId: editForm.categoryId || null,
+            status: editForm.status,
+            type: editForm.type,
+            deadline: editForm.deadline || null,
+            labels: editForm.labels,
+            labelNames: editForm.labels,
+          }),
+      ]);
 
       if (editForm.datasetIds.length > 0) {
         await Promise.allSettled(
           editForm.datasetIds.map((datasetId) =>
             requestSequential([
+              () => api.post(`/datasets/add/${id}`, { datasetId }),
               () => api.post(`/datasets/${datasetId}/attach/${id}`, {}),
               () => api.post(`/Datasets/${datasetId}/attach/${id}`, {}),
             ])
@@ -441,11 +557,11 @@ export default function ManagerProjectDetail() {
         );
       }
 
-      alert("Cap nhat du an thanh cong");
+      alert("Cập nhật dự án thành công");
       setIsEditMode(false);
       await fetchProjectDetail();
     } catch (err) {
-      alert(err.response?.data?.message || "Cap nhat du an that bai");
+      alert(err.response?.data?.message || "Cập nhật dự án thất bại");
     } finally {
       setSaving(false);
     }
@@ -455,7 +571,7 @@ export default function ManagerProjectDetail() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
         <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
-        <p className="text-gray-500 font-medium">Dang tai thong tin du an...</p>
+        <p className="text-gray-500 font-medium">Đang tải thông tin dự án...</p>
       </div>
     );
   }
@@ -464,7 +580,7 @@ export default function ManagerProjectDetail() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
         <AlertCircle className="w-12 h-12 text-red-500" />
-        <p className="text-gray-800 font-bold text-lg">{error || "Khong tim thay du an"}</p>
+        <p className="text-gray-800 font-bold text-lg">{error || "Không tìm thấy dự án"}</p>
         <button onClick={() => navigate("/manager/projects")} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
           Quay lai danh sach
         </button>
@@ -481,9 +597,9 @@ export default function ManagerProjectDetail() {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <h1 className="text-2xl font-bold">{project.name}</h1>
-            <span className="px-3 py-1 text-xs rounded-full bg-blue-100 text-blue-700">{project.status || "Dang hoat dong"}</span>
+            <span className="px-3 py-1 text-xs rounded-full bg-blue-100 text-blue-700">{project.status || "Đang hoạt động"}</span>
           </div>
-          <p className="text-gray-500 mt-1">{project.description || "Chua co mo ta cho du an nay."}</p>
+          <p className="text-gray-500 mt-1">{project.description || "Chưa có mô tả cho dự án này."}</p>
         </div>
 
         <div className="flex gap-3">
@@ -495,10 +611,25 @@ export default function ManagerProjectDetail() {
             {isEditMode ? <X className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
             {isEditMode ? "Dong sua" : "Chinh sua"}
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-            <Plus className="w-4 h-4" />
-            Giao viec
-          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-white rounded-xl p-4 shadow border border-gray-100">
+          <p className="text-xs font-semibold text-gray-500 uppercase">Category</p>
+          <p className="text-lg font-bold text-gray-900 mt-1">{selectedCategoryName}</p>
+        </div>
+        <div className="bg-white rounded-xl p-4 shadow border border-gray-100">
+          <p className="text-xs font-semibold text-gray-500 uppercase">Datasets</p>
+          <p className="text-lg font-bold text-gray-900 mt-1">{linkedDatasets.length}</p>
+        </div>
+        <div className="bg-white rounded-xl p-4 shadow border border-gray-100">
+          <p className="text-xs font-semibold text-gray-500 uppercase">Members</p>
+          <p className="text-lg font-bold text-gray-900 mt-1">{projectMembers.length}</p>
+        </div>
+        <div className="bg-white rounded-xl p-4 shadow border border-gray-100">
+          <p className="text-xs font-semibold text-gray-500 uppercase">Tasks</p>
+          <p className="text-lg font-bold text-gray-900 mt-1">{projectTasks.length}</p>
         </div>
       </div>
 
@@ -508,7 +639,7 @@ export default function ManagerProjectDetail() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Ten du an</label>
+              <label className="block text-sm font-medium mb-1">Tên dự án</label>
               <input className="w-full border rounded px-3 py-2" value={editForm.name} onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))} />
             </div>
             <div>
@@ -538,7 +669,7 @@ export default function ManagerProjectDetail() {
           <div>
             <label className="block text-sm font-medium mb-1">Category</label>
             <select className="w-full border rounded px-3 py-2" value={editForm.categoryId} onChange={(e) => setEditForm((prev) => ({ ...prev, categoryId: e.target.value }))}>
-              <option value="">-- Chon category --</option>
+              <option value="">-- Chọn category --</option>
               {categories.map((category, idx) => {
                 const catId = category?.id ?? category?.categoryId ?? `cat-${idx}`;
                 return (
@@ -642,7 +773,7 @@ export default function ManagerProjectDetail() {
           <div className="flex justify-end">
             <button onClick={saveProject} disabled={saving} className="inline-flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {saving ? "Dang luu..." : "Luu thay doi"}
+              {saving ? "Đang lưu..." : "Lưu thay đổi"}
             </button>
           </div>
         </div>
@@ -650,23 +781,87 @@ export default function ManagerProjectDetail() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="bg-white rounded-xl p-5 shadow lg:col-span-2">
-          <h3 className="font-semibold mb-2">Huong dan gan nhan</h3>
-          <p className="text-sm text-gray-600 whitespace-pre-line">{project.guideline || "Du an nay chua co huong dan chi tiet."}</p>
+          <h3 className="font-semibold mb-2">Hướng dẫn gán nhãn</h3>
+          <p className="text-sm text-gray-600 whitespace-pre-line">{project.guideline || "Dự án này chưa có hướng dẫn chi tiết."}</p>
         </div>
 
         <div className="bg-white rounded-xl p-5 shadow">
-          <h3 className="font-semibold mb-3">Nhan ({allLabels.length})</h3>
+          <h3 className="font-semibold mb-3">Nhãn ({allLabels.length})</h3>
           <div className="flex gap-2 flex-wrap">
             {allLabels.length > 0 ? (
               allLabels.map((label) => (
                 <span key={label} className="px-3 py-1 text-sm rounded-full bg-blue-100 text-blue-700">{label}</span>
               ))
             ) : (
-              <p className="text-sm text-gray-400">Chua co nhan</p>
+              <p className="text-sm text-gray-400">Chưa có nhãn</p>
             )}
           </div>
         </div>
       </div>
+
+      <div className="bg-white rounded-xl p-5 shadow border border-blue-100 space-y-4">
+        <h3 className="font-semibold text-blue-700">Giao việc trong dự án</h3>
+        {projectTasks.length === 0 ? (
+          <p className="text-sm text-gray-500">Dự án này chưa có task để giao. Vui lòng tạo task trước khi giao việc.</p>
+        ) : annotatorMembers.length === 0 ? (
+          <p className="text-sm text-gray-500">Dự án chưa có annotator member. Vui lòng thêm member role annotator trong dự án.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+            <div>
+              <label className="block text-sm font-medium mb-1">Task</label>
+              <select
+                value={selectedTaskId}
+                onChange={(e) => setSelectedTaskId(e.target.value)}
+                className="w-full border rounded px-3 py-2"
+              >
+                <option value="">-- Chọn task --</option>
+                {projectTasks.map((task, idx) => {
+                  const taskId = String(task?.id || task?.taskId || `task-${idx}`);
+                  const taskName = task?.name || task?.title || `Task ${idx + 1}`;
+                  return (
+                    <option key={taskId} value={taskId}>
+                      {taskName}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Annotator</label>
+              <select
+                value={selectedAssigneeId}
+                onChange={(e) => setSelectedAssigneeId(e.target.value)}
+                className="w-full border rounded px-3 py-2"
+              >
+                <option value="">-- Chọn annotator --</option>
+                {annotatorMembers.map((member, idx) => {
+                  const memberId = String(member?.id || member?.userId || `member-${idx}`);
+                  const memberName = member?.displayName || member?.name || member?.username || member?.email || `Annotator ${idx + 1}`;
+                  return (
+                    <option key={memberId} value={memberId}>
+                      {memberName}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+            <div>
+              <button
+                type="button"
+                onClick={handleAssignTask}
+                disabled={assigningTask || !selectedTaskId || !selectedAssigneeId}
+                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {assigningTask ? "Đang giao..." : "Giao task"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
+
+
+
+

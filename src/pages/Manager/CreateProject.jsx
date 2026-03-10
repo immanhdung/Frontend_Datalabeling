@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api, { datasetAPI } from "../../config/api";
+import api from "../../config/api";
 import {
   ArrowLeft,
   ArrowRight,
@@ -12,9 +12,6 @@ import {
   Plus,
   X,
 } from "lucide-react";
-
-const DEV_CATEGORIES_KEY = "devManagerCategories";
-const DEV_PROJECTS_KEY = "devManagerProjects";
 
 const toArray = (value) => {
   if (Array.isArray(value)) return value;
@@ -34,6 +31,27 @@ const requestSequential = async (factories) => {
   }
   throw lastError;
 };
+
+const extractProjectIdFromResponse = (responseData) => {
+  const candidates = [
+    responseData?.id,
+    responseData?.projectId,
+    responseData?.data?.id,
+    responseData?.data?.projectId,
+    responseData?.item?.id,
+    responseData?.item?.projectId,
+  ];
+
+  const found = candidates.find((item) => item !== undefined && item !== null && String(item).trim() !== "");
+  return found ? String(found) : "";
+};
+
+const getApiErrorMessage = (error) =>
+  error?.response?.data?.message ||
+  error?.response?.data?.title ||
+  error?.response?.data?.error ||
+  error?.message ||
+  "Tạo dự án thất bại";
 
 const normalizeCategoryLabels = (category) => {
   const candidates = [
@@ -76,31 +94,6 @@ export default function CreateProjectPage() {
   const [loadingLabels, setLoadingLabels] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [existingProjects, setExistingProjects] = useState([]);
-
-  const token = localStorage.getItem("accessToken");
-  const enableDevFallback = import.meta.env.VITE_ENABLE_DEV_FALLBACK === "true";
-  const enableDevBypass = import.meta.env.VITE_BYPASS_LOGIN === "true";
-  const isDevLocalToken = token === "dev-fallback-token" || token === "dev-bypass-token";
-  const isDevLocalSession =
-    import.meta.env.DEV &&
-    (enableDevFallback || enableDevBypass) &&
-    isDevLocalToken;
-
-  const readLocalProjects = () => {
-    try {
-      const raw = localStorage.getItem(DEV_PROJECTS_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  };
-
-  const persistLocalProjects = (nextProjects) => {
-    if (!isDevLocalSession) return;
-    localStorage.setItem(DEV_PROJECTS_KEY, JSON.stringify(nextProjects));
-  };
 
   const selectedCategory = useMemo(
     () => categories.find((c) => String(c.id || c.categoryId) === String(selectedCategoryId)),
@@ -136,18 +129,9 @@ export default function CreateProjectPage() {
           setCategories(normalized);
           return;
         }
-
-        const localRaw = localStorage.getItem(DEV_CATEGORIES_KEY);
-        const localCategories = localRaw ? JSON.parse(localRaw) : [];
-        setCategories(Array.isArray(localCategories) ? localCategories : []);
+        setCategories([]);
       } catch (err) {
-        try {
-          const localRaw = localStorage.getItem(DEV_CATEGORIES_KEY);
-          const localCategories = localRaw ? JSON.parse(localRaw) : [];
-          setCategories(Array.isArray(localCategories) ? localCategories : []);
-        } catch {
-          setError("Khong tai duoc danh sach category");
-        }
+        setError("Không tải được danh sách category");
       } finally {
         setLoadingCategories(false);
       }
@@ -168,18 +152,8 @@ export default function CreateProjectPage() {
       }
     };
 
-    const fetchExistingProjects = async () => {
-      try {
-        const res = await api.get("/projects");
-        setExistingProjects(toArray(res.data));
-      } catch (e) {
-        console.warn("Could not fetch projects for unique name check", e);
-      }
-    };
-
     fetchCategories();
     fetchDatasets();
-    fetchExistingProjects();
   }, []);
 
   useEffect(() => {
@@ -201,6 +175,7 @@ export default function CreateProjectPage() {
         let fromApi = [];
         try {
           const labelsRes = await requestSequential([
+            () => api.get(`/labels?CategoryId=${selectedCategoryId}`),
             () => api.get(`/categories/${selectedCategoryId}/labels`),
             () => api.get(`/Categories/${selectedCategoryId}/labels`),
             () => api.get(`/labelsets/${selectedCategoryId}/labels`),
@@ -209,9 +184,7 @@ export default function CreateProjectPage() {
             id: item?.id ?? `api-label-${idx}`,
             name: item?.name ?? item?.labelName,
           })).filter((item) => item.name);
-        } catch (err) {
-          // If 404, just use labels from category payload
-          console.warn("Extra labels API failed (expected if not supported), using category source", err);
+        } catch {
           fromApi = [];
         }
 
@@ -280,7 +253,12 @@ export default function CreateProjectPage() {
 
     const results = await Promise.allSettled(
       datasetIds.map((datasetId) =>
-        datasetAPI.attach(datasetId, projectId)
+        requestSequential([
+          () => api.post(`/datasets/add/${projectId}`, { datasetId }),
+          () => api.post(`/Datasets/add/${projectId}`, { datasetId }),
+          () => api.post(`/datasets/${datasetId}/attach/${projectId}`, {}),
+          () => api.post(`/Datasets/${datasetId}/attach/${projectId}`, {}),
+        ])
       )
     );
 
@@ -291,63 +269,20 @@ export default function CreateProjectPage() {
 
   const handleSubmit = async () => {
     if (!selectedCategoryId) {
-      setError("Vui long chon category");
-      return;
-    }
-
-    // Check against existing projects, not categories
-    const nameExists = existingProjects.some(p => p.name?.toLowerCase() === projectName.trim().toLowerCase());
-    if (nameExists) {
-      setError("Tên dự án đã tồn tại trong hệ thống. Vui lòng chọn tên khác.");
-      setSubmitting(false);
+      setError("Vui lòng chọn category");
       return;
     }
 
     setSubmitting(true);
-
-    if (isDevLocalSession) {
-      const localProjectId = `local-project-${Date.now()}`;
-      const localProject = {
-        id: localProjectId,
-        projectId: localProjectId,
-        name: projectName.trim(),
-        description: projectDescription.trim(),
-        categoryId: selectedCategoryId,
-        guideline: guidelines.trim(),
-        status: "active",
-        type: "image",
-        labels: allSelectedLabels,
-        labelNames: allSelectedLabels,
-        labelsCount: allSelectedLabels.length,
-        datasets: selectedDatasetIds,
-        imagesCount: 0,
-        membersCount: 0,
-        createdAt: new Date().toISOString(),
-        isLocalOnly: true,
-      };
-
-      const nextProjects = [localProject, ...readLocalProjects()];
-      persistLocalProjects(nextProjects);
-      setSubmitting(false);
-      navigate("/manager/projects");
-      return;
-    }
+    setError("");
 
     try {
-      const normalizedCategoryId = /^\d+$/.test(String(selectedCategoryId))
-        ? Number(selectedCategoryId)
-        : selectedCategoryId;
+      const normalizedCategoryId = String(selectedCategoryId);
 
       const payload = {
         name: projectName.trim(),
         description: projectDescription.trim(),
         categoryId: normalizedCategoryId,
-        guideline: guidelines.trim(),
-        guidelines: guidelines.trim(),
-        status: "active",
-        type: "image",
-        labels: allSelectedLabels,
-        labelNames: allSelectedLabels,
       };
 
       const createRes = await requestSequential([
@@ -361,16 +296,13 @@ export default function CreateProjectPage() {
         }),
       ]);
 
-      let projectId =
-        createRes.data?.id ||
-        createRes.data?.projectId ||
-        createRes.data?.data?.id ||
-        createRes.data?.data?.projectId;
+      let projectId = extractProjectIdFromResponse(createRes?.data);
 
       if (!projectId) {
         const refreshProjects = await requestSequential([
-          () => api.get("/projects"),
+          () => api.get(`/projects?Name=${encodeURIComponent(projectName.trim())}`),
           () => api.get("/Projects"),
+          () => api.get("/projects"),
         ]);
 
         const projectList = toArray(refreshProjects?.data);
@@ -382,22 +314,20 @@ export default function CreateProjectPage() {
       }
 
       if (!projectId) {
-        throw new Error("Tao du an xong nhung khong lay duoc projectId");
+        throw new Error("Tạo dự án xong nhưng không lấy được projectId");
       }
 
       const attachResult = await attachDatasets(projectId);
 
       if (attachResult.failedCount > 0) {
-        alert(`Tạo dự án thành công. Tuy nhiên đã gán thất bại ${attachResult.failedCount} dataset.`);
+        alert(`Tạo dự án thành công. Đã gán ${attachResult.attachedCount}/${selectedDatasetIds.length} dataset.`);
       } else {
         alert("Tạo dự án thành công!");
       }
 
       navigate("/manager/projects");
     } catch (err) {
-      console.error("Project creation error details:", err.response?.data || err);
-      const serverMsg = err.response?.data?.message || err.response?.data?.title || err.message;
-      setError(`Lỗi tạo dự án (500): ${serverMsg}`);
+      setError(getApiErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
@@ -407,18 +337,18 @@ export default function CreateProjectPage() {
     { number: 1, title: "Thong tin", icon: FileText },
     { number: 2, title: "Category + Labels", icon: FolderOpen },
     { number: 3, title: "Datasets", icon: Database },
-    { number: 4, title: "Xac nhan", icon: Check },
+    { number: 4, title: "Xác nhận", icon: Check },
   ];
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
-        <button className="p-2 rounded hover:bg-gray-100" onClick={() => navigate("/manager/projects")}>
+        <button className="p-2 rounded hover:bg-gray-100" onClick={() => navigate("/manager/projects")}> 
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div>
-          <h1 className="text-3xl font-bold">Tao du an moi</h1>
-          <p className="text-gray-500">Chon category, labels va datasets cho du an</p>
+          <h1 className="text-3xl font-bold">Tạo dự án mới</h1>
+          <p className="text-gray-500">Chọn category, labels và datasets cho dự án</p>
         </div>
       </div>
 
@@ -429,12 +359,13 @@ export default function CreateProjectPage() {
           <div key={s.number} className="flex items-center">
             <div className={`flex items-center gap-2 ${step >= s.number ? "text-indigo-600" : "text-gray-400"}`}>
               <div
-                className={`w-10 h-10 rounded-full flex items-center justify-center ${step > s.number
-                  ? "bg-indigo-600 text-white"
-                  : step === s.number
-                    ? "border-2 border-indigo-600"
-                    : "bg-gray-200"
-                  }`}
+                className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  step > s.number
+                    ? "bg-indigo-600 text-white"
+                    : step === s.number
+                      ? "border-2 border-indigo-600"
+                      : "bg-gray-200"
+                }`}
               >
                 {step > s.number ? <Check /> : <s.icon className="w-4 h-4" />}
               </div>
@@ -450,10 +381,10 @@ export default function CreateProjectPage() {
       <div className="bg-white border rounded-xl p-6">
         {step === 1 && (
           <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Thong tin du an</h2>
+            <h2 className="text-xl font-semibold">Thông tin dự án</h2>
 
             <div>
-              <label className="block text-sm font-medium">Ten du an *</label>
+              <label className="block text-sm font-medium">Tên dự án *</label>
               <input className="w-full border rounded px-3 py-2" value={projectName} onChange={(e) => setProjectName(e.target.value)} />
             </div>
 
@@ -474,10 +405,10 @@ export default function CreateProjectPage() {
             <h2 className="text-xl font-semibold">Category va Labels</h2>
 
             {loadingCategories ? (
-              <p>Dang tai category...</p>
+              <p>Đang tải category...</p>
             ) : (
               <select className="w-full border rounded px-3 py-2" value={selectedCategoryId} onChange={(e) => setSelectedCategoryId(e.target.value)}>
-                <option value="">-- Chon category --</option>
+                <option value="">-- Chọn category --</option>
                 {categories.map((category, index) => {
                   const catId = category.categoryId || category.id || `cat-${index}`;
                   return (
@@ -492,14 +423,14 @@ export default function CreateProjectPage() {
             {selectedCategory && (
               <div className="border rounded p-4 bg-gray-50 space-y-3">
                 <p className="font-semibold">{selectedCategory.name}</p>
-                <p className="text-sm text-gray-500">{selectedCategory.description || "Chua co mo ta"}</p>
+                <p className="text-sm text-gray-500">{selectedCategory.description || "Chưa có mô tả"}</p>
 
                 <div>
-                  <p className="text-sm font-semibold mb-2">Nhan co san trong category</p>
+                  <p className="text-sm font-semibold mb-2">Nhãn có sẵn trong category</p>
                   {loadingLabels ? (
-                    <p className="text-sm text-gray-400">Dang tai labels...</p>
+                    <p className="text-sm text-gray-400">Đang tải labels...</p>
                   ) : categoryLabels.length === 0 ? (
-                    <p className="text-sm text-gray-400">Category nay chua co label dinh nghia truoc</p>
+                    <p className="text-sm text-gray-400">Category này chưa có label định nghĩa trước</p>
                   ) : (
                     <div className="flex flex-wrap gap-2">
                       {categoryLabels.map((label) => {
@@ -509,8 +440,9 @@ export default function CreateProjectPage() {
                             key={label.id}
                             onClick={() => toggleLabel(label.name)}
                             type="button"
-                            className={`px-3 py-1 rounded-full text-sm border ${selected ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-700 border-gray-300"
-                              }`}
+                            className={`px-3 py-1 rounded-full text-sm border ${
+                              selected ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-700 border-gray-300"
+                            }`}
                           >
                             {label.name}
                           </button>
@@ -542,9 +474,9 @@ export default function CreateProjectPage() {
                 </div>
 
                 <div>
-                  <p className="text-sm font-semibold mb-2">Labels da chon ({allSelectedLabels.length})</p>
+                  <p className="text-sm font-semibold mb-2">Labels đã chọn ({allSelectedLabels.length})</p>
                   {allSelectedLabels.length === 0 ? (
-                    <p className="text-sm text-gray-400">Chua chon label nao</p>
+                    <p className="text-sm text-gray-400">Chưa chọn label nào</p>
                   ) : (
                     <div className="flex flex-wrap gap-2">
                       {allSelectedLabels.map((name) => (
@@ -568,9 +500,9 @@ export default function CreateProjectPage() {
           <div className="space-y-4">
             <h2 className="text-xl font-semibold">Gan datasets (1 hoac nhieu)</h2>
             {loadingDatasets ? (
-              <p>Dang tai datasets...</p>
+              <p>Đang tải datasets...</p>
             ) : datasets.length === 0 ? (
-              <p className="text-sm text-gray-400">Khong co dataset nao</p>
+              <p className="text-sm text-gray-400">Không có dataset nào</p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[320px] overflow-y-auto pr-1">
                 {datasets.map((dataset, index) => {
@@ -595,13 +527,13 @@ export default function CreateProjectPage() {
 
         {step === 4 && (
           <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Xac nhan</h2>
+            <h2 className="text-xl font-semibold">Xác nhận</h2>
             <div className="bg-gray-50 border rounded p-4 space-y-2 text-sm">
               <p><b>Ten:</b> {projectName}</p>
               <p><b>Category:</b> {selectedCategory?.name || "--"}</p>
               <p><b>Mo ta:</b> {projectDescription}</p>
-              <p><b>Labels:</b> {allSelectedLabels.length > 0 ? allSelectedLabels.join(", ") : "Khong co"}</p>
-              <p><b>Datasets da chon:</b> {selectedDatasetIds.length}</p>
+              <p><b>Labels:</b> {allSelectedLabels.length > 0 ? allSelectedLabels.join(", ") : "Không có"}</p>
+              <p><b>Datasets đã chọn:</b> {selectedDatasetIds.length}</p>
             </div>
           </div>
         )}
@@ -621,10 +553,14 @@ export default function CreateProjectPage() {
         ) : (
           <button className="bg-green-600 text-white px-4 py-2 rounded" onClick={handleSubmit} disabled={submitting}>
             <Check className="inline w-4 h-4 mr-1" />
-            {submitting ? "Dang tao..." : "Tao du an"}
+            {submitting ? "Đang tạo..." : "Tạo dự án"}
           </button>
         )}
       </div>
     </div>
   );
 }
+
+
+
+

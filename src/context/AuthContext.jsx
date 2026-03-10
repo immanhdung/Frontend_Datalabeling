@@ -2,7 +2,6 @@ import { createContext, useContext, useState, useEffect } from "react";
 
 const AuthContext = createContext(null);
 
-
 export function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
     const [token, setToken] = useState(null);
@@ -12,19 +11,11 @@ export function AuthProvider({ children }) {
         const savedUser = localStorage.getItem("user");
         const savedToken = localStorage.getItem("accessToken");
 
-        if (savedUser && savedToken && savedToken !== "dev-bypass-token") {
-            try {
-                setUser(JSON.parse(savedUser));
-                setToken(savedToken);
-            } catch (e) {
-                console.error("Failed to parse saved user", e);
-                localStorage.removeItem("user");
-                localStorage.removeItem("accessToken");
-            }
-        } else if (savedToken === "dev-bypass-token") {
-            // Clear leftover bypass session
-            localStorage.removeItem("user");
-            localStorage.removeItem("accessToken");
+        if (savedUser && savedToken) {
+            setUser(JSON.parse(savedUser));
+            setToken(savedToken);
+            setLoading(false);
+            return;
         }
 
         setLoading(false);

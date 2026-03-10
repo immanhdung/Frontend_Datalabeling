@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect } from "react";
 import Header from "../../components/common/Header";
 import api from "../../config/api";
 import { useAuth } from "../../context/AuthContext";
@@ -14,12 +14,13 @@ import {
 
 const Users = () => {
   const { token } = useAuth();
-  const enableDevFallback = import.meta.env.VITE_ENABLE_DEV_FALLBACK === "true";
-  const isDevLocalToken = token === "dev-fallback-token";
-  const isDevFallbackSession =
-    import.meta.env.DEV &&
-    enableDevFallback &&
-    isDevLocalToken;
+  const [isDemoMode, setIsDemoMode] = useState(false);
+  const isDevFallbackToken = token === "dev-fallback-token" || token === "dev-bypass-token";
+
+  const isEndpointMissing = (err) => {
+    const status = Number(err?.response?.status);
+    return import.meta.env.DEV && (status === 404 || status === 405 || status === 501);
+  };
 
   const DEV_USERS_KEY = "devAdminUsers";
   const DEV_ROLE_OPTIONS = [
@@ -122,35 +123,48 @@ const Users = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const fetchUsers = async () => {
-    if (isDevFallbackSession) {
-      setUsers(getDevUsers());
-      return;
-    }
+  const toArrayData = (value) => {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.data)) return value.data;
+    if (Array.isArray(value?.items)) return value.items;
+    return [];
+  };
 
+  const fetchUsers = async () => {
     try {
       setLoading(true);
       const res = await api.get("/users");
-      setUsers(res.data.data || res.data);
+      setUsers(toArrayData(res.data));
+      setIsDemoMode(false);
     } catch (err) {
       console.error("Fetch users error:", err);
-      setError("Không thể tải danh sách người dùng");
+      if (isEndpointMissing(err)) {
+        setUsers(getDevUsers());
+        setIsDemoMode(true);
+        setError("");
+      } else {
+        setError("Không thể tải danh sách người dùng");
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const fetchRoles = async () => {
-    if (isDevFallbackSession) {
+    if (isDevFallbackToken) {
       setRoles(DEV_ROLE_OPTIONS);
       return;
     }
 
     try {
       const res = await api.get("/roles");
-      setRoles(res.data.data || res.data);
+      const nextRoles = toArrayData(res.data);
+      setRoles(nextRoles.length > 0 ? nextRoles : DEV_ROLE_OPTIONS);
     } catch (err) {
       console.error("Fetch roles error:", err);
+      if (isEndpointMissing(err) || isDemoMode) {
+        setRoles(DEV_ROLE_OPTIONS);
+      }
     }
   };
 
@@ -160,7 +174,7 @@ const Users = () => {
   }, []);
 
   useEffect(() => {
-    let result = [...users];
+    let result = Array.isArray(users) ? [...users] : [];
 
     if (searchTerm) {
       result = result.filter(
@@ -242,7 +256,15 @@ const Users = () => {
       return candidateName === normalizedRoleName;
     });
 
-    return role?.id || role?.roleId;
+    if (role?.id || role?.roleId) {
+      return role.id || role.roleId;
+    }
+
+    const fallbackRole = DEV_ROLE_OPTIONS.find((r) =>
+      String(r?.roleName ?? r?.name ?? "").toLowerCase() === normalizedRoleName
+    );
+
+    return fallbackRole?.roleId || fallbackRole?.id;
   };
 
   const handleSubmit = async (e) => {
@@ -265,7 +287,7 @@ const Users = () => {
         roleId: roleId,
       };
 
-      if (isDevFallbackSession) {
+      if (isDemoMode || isDevFallbackToken) {
         const currentId = currentUser?.userId || currentUser?.id || currentUser?._id;
         const nextUsers = [...users];
 
@@ -309,7 +331,7 @@ const Users = () => {
         setDevUsers(nextUsers);
         setUsers(nextUsers);
         setShowModal(false);
-        alert(modalMode === "add" ? "Tao nguoi dung demo thanh cong!" : "Cap nhat demo thanh cong!");
+        alert(modalMode === "add" ? "Tạo người dùng demo thành công!" : "Cập nhật demo thành công!");
         return;
       }
 
@@ -332,19 +354,24 @@ const Users = () => {
       );
     } catch (err) {
       console.error("Save user error:", err);
+      if (isEndpointMissing(err)) {
+        setIsDemoMode(true);
+        setError("Endpoint user chưa có trên backend, đã chuyển sang chế độ demo.");
+        return;
+      }
       setError(err.response?.data?.message || "Có lỗi xảy ra khi lưu người dùng");
     }
   };
 
   const confirmDelete = async () => {
-    if (isDevFallbackSession) {
+    if (isDemoMode || isDevFallbackToken) {
       const idToDelete = userToDelete.userId || userToDelete.id || userToDelete._id;
       const nextUsers = users.filter((u) => (u.userId || u.id || u._id) !== idToDelete);
       setDevUsers(nextUsers);
       setUsers(nextUsers);
       setShowDeleteConfirm(false);
       setUserToDelete(null);
-      alert("Da xoa nguoi dung demo!");
+      alert("Đã xóa người dùng demo!");
       return;
     }
 
@@ -354,7 +381,12 @@ const Users = () => {
       alert("Đã xóa người dùng!");
     } catch (err) {
       console.error("Delete user error:", err);
-      alert("Xóa thất bại!");
+      if (isEndpointMissing(err)) {
+        setIsDemoMode(true);
+        alert("Endpoint xóa user chưa có trên backend. Đã giữ chế độ demo.");
+      } else {
+        alert("Xóa thất bại!");
+      }
     } finally {
       setShowDeleteConfirm(false);
       setUserToDelete(null);
@@ -399,9 +431,9 @@ const Users = () => {
         }
       />
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {isDevFallbackSession && (
+        {isDemoMode && (
           <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            Ban dang o che do demo local. Tao/sua/xoa user se luu tam trong trinh duyet, khong dong bo len backend.
+            Bạn đang ở chế độ demo local. Tạo/sửa/xóa user sẽ lưu tạm trong trình duyệt, không đồng bộ lên backend.
           </div>
         )}
 
@@ -540,7 +572,7 @@ const Users = () => {
                   <input
                     type="password"
                     required={modalMode === "add"}
-                    placeholder="••••••••"
+                    placeholder="Nhập mật khẩu"
                     className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-xl focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all text-sm"
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
@@ -653,3 +685,11 @@ const Users = () => {
 };
 
 export default Users;
+
+
+
+
+
+
+
+

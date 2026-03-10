@@ -1,6 +1,6 @@
 import axios from "axios";
 
-export const API_BASE_URL =
+const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
   (import.meta.env.DEV
     ? "/api"
@@ -47,37 +47,20 @@ export const reviewAPI = {
 };
 
 export const taskAPI = {
-  getAll: () =>
-    trySequential([
-      () => api.get("/tasks"),
-      () => api.get("/Tasks"),
-    ]),
-  assign: (taskId, userId) =>
-    trySequential([
-      () => api.post("/tasks/assign", { taskId, userId }),
-      () => api.post("/Tasks/assign", { taskId, userId }),
-      () => api.post("/tasks/assign", { projectId: taskId, userId }),
-      () => api.post("/tasks/assign", { id: taskId, userId }),
-      () => api.post(`/tasks/${taskId}/assign`, { userId }),
-      () => api.post(`/tasks/${taskId}/assign`, { annotatorId: userId }),
-      () => api.post(`/tasks/${taskId}/assign`, { assignedTo: userId }),
-      () => api.post(`/projects/${taskId}/members/${userId}`, {}),
-    ]),
+  getAll: () => api.get("/tasks"),
+  assign: (taskId, userId, projectId) =>
+    api.post("/tasks/assign", {
+      taskId: String(taskId),
+      projectId: String(projectId || ""),
+      assignedTo: String(userId),
+    }),
   getMyTasks: () =>
     trySequential([
-      () => api.get("/tasks"),
-      () => api.get("/Tasks"),
       () => api.get("/tasks/my-tasks"),
-      () => api.get("/tasks/my"),
-      () => api.get("/tasks/assigned"),
+      () => api.get("/tasks"),
     ]),
   getById: (taskId) => api.get(`/tasks/${taskId}`),
-  submit: (taskId, payload) =>
-    trySequential([
-      () => api.post(`/tasks/${taskId}/submit`, payload),
-      () => api.put(`/tasks/${taskId}/submit`, payload),
-      () => api.patch(`/tasks/${taskId}`, payload),
-    ]),
+  submit: (taskId, payload) => api.post(`/tasks/${taskId}/submit`, payload),
 };
 
 export const annotationAPI = {
@@ -89,38 +72,35 @@ export const annotationAPI = {
 };
 
 export const userAPI = {
-  getAll: () =>
-    trySequential([
-      () => api.get("/users"),
-      () => api.get("/Users"),
-    ]),
+  getAll: () => api.get("/users"),
 };
 
-export const roleAPI = {
+export const categoryAPI = {
   getAll: () =>
     trySequential([
-      () => api.get("/roles"),
-      () => api.get("/Roles"),
+      () => api.get("/categories"),
+      () => api.get("/Categories"),
     ]),
-};
-
-export const datasetAPI = {
-  getAll: () => trySequential([() => api.get("/datasets"), () => api.get("/Datasets")]),
-  getById: (id) => trySequential([() => api.get(`/datasets/${id}`), () => api.get(`/Datasets/${id}`)]),
-  getItems: (id) => trySequential([() => api.get(`/datasets/${id}/items`), () => api.get(`/Datasets/${id}/items`)]),
-  attach: (datasetId, projectId) =>
+  create: (payload) =>
     trySequential([
-      () => api.post(`/datasets/${datasetId}/attach/${projectId}`),
-      () => api.post(`/Datasets/${datasetId}/attach/${projectId}`),
-      () => api.post(`/datasets/add/${projectId}`, { datasetId }),
-      () => api.post(`/Datasets/add/${projectId}`, { datasetId }),
-      () => api.post(`/projects/${projectId}/datasets`, { datasetId }),
+      () => api.post("/categories", payload),
+      () => api.post("/Categories", payload),
+    ]),
+  update: (categoryId, payload) =>
+    trySequential([
+      () => api.put(`/categories/${categoryId}`, payload),
+      () => api.put(`/Categories/${categoryId}`, payload),
     ]),
 };
 
 export const labelAPI = {
   create: (categoryId, payload) =>
     trySequential([
+      () =>
+        api.post("/labels", {
+          categoryId: String(categoryId),
+          name: payload?.name,
+        }),
       () => api.post(`/categories/${categoryId}/labels`, payload),
       () => api.post(`/Categories/${categoryId}/labels`, payload),
       () => api.post(`/labelsets/${categoryId}/labels`, payload),
@@ -128,6 +108,8 @@ export const labelAPI = {
     ]),
   update: (categoryId, labelId, payload) =>
     trySequential([
+      () => api.put(`/labels/${labelId}`, payload),
+      () => api.patch(`/labels/${labelId}`, payload),
       () => api.put(`/categories/${categoryId}/labels/${labelId}`, payload),
       () => api.patch(`/categories/${categoryId}/labels/${labelId}`, payload),
       () => api.put(`/Categories/${categoryId}/labels/${labelId}`, payload),
@@ -137,6 +119,7 @@ export const labelAPI = {
     ]),
   remove: (categoryId, labelId, labelName) =>
     trySequential([
+      () => api.delete(`/labels/${labelId}`),
       () => api.delete(`/categories/${categoryId}/labels/${labelId}`),
       () => api.delete(`/Categories/${categoryId}/labels/${labelId}`),
       () => api.delete(`/labelsets/${categoryId}/labels/${labelId}`),

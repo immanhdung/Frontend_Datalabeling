@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import api, { labelAPI } from "../../config/api";
+﻿import { useEffect, useMemo, useState } from "react";
+import api, { categoryAPI, labelAPI } from "../../config/api";
 import { Plus, Folder, ChevronRight, Tag, X, Layers3, Pencil, Trash2, Check } from "lucide-react";
 
 const DEV_CATEGORIES_KEY = "devManagerCategories";
@@ -96,13 +96,10 @@ export default function Categories() {
   const [categoryProjects, setCategoryProjects] = useState([]);
   const [fetchingProjects, setFetchingProjects] = useState(false);
 
-  const token = localStorage.getItem("accessToken");
-  const enableDevFallback = import.meta.env.VITE_ENABLE_DEV_FALLBACK === "true";
-  const isDevLocalToken = token === "dev-fallback-token";
-  const isDevLocalSession =
-    import.meta.env.DEV &&
-    enableDevFallback &&
-    isDevLocalToken;
+  const isEndpointMissing = (error) => {
+    const status = error?.response?.status;
+    return import.meta.env.DEV && (status === 404 || status === 405 || status === 500 || status === 501);
+  };
 
   const selectedCategory = useMemo(
     () => categories.find((item) => String(item.id) === String(selectedCategoryId)) || null,
@@ -110,7 +107,7 @@ export default function Categories() {
   );
 
   const persistLocalCategories = (nextCategories) => {
-    if (!isDevLocalSession) return;
+    if (!import.meta.env.DEV) return;
     localStorage.setItem(DEV_CATEGORIES_KEY, JSON.stringify(nextCategories));
   };
 
@@ -144,26 +141,20 @@ export default function Categories() {
   const fetchCategories = async (preferredId) => {
     try {
       setLoading(true);
-      const response = await requestSequential([
-        () => api.get("/Categories"),
-        () => api.get("/categories"),
-      ]);
+      const response = await categoryAPI.getAll();
 
       const nextCategories = readArray(response?.data).map(normalizeCategory);
       if (nextCategories.length > 0) {
         syncCategoriesState(nextCategories, preferredId || selectedCategoryId);
-      } else if (isDevLocalSession) {
-        const localCategories = readLocalCategories();
-        syncCategoriesState(localCategories, preferredId || selectedCategoryId);
       } else {
         syncCategoriesState([], "");
       }
     } catch (error) {
-      if (isDevLocalSession) {
+      if (isEndpointMissing(error)) {
         const localCategories = readLocalCategories();
         syncCategoriesState(localCategories, preferredId || selectedCategoryId);
       } else {
-        alert("Khong tai duoc danh sach category");
+        alert("Không tải được danh sách category");
       }
     } finally {
       setLoading(false);
@@ -178,7 +169,11 @@ export default function Categories() {
 
     try {
       setFetchingProjects(true);
-      const response = await api.get("/projects/mine");
+      const response = await requestSequential([
+        () => api.get("/projects"),
+        () => api.get("/Projects"),
+        () => api.get("/projects/mine"),
+      ]);
       const allProjects = readArray(response?.data);
 
       const filtered = allProjects.filter((project) => {
@@ -307,7 +302,7 @@ export default function Categories() {
   const handleCreateCategory = async () => {
     const name = newName.trim();
     if (!name) {
-      alert("Vui long nhap ten category");
+      alert("Vui lòng nhập tên category");
       return;
     }
 
@@ -316,38 +311,16 @@ export default function Categories() {
       description: newDesc.trim(),
     };
 
-    if (isDevLocalSession) {
-      const localCategory = normalizeCategory(
-        {
-          id: `local-category-${Date.now()}`,
-          name,
-          description: newDesc.trim(),
-          labels: [],
-        },
-        categories.length
-      );
-
-      const nextCategories = [localCategory, ...categories];
-      syncCategoriesState(nextCategories, localCategory.id);
-      setShowModal(false);
-      setNewName("");
-      setNewDesc("");
-      return;
-    }
-
     try {
-      await requestSequential([
-        () => api.post("/Categories", payload),
-        () => api.post("/categories", payload),
-      ]);
+      await categoryAPI.create(payload);
 
       setShowModal(false);
       setNewName("");
       setNewDesc("");
       await fetchCategories();
     } catch (error) {
-      if (!isDevLocalSession) {
-        alert("Tao category that bai");
+      if (!isEndpointMissing(error)) {
+        alert(error?.response?.data?.message || error?.response?.data?.title || "Tạo category thất bại");
         return;
       }
 
@@ -366,14 +339,14 @@ export default function Categories() {
       setShowModal(false);
       setNewName("");
       setNewDesc("");
-      alert("Da tao category local (che do demo)");
+      alert("Đã tạo category local (chế độ demo)");
     }
   };
 
   const handleAddLabel = async () => {
     const nextLabelName = labelName.trim();
     if (!selectedCategory || !nextLabelName) {
-      alert("Vui long chon category va nhap ten nhan");
+      alert("Vui lòng chọn category và nhập tên nhãn");
       return;
     }
 
@@ -382,33 +355,26 @@ export default function Categories() {
     );
 
     if (exists) {
-      alert("Nhan nay da ton tai trong category");
+      alert("Nhãn này đã tồn tại trong category");
       return;
     }
 
     setAddingLabel(true);
-    if (isDevLocalSession) {
-      applyLabelToState(selectedCategory.id, nextLabelName);
-      setLabelName("");
-      setAddingLabel(false);
-      return;
-    }
-
     try {
       await labelAPI.create(selectedCategory.id, { name: nextLabelName });
 
       applyLabelToState(selectedCategory.id, nextLabelName);
       setLabelName("");
-      alert("Them nhan thanh cong");
+      alert("Thêm nhãn thành công");
     } catch (error) {
-      if (!isDevLocalSession) {
-        alert(error?.response?.data?.message || error?.response?.data?.title || "Them nhan that bai");
+      if (!isEndpointMissing(error)) {
+        alert(error?.response?.data?.message || error?.response?.data?.title || "Thêm nhãn thất bại");
         return;
       }
 
       applyLabelToState(selectedCategory.id, nextLabelName);
       setLabelName("");
-      alert("Backend loi, da luu nhan local o che do demo.");
+      alert("Backend lỗi, đã lưu nhãn local ở chế độ demo.");
     } finally {
       setAddingLabel(false);
     }
@@ -427,7 +393,7 @@ export default function Categories() {
   const handleSaveLabel = async (label) => {
     const nextName = editingLabelName.trim();
     if (!selectedCategory || !nextName) {
-      alert("Vui long nhap ten nhan hop le");
+      alert("Vui lòng nhập tên nhãn hợp lệ");
       return;
     }
 
@@ -444,27 +410,20 @@ export default function Categories() {
     );
 
     if (duplicate) {
-      alert("Ten nhan da ton tai trong category");
+      alert("Tên nhãn đã tồn tại trong category");
       return;
     }
 
     setProcessingLabelId(String(label.id));
-    if (isDevLocalSession) {
-      updateLabelInState(selectedCategory.id, label.id, nextName);
-      handleCancelEditLabel();
-      setProcessingLabelId("");
-      return;
-    }
-
     try {
       await labelAPI.update(selectedCategory.id, label.id, { name: nextName });
 
       updateLabelInState(selectedCategory.id, label.id, nextName);
       handleCancelEditLabel();
-      alert("Cap nhat nhan thanh cong");
+      alert("Cập nhật nhãn thành công");
     } catch (error) {
-      if (!isDevLocalSession) {
-        alert(error?.response?.data?.message || error?.response?.data?.title || "Cap nhat nhan that bai");
+      if (!isEndpointMissing(error)) {
+        alert(error?.response?.data?.message || error?.response?.data?.title || "Cập nhật nhãn thất bại");
         return;
       }
 
@@ -479,20 +438,11 @@ export default function Categories() {
   const handleDeleteLabel = async (label) => {
     if (!selectedCategory) return;
 
-    if (!window.confirm(`Ban co chac chan muon xoa nhan \"${label.name}\"?`)) {
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa nhãn \"${label.name}\"?`)) {
       return;
     }
 
     setProcessingLabelId(String(label.id));
-    if (isDevLocalSession) {
-      removeLabelFromState(selectedCategory.id, label.id, label.name);
-      if (String(editingLabelId) === String(label.id)) {
-        handleCancelEditLabel();
-      }
-      setProcessingLabelId("");
-      return;
-    }
-
     try {
       await labelAPI.remove(selectedCategory.id, label.id, label.name);
 
@@ -500,10 +450,10 @@ export default function Categories() {
       if (String(editingLabelId) === String(label.id)) {
         handleCancelEditLabel();
       }
-      alert("Xoa nhan thanh cong");
+      alert("Xóa nhãn thành công");
     } catch (error) {
-      if (!isDevLocalSession) {
-        alert(error?.response?.data?.message || error?.response?.data?.title || "Xoa nhan that bai");
+      if (!isEndpointMissing(error)) {
+        alert(error?.response?.data?.message || error?.response?.data?.title || "Xóa nhãn thất bại");
         return;
       }
 
@@ -511,7 +461,7 @@ export default function Categories() {
       if (String(editingLabelId) === String(label.id)) {
         handleCancelEditLabel();
       }
-      alert("Backend loi, da xoa local o che do demo.");
+      alert("Backend lỗi, đã xóa local ở chế độ demo.");
     } finally {
       setProcessingLabelId("");
     }
@@ -549,8 +499,8 @@ export default function Categories() {
     <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Quan ly Category va Labels</h1>
-          <p className="text-gray-500">Moi category co danh sach nhan rieng, co the them nhan truc tiep.</p>
+          <h1 className="text-2xl font-bold text-gray-900">Quản lý Category và Labels</h1>
+          <p className="text-gray-500">Mỗi category có danh sách nhãn riêng, có thể thêm nhãn trực tiếp.</p>
         </div>
 
         <button
@@ -558,7 +508,7 @@ export default function Categories() {
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
         >
           <Plus className="w-4 h-4" />
-          Them Category
+          Thêm Category
         </button>
       </div>
 
@@ -572,14 +522,14 @@ export default function Categories() {
           <input
             value={searchKeyword}
             onChange={(event) => setSearchKeyword(event.target.value)}
-            placeholder="Tim theo category hoac label..."
+            placeholder="Tìm theo category hoặc label..."
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4"
           />
 
           {loading ? (
-            <p className="text-gray-500">Dang tai...</p>
+            <p className="text-gray-500">Đang tải...</p>
           ) : filteredCategories.length === 0 ? (
-            <p className="text-gray-500">Khong co category phu hop</p>
+            <p className="text-gray-500">Không có category phù hợp</p>
           ) : (
             <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
               {filteredCategories.map((category) => {
@@ -591,14 +541,15 @@ export default function Categories() {
                       setSelectedCategoryId(String(category.id));
                       setActiveLabelFilter("");
                     }}
-                    className={`w-full text-left p-4 border rounded-lg transition-all ${isActive ? "border-blue-500 bg-blue-50" : "hover:bg-gray-50"
-                      }`}
+                    className={`w-full text-left p-4 border rounded-lg transition-all ${
+                      isActive ? "border-blue-500 bg-blue-50" : "hover:bg-gray-50"
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <p className="font-semibold text-gray-900">{category.name}</p>
                         <p className="text-xs text-gray-500 mt-1 line-clamp-2">
-                          {category.description || "Chua co mo ta"}
+                          {category.description || "Chưa có mô tả"}
                         </p>
                       </div>
                       <ChevronRight className="w-4 h-4 text-gray-400" />
@@ -620,7 +571,7 @@ export default function Categories() {
           {!selectedCategory ? (
             <div className="h-full min-h-[540px] flex flex-col items-center justify-center text-gray-500 p-12">
               <Layers3 className="w-14 h-14 text-gray-300 mb-3" />
-              <p className="font-medium">Chon category de quan ly nhan</p>
+              <p className="font-medium">Chọn category để quản lý nhãn</p>
             </div>
           ) : (
             <div className="p-6 space-y-6">
@@ -628,7 +579,7 @@ export default function Categories() {
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900">{selectedCategory.name}</h2>
                   <p className="text-sm text-gray-500 mt-1">
-                    {selectedCategory.description || "Chua co mo ta"}
+                    {selectedCategory.description || "Chưa có mô tả"}
                   </p>
                 </div>
 
@@ -645,14 +596,14 @@ export default function Categories() {
               <div className="border rounded-xl p-4 bg-gray-50/60 space-y-4">
                 <h3 className="font-semibold text-gray-900 flex items-center gap-2">
                   <Tag className="w-4 h-4" />
-                  Quan ly labels trong category
+                  Quản lý labels trong category
                 </h3>
 
                 <div className="flex gap-3">
                   <input
                     value={labelName}
                     onChange={(event) => setLabelName(event.target.value)}
-                    placeholder="Nhap ten nhan moi..."
+                    placeholder="Nhập tên nhãn mới..."
                     className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm"
                   />
                   <button
@@ -660,24 +611,25 @@ export default function Categories() {
                     disabled={addingLabel || !labelName.trim()}
                     className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
                   >
-                    {addingLabel ? "Dang them..." : "Them nhan"}
+                    {addingLabel ? "Đang thêm..." : "Thêm nhãn"}
                   </button>
                 </div>
 
                 {selectedCategory.labels.length === 0 ? (
                   <div className="border border-dashed rounded-lg px-4 py-4 text-sm text-gray-500">
-                    Category nay chua co label. Hay them nhan de phan loai du lieu.
+                    Category này chưa có label. Hãy thêm nhãn để phân loại dữ liệu.
                   </div>
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => setActiveLabelFilter("")}
-                      className={`px-3 py-1 rounded-full text-xs font-semibold border ${activeLabelFilter === ""
+                      className={`px-3 py-1 rounded-full text-xs font-semibold border ${
+                        activeLabelFilter === ""
                           ? "bg-slate-900 text-white border-slate-900"
                           : "bg-white text-slate-700 border-slate-200"
-                        }`}
+                      }`}
                     >
-                      Tat ca
+                      Tất cả
                     </button>
                     {selectedCategory.labels.map((label) => {
                       const isEditing = String(editingLabelId) === String(label.id);
@@ -698,7 +650,7 @@ export default function Categories() {
                                 value={editingLabelName}
                                 onChange={(event) => setEditingLabelName(event.target.value)}
                                 className="w-28 border border-indigo-200 rounded px-2 py-0.5 text-xs text-slate-700"
-                                placeholder="Ten nhan"
+                                placeholder="Tên nhãn"
                                 disabled={isProcessing}
                               />
                               <button
@@ -715,7 +667,7 @@ export default function Categories() {
                                 onClick={handleCancelEditLabel}
                                 disabled={isProcessing}
                                 className="p-1 rounded hover:bg-white/20 disabled:opacity-50"
-                                title="Huy"
+                                title="Hủy"
                               >
                                 <X className="w-3.5 h-3.5" />
                               </button>
@@ -726,7 +678,7 @@ export default function Categories() {
                                 type="button"
                                 onClick={() => setActiveLabelFilter(label.name)}
                                 className="px-1 text-xs font-semibold"
-                                title="Loc theo nhan"
+                                title="Lọc theo nhãn"
                               >
                                 #{label.name}
                               </button>
@@ -735,7 +687,7 @@ export default function Categories() {
                                 onClick={() => handleStartEditLabel(label)}
                                 disabled={isProcessing}
                                 className="p-1 rounded hover:bg-white/20 disabled:opacity-50"
-                                title="Sua nhan"
+                                title="Sửa nhãn"
                               >
                                 <Pencil className="w-3.5 h-3.5" />
                               </button>
@@ -744,7 +696,7 @@ export default function Categories() {
                                 onClick={() => handleDeleteLabel(label)}
                                 disabled={isProcessing}
                                 className="p-1 rounded hover:bg-white/20 disabled:opacity-50"
-                                title="Xoa nhan"
+                                title="Xóa nhãn"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -758,7 +710,7 @@ export default function Categories() {
               </div>
 
               <div className="space-y-3">
-                <h3 className="font-semibold text-gray-900">Du an trong category</h3>
+                <h3 className="font-semibold text-gray-900">Dự án trong category</h3>
 
                 {fetchingProjects ? (
                   <div className="flex justify-center p-10">
@@ -766,7 +718,7 @@ export default function Categories() {
                   </div>
                 ) : filteredProjects.length === 0 ? (
                   <div className="h-36 border-2 border-dashed rounded-xl flex items-center justify-center text-sm text-gray-400">
-                    Khong co du an nao phu hop voi label dang chon
+                    Không có dự án nào phù hợp với label đang chọn
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-4">
@@ -777,7 +729,7 @@ export default function Categories() {
                       >
                         <h4 className="font-bold text-gray-900">{project.name}</h4>
                         <p className="text-sm text-gray-500 line-clamp-2 mt-1">
-                          {project.description || "Chua co mo ta"}
+                          {project.description || "Chưa có mô tả"}
                         </p>
                         <div className="mt-3 text-xs text-gray-500">Trang thai: {project.status || "N/A"}</div>
                       </div>
@@ -794,7 +746,7 @@ export default function Categories() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-8 w-[460px] shadow-2xl">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-gray-900">Them Category moi</h2>
+              <h2 className="text-xl font-bold text-gray-900">Thêm Category moi</h2>
               <button
                 onClick={() => setShowModal(false)}
                 className="p-2 hover:bg-gray-100 rounded-full transition-colors"
@@ -805,12 +757,12 @@ export default function Categories() {
 
             <div className="space-y-5">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Ten category *</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Tên category *</label>
                 <input
                   value={newName}
                   onChange={(event) => setNewName(event.target.value)}
                   className="w-full border border-gray-200 rounded-xl px-4 py-3"
-                  placeholder="Vi du: Giao thong, Dong vat..."
+                  placeholder="Ví dụ: Giao thông, Động vật..."
                 />
               </div>
               <div>
@@ -819,7 +771,7 @@ export default function Categories() {
                   value={newDesc}
                   onChange={(event) => setNewDesc(event.target.value)}
                   className="w-full border border-gray-200 rounded-xl px-4 py-3 min-h-[100px]"
-                  placeholder="Mo ta ngan gon ve category nay..."
+                  placeholder="Mô tả ngắn gọn về category này..."
                 />
               </div>
             </div>
@@ -829,14 +781,14 @@ export default function Categories() {
                 onClick={() => setShowModal(false)}
                 className="px-6 py-2.5 font-medium border border-gray-200 text-gray-600 rounded-xl hover:bg-gray-50"
               >
-                Huy
+                Hủy
               </button>
               <button
                 onClick={handleCreateCategory}
                 className="px-6 py-2.5 font-medium bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50"
                 disabled={!newName.trim()}
               >
-                Tao Category
+                Tạo Category
               </button>
             </div>
           </div>
@@ -845,3 +797,7 @@ export default function Categories() {
     </div>
   );
 }
+
+
+
+

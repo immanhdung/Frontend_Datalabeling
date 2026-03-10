@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import api from "../config/api";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -10,7 +10,8 @@ const DEV_FALLBACK_USERS = {
   reviewer1: { id: "dev-reviewer-1", username: "reviewer1", role: "reviewer" },
 };
 
-const ENABLE_DEV_FALLBACK = import.meta.env.VITE_ENABLE_DEV_FALLBACK === "true";
+const ENABLE_DEV_FALLBACK =
+  import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEV_FALLBACK === "true";
 const DEV_USERS_KEY = "devAdminUsers";
 
 const findLocalDevUser = (usernameOrEmail) => {
@@ -87,7 +88,7 @@ export default function Login() {
         usernameOrEmail.trim();
 
       if (!token || !roleName) {
-        throw new Error("Phan hoi dang nhap khong day du token hoac role");
+        throw new Error("Ph\u1ea3n h\u1ed3i \u0111\u0103ng nh\u1eadp kh\u00f4ng \u0111\u1ea7y \u0111\u1ee7 token ho\u1eb7c role");
       }
 
       login(
@@ -119,7 +120,7 @@ export default function Login() {
     } catch (err) {
       console.error("Login error:", err);
 
-      if (import.meta.env.DEV && ENABLE_DEV_FALLBACK) {
+      if (ENABLE_DEV_FALLBACK) {
         const localDevUser = findLocalDevUser(usernameOrEmail);
         if (localDevUser) {
           const demoPassword = localDevUser.demoPassword || "123456";
@@ -178,22 +179,16 @@ export default function Login() {
 
       const networkMessage =
         err.code === "ERR_NETWORK"
-          ? "Khong the ket noi toi may chu. Hay kiem tra backend/proxy va thu lai."
+          ? "Kh\u00f4ng th\u1ec3 k\u1ebft n\u1ed1i t\u1edbi m\u00e1y ch\u1ee7. H\u00e3y ki\u1ec3m tra backend/proxy v\u00e0 th\u1eed l\u1ea1i."
           : "";
 
       const serverErrorMessage =
         err.response?.status === 500
-          ? "May chu dang loi (500), hien tai khong the dang nhap. Vui long lien he team backend hoac thu lai sau."
-          : "";
-
-      const server500Message =
-        err.response?.status === 500 && ENABLE_DEV_FALLBACK
-          ? "Server dang loi (500). Neu dang test local, thu dang nhap bang manager1/admin1/annotator1/reviewer1 voi mat khau 123456."
+          ? "M\u00e1y ch\u1ee7 \u0111ang l\u1ed7i (500), hi\u1ec7n t\u1ea1i kh\u00f4ng th\u1ec3 \u0111\u0103ng nh\u1eadp. Vui l\u00f2ng li\u00ean h\u1ec7 team backend ho\u1eb7c th\u1eed l\u1ea1i sau."
           : "";
 
       setError(
         serverErrorMessage ||
-        server500Message ||
         networkMessage ||
         err.response?.data?.message ||
         err.response?.data?.title ||
@@ -271,3 +266,7 @@ export default function Login() {
     </div>
   );
 }
+
+
+
+

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
     LayoutDashboard,
@@ -12,13 +13,89 @@ import {
     Calendar,
     Image as ImageIcon
 } from "lucide-react";
+import api from "../../config/api";
+
+const toArrayData = (value) => {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.items)) return value.items;
+    if (Array.isArray(value?.data)) return value.data;
+    return [];
+};
 
 export default function ManagerDashboard() {
     const navigate = useNavigate();
+    const [statsData, setStatsData] = useState({
+        totalProjects: 4,
+        activeProjects: 2,
+        completedProjects: 1,
+        annotators: 3,
+    });
+
+    useEffect(() => {
+        const loadStats = async () => {
+            try {
+                const [projectsRes, usersRes, rolesRes] = await Promise.allSettled([
+                    api.get("/projects"),
+                    api.get("/users"),
+                    api.get("/roles"),
+                ]);
+
+                const projects = projectsRes.status === "fulfilled"
+                    ? toArrayData(projectsRes.value?.data)
+                    : [];
+
+                const roles = rolesRes.status === "fulfilled"
+                    ? toArrayData(rolesRes.value?.data)
+                    : [];
+
+                const roleMap = {};
+                roles.forEach((role) => {
+                    const roleId = role?.id ?? role?.roleId;
+                    const roleName = role?.roleName ?? role?.name;
+                    if (roleId && roleName) {
+                        roleMap[String(roleId)] = String(roleName).toLowerCase();
+                    }
+                });
+
+                const users = usersRes.status === "fulfilled"
+                    ? toArrayData(usersRes.value?.data)
+                    : [];
+
+                const annotatorCount = users.filter((user) => {
+                    const mappedRoleById = roleMap[String(user?.roleId ?? user?.roleID ?? user?.role_id ?? user?.role?.id ?? user?.role?.roleId ?? "")];
+                    const rawRole = user?.roleName ?? user?.role?.name ?? user?.role ?? mappedRoleById;
+                    return String(rawRole || "").toLowerCase() === "annotator";
+                }).length;
+
+                const normalizeStatus = (status) => String(status || "").trim().toLowerCase();
+                const activeProjects = projects.filter((project) => {
+                    const status = normalizeStatus(project?.status);
+                    return status === "active" || status === "in_progress" || status === "ongoing" || status === "đang hoạt động";
+                }).length;
+                const completedProjects = projects.filter((project) => {
+                    const status = normalizeStatus(project?.status);
+                    return status === "completed" || status === "done" || status === "finished" || status === "hoàn thành";
+                }).length;
+
+                setStatsData((prev) => ({
+                    ...prev,
+                    totalProjects: projects.length || prev.totalProjects,
+                    activeProjects,
+                    completedProjects,
+                    annotators: annotatorCount || 0,
+                }));
+            } catch {
+                // Keep fallback stats if API is unavailable.
+            }
+        };
+
+        loadStats();
+    }, []);
+
     const stats = [
         {
             label: "Tổng dự án",
-            value: 4,
+            value: statsData.totalProjects,
             icon: FolderOpen,
             color: "text-blue-600",
             bgColor: "bg-blue-50",
@@ -26,7 +103,7 @@ export default function ManagerDashboard() {
         },
         {
             label: "Đang hoạt động",
-            value: 2,
+            value: statsData.activeProjects,
             icon: Clock,
             color: "text-amber-600",
             bgColor: "bg-amber-50",
@@ -34,7 +111,7 @@ export default function ManagerDashboard() {
         },
         {
             label: "Hoàn thành",
-            value: 1,
+            value: statsData.completedProjects,
             icon: CheckCircle2,
             color: "text-emerald-600",
             bgColor: "bg-emerald-50",
@@ -42,7 +119,7 @@ export default function ManagerDashboard() {
         },
         {
             label: "Annotators",
-            value: 3,
+            value: statsData.annotators,
             icon: Users,
             color: "text-indigo-600",
             bgColor: "bg-indigo-50",

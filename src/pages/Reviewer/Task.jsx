@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { reviewAPI } from '../../config/api';
 import Header from '../../components/common/Header';
@@ -72,9 +72,14 @@ const ReviewerTask = () => {
       }
     } catch (err) {
       console.error('Error loading annotation from API:', err);
+
+      if (!isEndpointMissing(err)) {
+        setError(err.response?.data?.message || 'Không thể tải annotation review');
+        setAnnotation(null);
+        return;
+      }
       
       // Fallback to mock data
-      console.log('Using mock data fallback');
       const mockAnnotations = {
       '1': { // Image annotation
         id: 'ANN-001',
@@ -93,9 +98,9 @@ const ReviewerTask = () => {
         createdAt: '2026-01-28T10:00:00Z',
         timeSpent: 420,
         history: [
-          { action: 'created', timestamp: '2026-01-28T09:30:00Z', user: 'Nguyễn Văn A', description: 'Tạo annotation' },
+          { action: 'created', timestamp: '2026-01-28T09:30:00Z', user: 'Nguyễn Văn A', description: 'T?o annotation' },
           { action: 'updated', timestamp: '2026-01-28T09:45:00Z', user: 'Nguyễn Văn A', description: 'Thêm bounding box cho Person' },
-          { action: 'submitted', timestamp: '2026-01-28T10:00:00Z', user: 'Nguyễn Văn A', description: 'Submit để review' }
+          { action: 'submitted', timestamp: '2026-01-28T10:00:00Z', user: 'Nguyễn Văn A', description: 'Submit d? review' }
         ]
       },
       '2': { // Text annotation
@@ -106,7 +111,7 @@ const ReviewerTask = () => {
           text: 'Apple Inc. công bố sẽ mở rộng hoạt động tại Việt Nam vào tháng 6/2026. CEO Tim Cook cho biết đây là bước đi chiến lược quan trọng của công ty.',
           entities: [
             { id: 1, text: 'Apple Inc.', label: 'ORGANIZATION', start: 0, end: 10, color: '#ef4444' },
-            { id: 2, text: 'Việt Nam', label: 'LOCATION', start: 46, end: 54, color: '#3b82f6' },
+            { id: 2, text: 'Vi?t Nam', label: 'LOCATION', start: 46, end: 54, color: '#3b82f6' },
             { id: 3, text: 'tháng 6/2026', label: 'DATE', start: 59, end: 71, color: '#10b981' },
             { id: 4, text: 'Tim Cook', label: 'PERSON', start: 77, end: 85, color: '#f59e0b' }
           ],
@@ -118,9 +123,9 @@ const ReviewerTask = () => {
         createdAt: '2026-01-28T09:30:00Z',
         timeSpent: 300,
         history: [
-          { action: 'created', timestamp: '2026-01-28T09:00:00Z', user: 'Trần Thị B', description: 'Tạo annotation' },
+          { action: 'created', timestamp: '2026-01-28T09:00:00Z', user: 'Trần Thị B', description: 'T?o annotation' },
           { action: 'updated', timestamp: '2026-01-28T09:20:00Z', user: 'Trần Thị B', description: 'Thêm entities' },
-          { action: 'submitted', timestamp: '2026-01-28T09:30:00Z', user: 'Trần Thị B', description: 'Submit để review' }
+          { action: 'submitted', timestamp: '2026-01-28T09:30:00Z', user: 'Trần Thị B', description: 'Submit d? review' }
         ]
       },
       '3': { // Video annotation
@@ -142,9 +147,9 @@ const ReviewerTask = () => {
         createdAt: '2026-01-27T14:20:00Z',
         timeSpent: 720,
         history: [
-          { action: 'created', timestamp: '2026-01-27T13:00:00Z', user: 'Nguyễn Văn A', description: 'Tạo annotation' },
+          { action: 'created', timestamp: '2026-01-27T13:00:00Z', user: 'Nguyễn Văn A', description: 'T?o annotation' },
           { action: 'updated', timestamp: '2026-01-27T14:00:00Z', user: 'Nguyễn Văn A', description: 'Gán nhãn các frames' },
-          { action: 'submitted', timestamp: '2026-01-27T14:20:00Z', user: 'Nguyễn Văn A', description: 'Submit để review' }
+          { action: 'submitted', timestamp: '2026-01-27T14:20:00Z', user: 'Nguyễn Văn A', description: 'Submit d? review' }
         ]
       },
       '4': { // Audio annotation
@@ -167,9 +172,9 @@ const ReviewerTask = () => {
         createdAt: '2026-01-27T11:00:00Z',
         timeSpent: 360,
         history: [
-          { action: 'created', timestamp: '2026-01-27T10:30:00Z', user: 'Lê Văn C', description: 'Tạo annotation' },
+          { action: 'created', timestamp: '2026-01-27T10:30:00Z', user: 'Lê Văn C', description: 'T?o annotation' },
           { action: 'updated', timestamp: '2026-01-27T10:50:00Z', user: 'Lê Văn C', description: 'Gán nhãn các segments' },
-          { action: 'submitted', timestamp: '2026-01-27T11:00:00Z', user: 'Lê Văn C', description: 'Submit để review' }
+          { action: 'submitted', timestamp: '2026-01-27T11:00:00Z', user: 'Lê Văn C', description: 'Submit d? review' }
         ]
       }
     };
@@ -185,7 +190,7 @@ const ReviewerTask = () => {
     } else if (taskId === '4') {
       setTask(prev => ({ ...prev, type: 'audio', title: 'Gán nhãn âm thanh' }));
     }
-    setError(null); // Clear error since we have mock data
+    setError(null);
     } finally {
       setLoading(false);
     }
@@ -205,6 +210,11 @@ const ReviewerTask = () => {
   const [showLabels, setShowLabels] = useState(true);
   const [selectedLabel, setSelectedLabel] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
+
+  const isEndpointMissing = (err) => {
+    const status = Number(err?.response?.status);
+    return import.meta.env.DEV && (status === 404 || status === 405 || status === 501);
+  };
 
   // Mock issues that can be selected
   const commonIssues = [
@@ -233,7 +243,7 @@ const ReviewerTask = () => {
   const handleSubmitReview = async () => {
     try {
       if (actionType === 'reject' && reviewData.feedback.trim() === '' && reviewData.issues.length === 0) {
-        alert('Vui lòng cung cấp feedback hoặc chọn vấn đề trước khi từ chối');
+        alert('Vui lòng cung c?p feedback ho?c ch?n v?n d? tru?c khi từ chối');
         return;
       }
 
@@ -256,7 +266,7 @@ const ReviewerTask = () => {
       navigate('/reviewer/dashboard');
     } catch (err) {
       console.error('Error submitting review:', err);
-      alert(err.response?.data?.message || 'Không thể submit review');
+      alert(err.response?.data?.message || 'Không th? submit review');
     }
   };
 
@@ -469,7 +479,7 @@ const ReviewerTask = () => {
                     annotation.status === 'approved' ? 'bg-green-100 text-green-800' :
                     'bg-red-100 text-red-800'
                   }`}>
-                    {annotation.status === 'pending_review' ? 'Chờ review' :
+                    {annotation.status === 'pending_review' ? 'Ch? review' :
                      annotation.status === 'approved' ? 'Đã duyệt' : 'Đã từ chối'}
                   </span>
                 </div>
@@ -487,7 +497,7 @@ const ReviewerTask = () => {
                     className="w-full px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all flex items-center justify-center gap-2 font-semibold"
                   >
                     <ThumbsUp className="w-5 h-5" />
-                    Duyệt Annotation
+                    Duy?t Annotation
                   </button>
                   
                   <button
@@ -519,7 +529,7 @@ const ReviewerTask = () => {
                           ? 'bg-blue-100 text-blue-600' 
                           : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                       }`}
-                      title={showLabels ? 'Ẩn nhãn' : 'Hiện nhãn'}
+                      title={showLabels ? 'Ẩn nhãn' : 'HiẨn nhãn'}
                     >
                       {showLabels ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                     </button>
@@ -527,7 +537,7 @@ const ReviewerTask = () => {
                       onClick={handleZoomOut}
                       disabled={zoom <= 0.5}
                       className="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="Thu nhỏ"
+                      title="Thu nh?"
                     >
                       <ZoomOut className="w-4 h-4" />
                     </button>
@@ -624,7 +634,7 @@ const ReviewerTask = () => {
                             <div>
                               <p className="font-medium text-gray-900">{label.name}</p>
                               <p className="text-xs text-gray-600">
-                                Position: ({label.x}, {label.y}) | Size: {label.width}×{label.height}
+                                Position: ({label.x}, {label.y}) | Size: {label.width}x{label.height}
                               </p>
                             </div>
                           </div>
@@ -719,8 +729,8 @@ const ReviewerTask = () => {
                           annotation.data.sentiment === 'negative' ? 'bg-red-100 text-red-800' :
                           'bg-gray-100 text-gray-800'
                         }`}>
-                          {annotation.data.sentiment === 'positive' ? '😊 Tích cực' :
-                           annotation.data.sentiment === 'negative' ? '😞 Tiêu cực' : '😐 Trung lập'}
+                          {annotation.data.sentiment === 'positive' ? '?? Tích cực' :
+                           annotation.data.sentiment === 'negative' ? '?? Tiêu cực' : '?? Trung lập'}
                         </span>
                         {annotation.data.confidence && (
                           <span className="text-sm text-gray-600">
@@ -780,7 +790,7 @@ const ReviewerTask = () => {
                         {annotation.data.frames.map((frame, idx) => (
                           <div key={idx} className="p-3 bg-gray-50 rounded-lg border border-gray-200">
                             <div className="flex items-center justify-between mb-2">
-                              <span className="font-medium text-gray-900">Frame tại {frame.time}s</span>
+                              <span className="font-medium text-gray-900">Frame tải {frame.time}s</span>
                               <span className="text-sm text-gray-600">{frame.labels.length} objects</span>
                             </div>
                             <div className="flex flex-wrap gap-2">
@@ -970,7 +980,7 @@ const ReviewerTask = () => {
                     onClick={() => setShowHistory(!showHistory)}
                     className="text-sm text-blue-600 hover:text-blue-800 font-semibold"
                   >
-                    {showHistory ? 'Ẩn' : 'Xem tất cả'}
+                    {showHistory ? '?n' : 'Xem t?t c?'}
                   </button>
                 </div>
                 
@@ -1021,7 +1031,7 @@ const ReviewerTask = () => {
                   {actionType === 'approve' ? (
                     <>
                       <CheckCircle2 className="w-6 h-6 text-green-600" />
-                      Duyệt Annotation
+                      Duy?t Annotation
                     </>
                   ) : (
                     <>
@@ -1036,7 +1046,7 @@ const ReviewerTask = () => {
                 {actionType === 'reject' && (
                   <div>
                     <label className="block text-sm font-semibold text-gray-900 mb-2">
-                      Vấn đề thường gặp (chọn nhiều)
+                      V?n d? thu?ng g?p (ch?n nhi?u)
                     </label>
                     <div className="grid grid-cols-2 gap-2">
                       {commonIssues.map((issue, idx) => (
@@ -1086,7 +1096,7 @@ const ReviewerTask = () => {
                   onClick={handleCancel}
                   className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-all font-semibold"
                 >
-                  Hủy
+                  H?y
                 </button>
                 <button
                   onClick={handleSubmitReview}
@@ -1097,7 +1107,7 @@ const ReviewerTask = () => {
                   }`}
                 >
                   <Save className="w-4 h-4" />
-                  Xác nhận {actionType === 'approve' ? 'Duyệt' : 'Từ chối'}
+                  Xác nhận {actionType === 'approve' ? 'Duy?t' : 'Từ chối'}
                 </button>
               </div>
             </div>
@@ -1109,3 +1119,11 @@ const ReviewerTask = () => {
 };
 
 export default ReviewerTask;
+
+
+
+
+
+
+
+

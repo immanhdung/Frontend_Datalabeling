@@ -1,26 +1,26 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import {
   Search,
   Plus,
   Filter,
   MoreHorizontal,
   Tag,
-  Image as ImageIcon,
+  Image,
   Users,
   Eye,
   Trash2,
   X,
-  UserCheck,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-
 import api, { labelAPI } from "../../config/api";
-
 import { useAuth } from "../../context/AuthContext";
-import AssignTasksModal from "../../components/manager/AssignTasksModal";
 
-const DEV_PROJECTS_KEY = "devManagerProjects";
-const DEV_CATEGORIES_KEY = "devManagerCategories";
+const toArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.items)) return value.items;
+  if (Array.isArray(value?.data)) return value.data;
+  return [];
+};
 
 const requestSequential = async (factories) => {
   let lastError;
@@ -33,6 +33,13 @@ const requestSequential = async (factories) => {
   }
   throw lastError;
 };
+
+const getProjectId = (project) =>
+  project?.id ??
+  project?.projectId ??
+  project?.projectID ??
+  project?.ProjectId ??
+  null;
 
 export default function ManagerProjects() {
   const [projects, setProjects] = useState([]);
@@ -49,33 +56,48 @@ export default function ManagerProjects() {
 
   // Modal Gán Dataset state
   const [showDatasetModal, setShowDatasetModal] = useState(false);
-  const [showAssignTasksModal, setShowAssignTasksModal] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
   const [datasets, setDatasets] = useState([]);
   const [loadingDatasets, setLoadingDatasets] = useState(false);
 
   const navigate = useNavigate();
-  const { logout, token } = useAuth();
-  const enableDevFallback = import.meta.env.VITE_ENABLE_DEV_FALLBACK === "true";
-  const enableDevBypass = import.meta.env.VITE_BYPASS_LOGIN === "true";
-  const isDevLocalToken = token === "dev-fallback-token" || token === "dev-bypass-token";
-  const isDevFallbackSession = import.meta.env.DEV && enableDevFallback && token === "dev-fallback-token";
-  const isDevLocalSession = import.meta.env.DEV && (enableDevFallback || enableDevBypass) && isDevLocalToken;
-  const isDevMode = import.meta.env.DEV;
+  const { logout } = useAuth();
 
-  const readLocalProjects = () => {
-    try {
-      const raw = localStorage.getItem(DEV_PROJECTS_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
+  const isRecoverableLabelError = (err) => {
+    const status = Number(err?.response?.status);
+    return import.meta.env.DEV && (status === 404 || status === 405 || status === 500 || status === 501);
   };
 
-  const persistLocalProjects = (nextProjects) => {
-    if (!isDevLocalSession) return;
-    localStorage.setItem(DEV_PROJECTS_KEY, JSON.stringify(nextProjects));
+  const applyLabelLocalToSelectedProjects = (label) => {
+    const normalizedLabel = String(label || "").trim();
+    if (!normalizedLabel) return;
+
+    setProjects((prev) =>
+      prev.map((project) => {
+        const projectId = String(project?.id || project?.projectId || "");
+        if (!selectedProjectIds.includes(projectId)) return project;
+
+        const nextLabelNames = [
+          ...(Array.isArray(project?.labelNames) ? project.labelNames : []),
+          ...(Array.isArray(project?.labels)
+            ? project.labels
+                .map((item) => (typeof item === "string" ? item : item?.name))
+                .filter(Boolean)
+            : []),
+        ];
+
+        if (!nextLabelNames.some((item) => String(item).toLowerCase() === normalizedLabel.toLowerCase())) {
+          nextLabelNames.push(normalizedLabel);
+        }
+
+        return {
+          ...project,
+          labelNames: nextLabelNames,
+          labels: nextLabelNames,
+          labelsCount: nextLabelNames.length,
+        };
+      })
+    );
   };
 
   const handleAssignDataset = async (datasetId) => {
@@ -84,8 +106,10 @@ export default function ManagerProjects() {
       setSubmittingLabel(true);
       const projectId = selectedProject.id || selectedProject.projectId;
 
-      // Using the backend documented endpoint: POST /api/datasets/add/{projectId} with payload { datasetId }
-      await datasetAPI.attach(datasetId, projectId);
+      await requestSequential([
+        () => api.post(`/datasets/add/${projectId}`, { datasetId }),
+        () => api.post(`/Datasets/${datasetId}/attach/${projectId}`, {}),
+      ]);
 
       alert(`Đã gán dataset cho dự án "${selectedProject.name}" thành công!`);
       setShowDatasetModal(false);
@@ -101,8 +125,8 @@ export default function ManagerProjects() {
   const fetchDatasets = async () => {
     try {
       setLoadingDatasets(true);
-      const res = await api.get("/Datasets");
-      const items = res.data?.items || res.data || [];
+      const res = await api.get("/datasets");
+      const items = toArray(res.data);
       setDatasets(items);
     } catch (err) {
       console.error("Fetch datasets error:", err);
@@ -111,8 +135,6 @@ export default function ManagerProjects() {
       setLoadingDatasets(false);
     }
   };
-
-
 
   const fetchProjects = async () => {
     try {
@@ -124,34 +146,14 @@ export default function ManagerProjects() {
         api.get("/categories").catch(() => ({ data: [] })),
       ]);
 
-      const serverProjects = Array.isArray(projRes.data?.items) ? projRes.data.items : [];
-      const serverCategories = Array.isArray(catRes.data) ? catRes.data : [];
+      const serverProjects = toArray(projRes.data);
+      const serverCategories = toArray(catRes.data);
 
       setProjects(serverProjects);
       setCategories(serverCategories);
-
-      if (isDevLocalSession && serverProjects.length > 0) {
-        persistLocalProjects(serverProjects);
-      }
     } catch (err) {
       console.error("Fetch projects error:", err);
       if (err.response?.status === 401) {
-        if (isDevMode || isDevFallbackSession) {
-          const localProjects = readLocalProjects();
-          let localCategories = [];
-          try {
-            const localCategoriesRaw = localStorage.getItem(DEV_CATEGORIES_KEY);
-            localCategories = localCategoriesRaw ? JSON.parse(localCategoriesRaw) : [];
-          } catch {
-            localCategories = [];
-          }
-
-          setError(null);
-          setProjects(localProjects);
-          setCategories(Array.isArray(localCategories) ? localCategories : []);
-          return;
-        }
-
         logout();
         navigate("/login");
         return;
@@ -199,8 +201,16 @@ export default function ManagerProjects() {
       const successCount = results.filter((item) => item.status === "fulfilled").length;
 
       if (successCount === 0) {
-        throw new Error("Khong endpoint nao ho tro them nhan cho category");
-
+        const firstError = results.find((item) => item.status === "rejected")?.reason;
+        if (isRecoverableLabelError(firstError)) {
+          applyLabelLocalToSelectedProjects(normalizedLabelName);
+          alert("Backend nhãn đang lỗi (500). Đã gán nhãn local để bạn tiếp tục làm việc.");
+          setShowLabelModal(false);
+          setLabelName("");
+          setSelectedProjectIds([]);
+          return;
+        }
+        throw new Error("Không endpoint nào hỗ trợ thêm nhãn cho category");
       }
 
       alert(`Đã thêm nhãn cho ${successCount}/${uniqueTargetIds.size} category.`);
@@ -210,6 +220,14 @@ export default function ManagerProjects() {
       fetchProjects();
     } catch (err) {
       console.error("Error creating label:", err);
+      if (isRecoverableLabelError(err)) {
+        applyLabelLocalToSelectedProjects(labelName.trim());
+        alert("Backend nhãn đang lỗi (500). Đã gán nhãn local để bạn tiếp tục làm việc.");
+        setShowLabelModal(false);
+        setLabelName("");
+        setSelectedProjectIds([]);
+        return;
+      }
       const serverMsg =
         err.response?.data?.title ||
         err.response?.data?.message ||
@@ -227,34 +245,31 @@ export default function ManagerProjects() {
   };
 
   const handleDelete = async (id) => {
+    if (!id) {
+      alert("Không tìm thấy ID dự án để xóa");
+      return;
+    }
+
     if (!window.confirm("Bạn có chắc chắn muốn xóa dự án này?")) return;
 
     if (String(id).startsWith("local-project-")) {
-      const nextProjects = projects.filter((p) => (p.projectId || p.id) !== id);
+      const nextProjects = projects.filter((p) => String(getProjectId(p)) !== String(id));
       setProjects(nextProjects);
-      persistLocalProjects(nextProjects);
       return;
     }
 
     try {
       await requestSequential([
         () => api.delete(`/projects/${id}`),
-        () => api.delete(`/Projects/${id}`)
+        () => api.delete(`/Projects/${id}`),
       ]);
-      const nextProjects = projects.filter((p) => (p.projectId || p.id) !== id);
+      const nextProjects = projects.filter((p) => String(p.projectId || p.id) !== String(id));
       setProjects(nextProjects);
-      persistLocalProjects(nextProjects);
+      await fetchProjects();
 
       alert("Xóa dự án thành công!");
     } catch (err) {
       console.error("Delete project error:", err);
-      if ([500, 401, 404, 405].includes(Number(err?.response?.status))) {
-        const nextProjects = projects.filter((p) => (p.projectId || p.id) !== id);
-        setProjects(nextProjects);
-        persistLocalProjects(nextProjects);
-        alert(`Backend từ chối yêu cầu xoá (Lỗi ${err?.response?.status}). Đã ẩn dự án này khỏi giao diện để bạn tiếp tục test.`);
-        return;
-      }
       alert(
         "Xóa dự án thất bại: " +
         (err.response?.data?.message || err.message)
@@ -270,7 +285,6 @@ export default function ManagerProjects() {
     window.addEventListener("click", handleClickOutside);
     return () => window.removeEventListener("click", handleClickOutside);
   }, []);
-
 
   return (
     <div className="space-y-6">
@@ -449,7 +463,7 @@ export default function ManagerProjects() {
                     >
                       <div className="flex items-center gap-3 text-wrap text-left">
                         <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center group-hover:bg-indigo-100 transition-colors shrink-0">
-                          <ImageIcon className="w-5 h-5 text-indigo-600" />
+                          <Image className="w-5 h-5 text-indigo-600" />
                         </div>
                         <div className="min-w-0">
                           <p className="font-bold text-gray-800 truncate">{ds.name}</p>
@@ -474,13 +488,14 @@ export default function ManagerProjects() {
           </div>
         </div>
       )}
+
       {!loading && !error && projects.length === 0 && (
         <p className="text-gray-500">Chưa có dự án nào</p>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {projects.map((p) => {
-          const id = p.projectId || p.id;
+            const id = getProjectId(p);
           return (
             <div key={id} className="bg-white border rounded-xl shadow-sm p-5 space-y-4">
               <div className="flex items-start justify-between">
@@ -507,16 +522,6 @@ export default function ManagerProjects() {
                   {openMenuId === id && (
                     <div className="absolute right-0 mt-2 w-48 bg-white border rounded-xl shadow-xl z-20 py-2">
                       <button
-                        onClick={() => {
-                          setSelectedProject(p);
-                          setShowAssignTasksModal(true);
-                        }}
-                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-green-600 hover:bg-green-50"
-                      >
-                        <UserCheck className="w-4 h-4" />
-                        Giao việc
-                      </button>
-                      <button
                         onClick={() => navigate(`/manager/projects/${id}`)}
                         className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                       >
@@ -525,13 +530,12 @@ export default function ManagerProjects() {
                       </button>
                       <button
                         onClick={() => {
-                          setSelectedProject(p);
-                          setShowDatasetModal(true);
+                          navigate(`/manager/projects/${id}`);
                         }}
                         className="w-full flex items-center gap-2 px-4 py-2 text-sm text-indigo-600 hover:bg-indigo-50"
                       >
-                        <ImageIcon className="w-4 h-4" />
-                        Gán Datasets
+                        <Image className="w-4 h-4" />
+                        Quan ly trong chi tiet
                       </button>
                       <button
                         onClick={() => handleDelete(id)}
@@ -554,12 +558,8 @@ export default function ManagerProjects() {
 
               <div className="flex items-center justify-between text-sm text-gray-600 pt-2 border-t">
                 <div className="flex items-center gap-1">
-                  <ImageIcon className="w-4 h-4" />
-                  {(() => {
-                    const attached = p.datasets || [];
-                    const sum = attached.reduce((acc, ds) => acc + (ds.imagesCount || ds.numberOfItems || ds.itemCount || 0), 0);
-                    return sum || p.imagesCount || 0;
-                  })()} ảnh
+                  <Image className="w-4 h-4" />
+                  {p.imagesCount ?? 0} ảnh
                 </div>
                 <div className="flex items-center gap-1">
                   <Tag className="w-4 h-4" />
@@ -580,12 +580,15 @@ export default function ManagerProjects() {
           );
         })}
       </div>
-
-      <AssignTasksModal
-        isOpen={showAssignTasksModal}
-        project={selectedProject}
-        onClose={() => setShowAssignTasksModal(false)}
-      />
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
