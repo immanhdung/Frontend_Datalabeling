@@ -17,7 +17,7 @@ import {
     Calendar,
     Database
 } from "lucide-react";
-import api from "../../config/api";
+import api, { datasetAPI, API_BASE_URL } from "../../config/api";
 
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "bmp", "gif", "tif", "tiff"];
 
@@ -62,8 +62,15 @@ const getItemExtension = (item, fallbackIndex) => {
 };
 
 const isImageItem = (item, fallbackIndex) => {
-    const ext = getItemExtension(item, fallbackIndex);
-    return IMAGE_EXTENSIONS.includes(ext);
+    const name = getItemName(item, fallbackIndex);
+    const ext = String(name).split(".").pop()?.toLowerCase();
+    if (ext && IMAGE_EXTENSIONS.includes(ext)) return true;
+
+    // Check contentType or mediaType if available
+    const type = (item?.contentType || item?.mediaType || "").toLowerCase();
+    if (type.startsWith("image/")) return true;
+
+    return false;
 };
 
 const getItemDimensions = (item) => {
@@ -279,13 +286,13 @@ export default function Datasets() {
         try {
             setLoading(true);
             const dsId = selectedDataset.id || selectedDataset.datasetId;
-            await api.post(`/datasets/${dsId}/attach/${projectId}`, {});
+            await datasetAPI.attach(dsId, projectId);
             alert("Gán vào project thành công!");
             setShowAssignModal(false);
             fetchData();
         } catch (err) {
             console.error(err);
-            alert("Gán thất bại");
+            alert("Gán thất bại: " + (err.response?.data?.message || err.message));
         } finally {
             setLoading(false);
         }
@@ -445,7 +452,10 @@ export default function Datasets() {
                                 <div className="mt-4 flex items-center gap-4 text-sm font-medium text-gray-500">
                                     <div className="flex items-center gap-1.5">
                                         <ImageIcon className="w-4 h-4" />
-                                        {ds.imagesCount || ds.itemsCount || ds.totalItems || ds.itemCount || ds.imageCount || ds.items?.length || 0} files
+                                        {(() => {
+                                            const count = ds.imagesCount ?? ds.itemsCount ?? ds.totalItems ?? ds.itemCount ?? ds.imageCount ?? (Array.isArray(ds.items) ? ds.items.length : 0);
+                                            return count || 0;
+                                        })()} files
                                     </div>
                                     <div className="flex items-center gap-1.5">
                                         <Database className="w-4 h-4" />
@@ -740,17 +750,31 @@ export default function Datasets() {
                                                 return (
                                                     <div key={`${fileName}-${idx}`} className="grid grid-cols-12 gap-2 px-4 py-3 text-sm items-center">
                                                         <div className="col-span-5 flex items-center gap-3 min-w-0">
-                                                            {(item.url || item.thumbnailUrl) && isImageItem(item, idx) ? (
-                                                                <img
-                                                                    src={item.url || item.thumbnailUrl}
-                                                                    alt={fileName}
-                                                                    className="w-10 h-10 rounded-lg object-cover border border-gray-100"
-                                                                />
-                                                            ) : (
-                                                                <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500">
-                                                                    <FileArchive className="w-4 h-4" />
-                                                                </div>
-                                                            )}
+                                                            {(() => {
+                                                                let displayUrl = item.url || item.thumbnailUrl || item.fileUrl || item.path || "";
+
+                                                                // Handle relative paths from backend
+                                                                if (displayUrl && !displayUrl.startsWith("http") && !displayUrl.startsWith("data:")) {
+                                                                    const base = API_BASE_URL.replace("/api", "");
+                                                                    displayUrl = `${base}${displayUrl.startsWith("/") ? "" : "/"}${displayUrl}`;
+                                                                }
+
+                                                                return displayUrl && isImageItem(item, idx) ? (
+                                                                    <img
+                                                                        src={displayUrl}
+                                                                        alt={fileName}
+                                                                        className="w-10 h-10 rounded-lg object-cover border border-gray-100"
+                                                                        onError={(e) => {
+                                                                            e.target.onerror = null;
+                                                                            e.target.src = "https://via.placeholder.com/40?text=IMG";
+                                                                        }}
+                                                                    />
+                                                                ) : (
+                                                                    <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500">
+                                                                        <FileArchive className="w-4 h-4" />
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                             <span className="truncate font-medium text-gray-800">{fileName}</span>
                                                         </div>
 
@@ -758,13 +782,12 @@ export default function Datasets() {
                                                         <div className="col-span-2 text-gray-600">{formatBytes(sizeBytes)}</div>
                                                         <div className="col-span-2 text-gray-600">{dims ? `${dims.width}x${dims.height}` : "N/A"}</div>
                                                         <div className="col-span-1">
-                                                            <span className={`text-[11px] font-bold px-2 py-1 rounded-full ${
-                                                                quality.status === "low"
-                                                                    ? "bg-amber-100 text-amber-700"
-                                                                    : quality.status === "ok"
-                                                                        ? "bg-emerald-100 text-emerald-700"
-                                                                        : "bg-gray-100 text-gray-600"
-                                                            }`}>
+                                                            <span className={`text-[11px] font-bold px-2 py-1 rounded-full ${quality.status === "low"
+                                                                ? "bg-amber-100 text-amber-700"
+                                                                : quality.status === "ok"
+                                                                    ? "bg-emerald-100 text-emerald-700"
+                                                                    : "bg-gray-100 text-gray-600"
+                                                                }`}>
                                                                 {quality.text}
                                                             </span>
                                                         </div>

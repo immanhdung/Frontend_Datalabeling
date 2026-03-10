@@ -1,0 +1,44 @@
+{
+  "post": {
+    "tags": [
+      "Datasets"
+    ],
+    "summary": "Attach a dataset to a project.\r\nOnly the creator of both the dataset and project can perform this operation.",
+    "parameters": [
+      {
+        "name": "projectId",
+        "in": "path",
+        "required": true,
+        "style": "simple",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    ],
+    "requestBody": {
+      "content": {
+        "application/json": {
+          "schema": {
+            "$ref": "#/components/schemas/AddDatasetRequest"
+          }
+        },
+        "text/json": {
+          "schema": {
+            "$ref": "#/components/schemas/AddDatasetRequest"
+          }
+        },
+        "application/*+json": {
+          "schema": {
+            "$ref": "#/components/schemas/AddDatasetRequest"
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "Success"
+      }
+    }
+  }
+}

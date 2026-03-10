@@ -1,0 +1,90 @@
+{
+  "get": {
+    "tags": [
+      "Datasets"
+    ],
+    "summary": "Get dataset by ID with item count and metadata.",
+    "parameters": [
+      {
+        "name": "datasetId",
+        "in": "path",
+        "required": true,
+        "style": "simple",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "Success"
+      }
+    }
+  },
+  "put": {
+    "tags": [
+      "Datasets"
+    ],
+    "summary": "Update an existing dataset. Can update name and description.",
+    "parameters": [
+      {
+        "name": "datasetId",
+        "in": "path",
+        "required": true,
+        "style": "simple",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    ],
+    "requestBody": {
+      "content": {
+        "application/json": {
+          "schema": {
+            "$ref": "#/components/schemas/UpdateDatasetRequest"
+          }
+        },
+        "text/json": {
+          "schema": {
+            "$ref": "#/components/schemas/UpdateDatasetRequest"
+          }
+        },
+        "application/*+json": {
+          "schema": {
+            "$ref": "#/components/schemas/UpdateDatasetRequest"
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "Success"
+      }
+    }
+  },
+  "delete": {
+    "tags": [
+      "Datasets"
+    ],
+    "summary": "Delete a dataset and all its associated data.",
+    "parameters": [
+      {
+        "name": "datasetId",
+        "in": "path",
+        "required": true,
+        "style": "simple",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    ],
+    "responses": {
+      "200": {
+        "description": "Success"
+      }
+    }
+  }
+}

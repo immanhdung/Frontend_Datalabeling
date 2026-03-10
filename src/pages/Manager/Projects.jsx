@@ -10,10 +10,12 @@ import {
   Eye,
   Trash2,
   X,
+  UserCheck,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import api from "../../config/api";
+import api, { datasetAPI } from "../../config/api";
 import { useAuth } from "../../context/AuthContext";
+import AssignTasksModal from "../../components/manager/AssignTasksModal";
 
 export default function ManagerProjects() {
   const [projects, setProjects] = useState([]);
@@ -30,6 +32,7 @@ export default function ManagerProjects() {
 
   // Modal Gán Dataset state
   const [showDatasetModal, setShowDatasetModal] = useState(false);
+  const [showAssignTasksModal, setShowAssignTasksModal] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
   const [datasets, setDatasets] = useState([]);
   const [loadingDatasets, setLoadingDatasets] = useState(false);
@@ -46,8 +49,8 @@ export default function ManagerProjects() {
       setSubmittingLabel(true);
       const projectId = selectedProject.id || selectedProject.projectId;
 
-      // Using the working endpoint pattern from Datasets.jsx with empty body
-      await api.post(`/Datasets/${datasetId}/attach/${projectId}`, {});
+      // Using the backend documented endpoint: POST /api/datasets/add/{projectId} with payload { datasetId }
+      await datasetAPI.attach(datasetId, projectId);
 
       alert(`Đã gán dataset cho dự án "${selectedProject.name}" thành công!`);
       setShowDatasetModal(false);
@@ -117,24 +120,20 @@ export default function ManagerProjects() {
     try {
       setSubmittingLabel(true);
 
-      const uniqueTargetIds = new Set();
-      selectedProjectIds.forEach((id) => {
-        const project = projects.find((p) => (p.id || p.projectId) === id);
-        if (project?.categoryId) {
-          uniqueTargetIds.add(project.categoryId);
+      const labelPayload = [{ name: labelName }];
+
+      for (const projectId of selectedProjectIds) {
+        try {
+          await api.post(`/labels/add/${projectId}`, labelPayload);
+        } catch (err) {
+          console.warn(`Endpoint /labels/add/${projectId} failed, trying /labelsets/...`, err);
+          const project = projects.find((p) => (p.id || p.projectId) === projectId);
+          if (project?.categoryId) {
+            await api.post(`/labelsets/${project.categoryId}/labels`, {
+              name: labelName,
+            });
+          }
         }
-      });
-
-      if (uniqueTargetIds.size === 0) {
-        alert("Không tìm thấy Category ID của các dự án đã chọn.");
-        setSubmittingLabel(false);
-        return;
-      }
-
-      for (const targetId of uniqueTargetIds) {
-        await api.post(`/labelsets/${targetId}/labels`, {
-          name: labelName,
-        });
       }
 
       alert("Thêm nhãn cho các dự án thành công!");
@@ -424,6 +423,16 @@ export default function ManagerProjects() {
                   {openMenuId === id && (
                     <div className="absolute right-0 mt-2 w-48 bg-white border rounded-xl shadow-xl z-20 py-2">
                       <button
+                        onClick={() => {
+                          setSelectedProject(p);
+                          setShowAssignTasksModal(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-green-600 hover:bg-green-50"
+                      >
+                        <UserCheck className="w-4 h-4" />
+                        Giao việc
+                      </button>
+                      <button
                         onClick={() => navigate(`/manager/projects/${id}`)}
                         className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                       >
@@ -463,7 +472,7 @@ export default function ManagerProjects() {
                 <div className="flex items-center gap-1">
                   <Image className="w-4 h-4" />
                   {(() => {
-                    const attached = projectDatasets[id] || [];
+                    const attached = p.datasets || [];
                     const sum = attached.reduce((acc, ds) => acc + (ds.imagesCount || ds.numberOfItems || ds.itemCount || 0), 0);
                     return sum || p.imagesCount || 0;
                   })()} ảnh
@@ -487,6 +496,12 @@ export default function ManagerProjects() {
           );
         })}
       </div>
+
+      <AssignTasksModal
+        isOpen={showAssignTasksModal}
+        project={selectedProject}
+        onClose={() => setShowAssignTasksModal(false)}
+      />
     </div>
   );
 }

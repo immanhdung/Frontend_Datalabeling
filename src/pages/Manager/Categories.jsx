@@ -95,11 +95,10 @@ export default function Categories() {
 
   const token = localStorage.getItem("accessToken");
   const enableDevFallback = import.meta.env.VITE_ENABLE_DEV_FALLBACK === "true";
-  const enableDevBypass = import.meta.env.VITE_BYPASS_LOGIN === "true";
-  const isDevLocalToken = token === "dev-fallback-token" || token === "dev-bypass-token";
+  const isDevLocalToken = token === "dev-fallback-token";
   const isDevLocalSession =
     import.meta.env.DEV &&
-    (enableDevFallback || enableDevBypass) &&
+    enableDevFallback &&
     isDevLocalToken;
 
   const selectedCategory = useMemo(
@@ -397,9 +396,8 @@ export default function Categories() {
                       setSelectedCategoryId(String(category.id));
                       setActiveLabelFilter("");
                     }}
-                    className={`w-full text-left p-4 border rounded-lg transition-all ${
-                      isActive ? "border-blue-500 bg-blue-50" : "hover:bg-gray-50"
-                    }`}
+                    className={`w-full text-left p-4 border rounded-lg transition-all ${isActive ? "border-blue-500 bg-blue-50" : "hover:bg-gray-50"
+                      }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div>
@@ -479,11 +477,10 @@ export default function Categories() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => setActiveLabelFilter("")}
-                      className={`px-3 py-1 rounded-full text-xs font-semibold border ${
-                        activeLabelFilter === ""
+                      className={`px-3 py-1 rounded-full text-xs font-semibold border ${activeLabelFilter === ""
                           ? "bg-slate-900 text-white border-slate-900"
                           : "bg-white text-slate-700 border-slate-200"
-                      }`}
+                        }`}
                     >
                       Tat ca
                     </button>
@@ -491,11 +488,10 @@ export default function Categories() {
                       <button
                         key={label.id}
                         onClick={() => setActiveLabelFilter(label.name)}
-                        className={`px-3 py-1 rounded-full text-xs font-semibold border ${
-                          activeLabelFilter === label.name
+                        className={`px-3 py-1 rounded-full text-xs font-semibold border ${activeLabelFilter === label.name
                             ? "bg-indigo-600 text-white border-indigo-600"
                             : "bg-white text-indigo-700 border-indigo-200"
-                        }`}
+                          }`}
                       >
                         #{label.name}
                       </button>
