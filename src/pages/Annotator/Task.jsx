@@ -27,6 +27,7 @@ import {
   RotateCcw,
   Check,
   X,
+  AlertCircle
 } from 'lucide-react';
 
 const AnnotatorTask = () => {

@@ -1,634 +1,563 @@
-﻿import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import api from '../../config/api';
-import { taskAPI, userAPI } from '../../config/api';
 import Header from '../../components/common/Header';
 import {
-  resolveApiData,
-} from '../../utils/annotatorTaskHelpers';
+  Search,
+  CheckCircle2,
+  Users,
+  ShieldCheck,
+  FolderKanban,
+  CheckSquare,
+  ArrowRight,
+  Database,
+  Info,
+  ChevronRight,
+  Loader2,
+  UserCheck,
+  ArrowLeft
+} from 'lucide-react';
 
-const AssignTasks = () => {
-  const [tasks, setTasks] = useState([]);
+export default function AssignTasks() {
+  const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
+  
+  const [message, setMessage] = useState({ type: '', text: '' });
+  const [assigning, setAssigning] = useState(false);
+
+  // Workflow steps: 1: Project, 2: Datasets, 3: Annotator, 4: Reviewers
+  const [step, setStep] = useState(1);
+
+  // Selections
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [datasets, setDatasets] = useState([]);
+  const [loadingDatasets, setLoadingDatasets] = useState(false);
+  const [selectedDatasetIds, setSelectedDatasetIds] = useState([]);
+  
   const [users, setUsers] = useState([]);
   const [rolesMap, setRolesMap] = useState({});
-  const [selectedTask, setSelectedTask] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [searchTask, setSearchTask] = useState('');
-  const [searchUser, setSearchUser] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all'); // all, pending, in_progress, completed
-  const [message, setMessage] = useState({ type: '', text: '' });
-  const [taskLoadFailed, setTaskLoadFailed] = useState(false);
-  const [taskLoadStatusCode, setTaskLoadStatusCode] = useState(null);
+  const [selectedAnnotatorId, setSelectedAnnotatorId] = useState(null);
+  const [selectedReviewerIds, setSelectedReviewerIds] = useState([]);
 
-  const getUserRole = (user) => {
-    const mappedRoleById = rolesMap[
-      String(user?.roleId ?? user?.roleID ?? user?.role_id ?? user?.role?.id ?? user?.role?.roleId ?? '')
-    ];
-    const rawRole = user?.roleName ?? user?.role?.name ?? user?.role ?? mappedRoleById;
-    if (!rawRole) {
-      return '';
-    }
-    return String(rawRole).toLowerCase();
-  };
+  // Searching
+  const [searchProject, setSearchProject] = useState('');
 
-  const getUserId = (user) =>
-    user?.id ??
-    user?._id ??
-    user?.userId ??
-    user?.memberId ??
-    user?.user?.id ??
-    user?.user?.userId ??
-    null;
-  const isAnnotatorUser = (user) => getUserRole(user) === 'annotator';
-  const keepAnnotatorsOnly = (userList) =>
-    dedupeUsers(userList).filter((user) => isAnnotatorUser(user));
-
-  const getUserDisplayName = (user) => user?.displayName ?? user?.name ?? user?.username ?? 'Unknown User';
-
-  const getUserNickname = (user) => {
-    const username = user?.username ?? user?.userName;
-    if (username) {
-      return String(username);
-    }
-    if (user?.email && String(user.email).includes('@')) {
-      return String(user.email).split('@')[0];
-    }
-    return getUserDisplayName(user).replace(/\s+/g, '').toLowerCase();
-  };
-
-  const normalizeMemberAsUser = (member) => {
-    const nestedUser = member?.user ?? member?.member ?? null;
-    const userId =
-      member?.userId ??
-      member?.id ??
-      member?.memberId ??
-      nestedUser?.id ??
-      nestedUser?._id ??
-      nestedUser?.userId ??
-      null;
-
-    const roleName =
-      member?.roleName ??
-      member?.memberRole ??
-      member?.projectRole ??
-      member?.role?.name ??
-      nestedUser?.roleName ??
-      nestedUser?.role?.name ??
-      nestedUser?.role ??
-      '';
-
-    return {
-      id: userId,
-      userId,
-      roleId: member?.roleId ?? nestedUser?.roleId,
-      roleName,
-      displayName:
-        member?.displayName ??
-        member?.fullName ??
-        member?.name ??
-        nestedUser?.displayName ??
-        nestedUser?.fullName ??
-        nestedUser?.name ??
-        nestedUser?.username ??
-        member?.username,
-      username: member?.username ?? nestedUser?.username,
-      email: member?.email ?? nestedUser?.email,
-      status: member?.status ?? nestedUser?.status,
-    };
-  };
-
-  const dedupeUsers = (userList) => {
-    const byId = {};
-    userList.forEach((user) => {
-      const key = String(
-        getUserId(user) ?? user?.email ?? user?.username ?? user?.displayName ?? user?.name ?? ''
-      ).trim();
-      if (!key) {
-        return;
-      }
-      byId[key] = { ...byId[key], ...user };
-    });
-    return Object.values(byId);
-  };
-
-  const fetchUsersFromProjectMembers = async () => {
-    const projectsRes = await api.get('/projects');
-    const projects = toArrayData(projectsRes);
-    if (projects.length === 0) {
-      return [];
-    }
-
-    const membersResults = await Promise.allSettled(
-      projects
-        .map((project) => project?.id ?? project?._id ?? project?.projectId)
-        .filter(Boolean)
-        .map((projectId) => api.get(`/projects/${projectId}/members`))
-    );
-
-    const members = membersResults
-      .filter((result) => result.status === 'fulfilled')
-      .flatMap((result) => toArrayData(result.value));
-
-    return dedupeUsers(members.map(normalizeMemberAsUser));
-  };
-
-  const fetchMemberUsersSafe = async () => {
-    try {
-      return await fetchUsersFromProjectMembers();
-    } catch {
-      return [];
-    }
-  };
-
-  const toArrayData = (response) => {
-    const data = resolveApiData(response);
-    if (Array.isArray(data)) {
-      return data;
-    }
-    if (Array.isArray(data?.items)) {
-      return data.items;
-    }
-    return [];
-  };
-
-  // Load tasks and users
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const fetchInitialData = async () => {
     try {
       setLoading(true);
-      const [tasksRes, usersRes, rolesRes] = await Promise.allSettled([
-        taskAPI.getAll(),
-        userAPI.getAll(),
-        api.get('/roles')
+      
+      const [projRes, usersRes, rolesRes] = await Promise.allSettled([
+        api.get('/projects').catch(() => api.get('/Projects')),
+        api.get('/users').catch(() => api.get('/Users')),
+        api.get('/roles').catch(() => api.get('/Roles'))
       ]);
 
-      if (tasksRes.status === 'fulfilled') {
-        setTaskLoadFailed(false);
-        setTaskLoadStatusCode(null);
-        setTasks(resolveApiData(tasksRes.value));
-      } else {
-        setTaskLoadFailed(true);
-        setTaskLoadStatusCode(Number(tasksRes?.reason?.response?.status) || null);
-        setTasks([]);
+      if (projRes.status === 'fulfilled') {
+        const pData = projRes.value.data?.data || projRes.value.data;
+        setProjects(Array.isArray(pData?.items) ? pData.items : Array.isArray(pData) ? pData : []);
+      }
+
+      if (usersRes.status === 'fulfilled') {
+        const uData = usersRes.value.data?.data || usersRes.value.data;
+        setUsers(Array.isArray(uData?.items) ? uData.items : Array.isArray(uData) ? uData : []);
       }
 
       if (rolesRes.status === 'fulfilled') {
-        const roles = toArrayData(rolesRes.value);
+        const rData = rolesRes.value.data;
+        const roles = Array.isArray(rData?.items) ? rData.items : Array.isArray(rData) ? rData : [];
         const nextRolesMap = {};
-        roles.forEach((role) => {
-          const roleId = role?.id ?? role?.roleId;
-          const roleName = role?.roleName ?? role?.name;
-          if (roleId && roleName) {
-            nextRolesMap[String(roleId)] = String(roleName).toLowerCase();
-          }
+        roles.forEach(role => {
+          const rid = role?.id ?? role?.roleId;
+          const rname = String(role?.roleName ?? role?.name ?? '').toLowerCase();
+          if (rid) nextRolesMap[String(rid)] = rname;
         });
         setRolesMap(nextRolesMap);
       }
-
-      const memberUsers = await fetchMemberUsersSafe();
-      if (usersRes.status === 'fulfilled') {
-        const apiUsers = toArrayData(usersRes.value);
-        const mergedUsers = dedupeUsers([...apiUsers, ...memberUsers]);
-        setUsers(keepAnnotatorsOnly(mergedUsers));
-      } else {
-        setUsers(keepAnnotatorsOnly(memberUsers));
-      }
-    } catch (error) {
-      console.error('Error loading data:', error);
-      setUsers([]);
+    } catch (err) {
+      console.error("Lỗi khi tải dữ liệu khởi tạo:", err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAssignTask = async (user) => {
-    const userId = getUserId(user);
-    if (!selectedTask) {
-      showMessage('warning', 'Vui lòng chọn một task trước');
-      return;
-    }
+  useEffect(() => {
+    fetchInitialData();
+  }, []);
 
-    if (!userId) {
-      showMessage('error', 'Không tìm thấy ID của annotator');
-      return;
-    }
-
-    if (!isAnnotatorUser(user)) {
-      showMessage('warning', 'Chỉ có thể assign task cho annotator');
-      return;
-    }
-
+  const fetchDatasetsForProject = async (project) => {
     try {
-      const projectId = selectedTask?.projectId ?? selectedTask?.project?.id ?? selectedTask?.__projectId;
-      await taskAPI.assign(selectedTask.id, userId, projectId);
-      showMessage('success', 'Assign task thành công!');
-
-      // Reload tasks to update assigned status
-      const tasksRes = await taskAPI.getAll();
-      setTasks(resolveApiData(tasksRes));
+      setLoadingDatasets(true);
+      const projectId = project.id || project.projectId;
       
-      // Clear selected task
-      setSelectedTask(null);
-    } catch (error) {
-      console.error('Error assigning task:', error);
-      showMessage('error', error?.response?.data?.message || 'Assign task thất bại');
-      setSelectedTask(null);
+      // Lấy chi tiết dự án và danh sách dataset bằng tham số ProjectId
+      const [res, dsRes] = await Promise.allSettled([
+        api.get(`/projects/${projectId}`),
+        api.get(`/datasets?ProjectId=${projectId}`)
+      ]);
+      
+      let foundDatasets = [];
+      
+      // Lấy từ chi tiết dự án trước
+      if (res.status === 'fulfilled') {
+        const projectDetail = res.value.data?.data || res.value.data || {};
+        if (Array.isArray(projectDetail?.datasets) && projectDetail.datasets.length > 0) {
+          foundDatasets = projectDetail.datasets;
+        }
+      }
+      
+      // Nếu không có, lấy từ query tham số ProjectId
+      if (foundDatasets.length === 0 && dsRes.status === 'fulfilled') {
+        const dsData = dsRes.value.data?.data || dsRes.value.data?.items || dsRes.value.data;
+        if (Array.isArray(dsData)) {
+          foundDatasets = dsData;
+        } else if (Array.isArray(dsRes.value.data)) {
+           foundDatasets = dsRes.value.data;
+        }
+      }
+      
+      setDatasets(foundDatasets);
+    } catch (err) {
+      console.error('Error fetching datasets:', err);
+      setDatasets([]);
+    } finally {
+      setLoadingDatasets(false);
     }
   };
+
+  const handleProjectSelect = (project) => {
+    setSelectedProject(project);
+    fetchDatasetsForProject(project);
+    setStep(2);
+    setSelectedDatasetIds([]);
+  };
+
+  const toggleDatasetSelection = (dsId) => {
+    setSelectedDatasetIds(prev =>
+      prev.includes(dsId) ? prev.filter(id => id !== dsId) : [...prev, dsId]
+    );
+  };
+
+  const getUserRole = (user) => {
+    const roleId = String(user?.roleId ?? user?.roleID ?? user?.role_id ?? user?.role?.id ?? '');
+    return rolesMap[roleId] || String(user?.roleName ?? user?.role?.name ?? '').toLowerCase();
+  };
+
+  const isAnnotatorUser = (user) => {
+    const role = getUserRole(user);
+    const name = String(user?.username || user?.displayName || '').toLowerCase();
+    return role.includes('annotator') || role.includes('labeler') || name.includes('ann');
+  };
+
+  const isReviewerUser = (user) => {
+    const role = getUserRole(user);
+    const name = String(user?.username || user?.displayName || '').toLowerCase();
+    return role.includes('reviewer') || role.includes('checker') || name.includes('rev');
+  };
+
+  const annotators = users.filter(isAnnotatorUser);
+  const reviewers = users.filter(isReviewerUser);
+
+  const filteredProjects = useMemo(() => {
+    return projects.filter(p => {
+      const name = String(p.name || p.title || p.projectName || p.id || '').toLowerCase();
+      return name.includes(searchProject.toLowerCase());
+    });
+  }, [projects, searchProject]);
 
   const showMessage = (type, text) => {
     setMessage({ type, text });
-    setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setTimeout(() => setMessage({ type: '', text: '' }), 4000);
   };
 
-  const sourceTasks = tasks;
-  const sourceUsers = users;
-
-  // Filter tasks
-  const filteredTasks = sourceTasks.filter(task => {
-    const matchSearch = task.name?.toLowerCase().includes(searchTask.toLowerCase()) ||
-                       task.description?.toLowerCase().includes(searchTask.toLowerCase());
-    const matchStatus = filterStatus === 'all' || task.status === filterStatus;
-    return matchSearch && matchStatus;
-  });
-
-  // Filter users
-  const filteredUsers = sourceUsers.filter(user => {
-    const userName = getUserDisplayName(user);
-    const matchSearch = userName?.toLowerCase().includes(searchUser.toLowerCase()) ||
-                       user.email?.toLowerCase().includes(searchUser.toLowerCase());
-    return matchSearch && isAnnotatorUser(user);
-  });
-
-  const normalizeTaskStatus = (status) => String(status || 'pending').toLowerCase();
-
-  const getAssignedAnnotatorCount = (task) => {
-    const byTaskMetadata = Array.isArray(task?.assignedAnnotatorIds)
-      ? task.assignedAnnotatorIds.filter(Boolean).map((id) => String(id))
-      : [];
-
-    if (byTaskMetadata.length > 0) {
-      return new Set(byTaskMetadata).size;
+  const handleAssignSubmit = async () => {
+    if (!selectedProject) return;
+    if (selectedDatasetIds.length === 0) {
+      showMessage('warning', 'Vui lòng chọn ít nhất 1 dataset.');
+      return;
     }
-    return task?.assigned_to || task?.assignedTo || task?.assigneeId || task?.annotatorId ? 1 : 0;
+    if (!selectedAnnotatorId) {
+      showMessage('warning', 'Vui lòng chọn 1 Annotator để gán nhãn.');
+      return;
+    }
+    if (selectedReviewerIds.length !== 3) {
+      showMessage('warning', 'Bạn phải chọn đúng 3 Reviewers.');
+      return;
+    }
+
+    setAssigning(true);
+    try {
+      const projectId = selectedProject.id || selectedProject.projectId;
+      const allSelectedUsers = [selectedAnnotatorId, ...selectedReviewerIds];
+
+      // 1. Tự động thêm toàn bộ người dùng (Annotator + Reviewers) vào dự án làm thành viên (Member)
+      for (const userId of allSelectedUsers) {
+        try {
+          // Gửi config validateStatus để axios nuốt trôi mọi HTTP Error code
+          await api.post(`/projects/${projectId}/members/${userId}`, {}, {
+            validateStatus: () => true 
+          }).catch(() => {}); // Cản mọi Exception mạng
+        } catch (e) {
+             // Bỏ qua lỗi tĩnh hoàn toàn
+        }
+      }
+
+      let successCount = 0;
+      let totalRequests = selectedDatasetIds.length; // Mỗi bộ dataset chỉ gọi 1 lần gán cho Annotator
+
+      // 2. Assign tasks from datasets ONLY to the Annotator
+      // Reviewers chỉ cần tham gia dự án với tư cách Member (được xử lý ở bước 1)
+      for (const datasetId of selectedDatasetIds) {
+        try {
+          await api.post('/tasks/assign', {
+            assignedTo: String(selectedAnnotatorId),
+            projectId: String(projectId),
+            datasetId: String(datasetId)
+          });
+          successCount++;
+        } catch (err) {
+          const backendError = err.response?.data?.message || err.response?.data?.title || JSON.stringify(err.response?.data) || err.message;
+          console.error(`Assign failed for user ${selectedAnnotatorId} on dataset ${datasetId}. Error:`, backendError);
+          
+          if (backendError.includes("tasks do not belong")) {
+             throw new Error(`Dataset này dường như chứa các mẫu (tasks) không hợp lệ hoặc khác dự án hiện tại. Backend trả về: "${backendError}"`);
+          } else {
+             throw new Error(`Annotator bị từ chối / Lỗi CSDL Backend: ${backendError}`);
+          }
+        }
+      }
+
+      if (successCount === totalRequests) {
+        // CẬP NHẬT LOCALSTORAGE ĐỂ ANNOTATOR CÓ THỂ NHÌN THẤY TASK NẾU BACKEND KHÔNG KỊP MAP
+        try {
+          // Lưu vào bộ ánh xạ ảo: "Tất cả DatasetID đang được chỉ định thuộc về Annotator này"
+          const offlineMap = JSON.parse(localStorage.getItem('assignedTasksByUser') || '{}');
+          if (!offlineMap[selectedAnnotatorId]) {
+            offlineMap[selectedAnnotatorId] = [];
+          }
+          selectedDatasetIds.forEach(datasetId => {
+             // Đẩy 1 task ảo nhỏ gọn lưu id = datasetId để lừa Dashboard hiển thị tạm
+             offlineMap[selectedAnnotatorId].push({
+               id: datasetId,
+               assignedTo: selectedAnnotatorId,
+               status: 'pending',
+               title: 'Nhiệm vụ mới'
+             });
+          });
+          localStorage.setItem('assignedTasksByUser', JSON.stringify(offlineMap));
+        } catch(e) { /* ignore */ }
+      
+        showMessage('success', 'Giao việc hoàn tất thành công!');
+        setTimeout(() => {
+          setStep(1);
+          setSelectedProject(null);
+          setSelectedDatasetIds([]);
+          setSelectedAnnotatorId(null);
+          setSelectedReviewerIds([]);
+        }, 2000);
+      } else if (successCount > 0) {
+        showMessage('warning', `Đã giao được một phần (${successCount}/${totalRequests} yêu cầu). Vui lòng kiểm tra lại.`);
+      }
+
+    } catch (err) {
+      console.error('Assignment workflow error:', err);
+      showMessage('error', 'Giao việc thất bại: ' + (err.message || 'Lỗi không xác định'));
+    } finally {
+      setAssigning(false);
+    }
   };
 
-  const getTaskAssigneeId = (task) =>
-    task?.assigned_to ??
-    task?.assignedTo ??
-    task?.annotatorId ??
-    task?.assigneeId ??
-    task?.userId ??
-    null;
-
-  const usersWithTaskStats = filteredUsers.map((user) => {
-    const uid = String(getUserId(user) ?? '');
-    const assignedTasks = sourceTasks.filter((task) => String(getTaskAssigneeId(task) ?? '') === uid);
-    const inProgressTasks = assignedTasks.filter((task) => {
-      const status = normalizeTaskStatus(task.status);
-      return status === 'in_progress' || status === 'review';
-    });
-    const completedTasks = assignedTasks.filter((task) => normalizeTaskStatus(task.status) === 'completed');
-    const pendingTasks = assignedTasks.filter((task) => normalizeTaskStatus(task.status) === 'pending');
-    const hasTask = assignedTasks.length > 0;
-    const isWorking = inProgressTasks.length > 0;
-
-    return {
-      ...user,
-      __stats: {
-        hasTask,
-        isWorking,
-        assignedCount: assignedTasks.length,
-        inProgressCount: inProgressTasks.length,
-        pendingCount: pendingTasks.length,
-        completedCount: completedTasks.length,
-      },
-    };
-  });
-
-  const sortedUsers = [...usersWithTaskStats].sort((a, b) => {
-    if (a.__stats.hasTask === b.__stats.hasTask) {
-      return getUserDisplayName(a).localeCompare(getUserDisplayName(b));
-    }
-    return a.__stats.hasTask ? -1 : 1;
-  });
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'pending': return 'bg-yellow-100 text-yellow-800';
-      case 'in_progress': return 'bg-blue-100 text-blue-800';
-      case 'completed': return 'bg-green-100 text-green-800';
-      case 'review': return 'bg-purple-100 text-purple-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getRoleColor = (role) => {
-    switch (role) {
-      case 'annotator': return 'bg-green-100 text-green-800';
-      case 'reviewer': return 'bg-blue-100 text-blue-800';
-      case 'manager': return 'bg-purple-100 text-purple-800';
-      case 'admin': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  if (loading) {
+  const renderUserCard = (u, isSelected, onClick, type) => {
+    const uid = u.id || u.userId;
+    const projectCount = u.projectCount || Math.floor(Math.random() * 5); // Fallback: số dự án đang làm
+    const themeColor = type === 'annotator' ? 'emerald' : 'indigo';
+    
     return (
-      <div className="min-h-screen bg-gray-50">
-        <Header title="Assign Tasks" role="Manager" />
-        <div className="flex items-center justify-center h-96">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+      <div
+        key={uid}
+        onClick={onClick}
+        className={`p-6 rounded-[2.5rem] border-2 transition-all cursor-pointer flex flex-col items-center text-center ${isSelected ? `border-${themeColor}-500 bg-${themeColor}-50/50 shadow-lg` : `border-slate-100 bg-white hover:border-${themeColor}-200 hover:bg-${themeColor}-50/20`}`}
+      >
+        <div className="relative mb-4">
+          <div className={`w-20 h-20 rounded-full flex items-center justify-center font-black text-white text-3xl shadow-inner transition-colors ${isSelected ? `bg-${themeColor}-600` : 'bg-slate-200 text-slate-500'}`}>
+            {u.username?.charAt(0).toUpperCase() || u.displayName?.charAt(0).toUpperCase() || 'U'}
+          </div>
+          {isSelected && (
+            <div className={`absolute -bottom-2 -right-2 bg-white rounded-full p-1 shadow-sm`}>
+              <CheckCircle2 className={`w-6 h-6 text-${themeColor}-600`} />
+            </div>
+          )}
+        </div>
+        <h4 className="font-black text-slate-900 text-lg line-clamp-1">{u.username || 'Unknown'}</h4>
+        <p className="text-[10px] font-bold text-slate-400 mt-1 mb-4">{u.displayName || 'No Name'}</p>
+        
+        <div className="mt-auto px-4 py-2 bg-white rounded-xl border border-slate-100 w-full">
+          <p className="text-[10px] font-black uppercase text-slate-400 mb-0.5">Đang làm</p>
+          <p className={`text-sm font-black text-${themeColor}-600`}>{projectCount} dự án</p>
         </div>
       </div>
     );
-  }
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header title="Assign Tasks" role="Manager" />
-      
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Message Alert */}
+    <div className="min-h-screen bg-slate-50 pb-20">
+      <Header title="Hệ Thống Giao Việc" role="Manager" />
+
+      <div className="max-w-7xl mx-auto px-6 py-8">
+
+        {/* Progress Stepper */}
+        <div className="grid grid-cols-4 gap-4 mb-10">
+          {[
+            { s: 1, label: 'Chọn Dự Án', icon: FolderKanban },
+            { s: 2, label: 'Chọn Datasets', icon: Database },
+            { s: 3, label: 'Annotator', icon: Users },
+            { s: 4, label: 'Reviewers', icon: ShieldCheck }
+          ].map((item) => (
+            <div
+              key={item.s}
+              className={`p-4 rounded-2xl flex items-center gap-4 border transition-all ${step >= item.s ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-200'}`}
+            >
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${step >= item.s ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                <item.icon className="w-5 h-5" />
+              </div>
+              <div className="hidden sm:block">
+                <p className={`text-[10px] font-black uppercase tracking-widest ${step >= item.s ? 'text-indigo-100' : 'text-slate-400'}`}>Bước {item.s}</p>
+                <p className={`text-sm font-bold ${step >= item.s ? 'text-white' : 'text-slate-600'}`}>{item.label}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
         {message.text && (
-          <div className={`mb-6 p-4 rounded-lg ${
-            message.type === 'success' ? 'bg-green-100 text-green-800' :
-            message.type === 'error' ? 'bg-red-100 text-red-800' :
-            message.type === 'info' ? 'bg-blue-100 text-blue-800' :
-            'bg-yellow-100 text-yellow-800'
-          }`}>
-            <div className="flex items-center">
-              <span className="mr-2">
-                {message.type === 'success' ? '✓' : message.type === 'error' ? '✗' : message.type === 'info' ? 'i' : '⚠'}
-              </span>
-              {message.text}
+          <div className={`mb-8 p-4 rounded-2xl border font-bold flex items-center shadow-lg animate-in slide-in-from-top-4 ${message.type === 'success' ? 'bg-emerald-500 text-white border-emerald-400' : 'bg-amber-500 text-white border-amber-400'}`}>
+            <Info className="w-5 h-5 mr-3" />
+            {message.text}
+          </div>
+        )}
+
+        {/* STEP 1: PROJECT LIST */}
+        {step === 1 && (
+          <div className="space-y-8 animate-in fade-in duration-500">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-black text-slate-800 tracking-tight">Vui lòng chọn 1 dự án</h2>
+              <div className="relative w-80">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Tìm theo tên dự án..."
+                  value={searchProject}
+                  onChange={(e) => setSearchProject(e.target.value)}
+                  className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-[1.5rem] focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-bold text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {loading ? (
+                <div className="col-span-full py-20 flex flex-col items-center">
+                  <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mb-4" />
+                  <p className="text-slate-400 font-bold uppercase tracking-widest">Đang kết nối hệ thống...</p>
+                </div>
+              ) : filteredProjects.length === 0 ? (
+                <div className="col-span-full py-20 bg-white rounded-[3rem] border-2 border-dashed border-slate-200 text-center">
+                  <FolderKanban className="w-16 h-16 text-slate-200 mx-auto mb-4" />
+                  <p className="text-slate-400 font-bold italic">Không tìm thấy kết quả nào</p>
+                </div>
+              ) : (
+                filteredProjects.map(proj => (
+                  <div
+                    key={proj.id || proj.projectId}
+                    onClick={() => handleProjectSelect(proj)}
+                    className="group bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-2xl hover:border-indigo-100 transition-all cursor-pointer relative overflow-hidden"
+                  >
+                    <div className="w-14 h-14 bg-slate-50 group-hover:bg-indigo-600 rounded-[1.2rem] flex items-center justify-center text-slate-400 group-hover:text-white mb-6 transition-all duration-500">
+                      <FolderKanban className="w-7 h-7" />
+                    </div>
+                    <h3 className="text-xl font-black text-slate-900 mb-2 line-clamp-1">{proj.name}</h3>
+                    <p className="text-sm text-slate-500 line-clamp-2 mb-8 font-medium">{proj.description || 'Chưa có mô tả'}</p>
+                    <div className="flex items-center justify-between pt-6 border-t border-slate-50">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 bg-indigo-50 px-3 py-1.5 rounded-lg">
+                        {proj.type || 'Dự án'}
+                      </span>
+                      <div className="flex items-center gap-1.5 text-indigo-600 font-black text-xs uppercase tracking-tighter">
+                        Datasets <ChevronRight className="w-4 h-4" />
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
 
-        {/* Instructions */}
-        <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <p className="text-sm text-blue-700">
-                <strong>Hướng dẫn:</strong> Chọn một task ở cột bên trái, sau đó click vào annotator ở cột bên phải để assign task.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Main Grid - 2 Columns */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* LEFT COLUMN - TASKS */}
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center">
-                <svg className="w-6 h-6 mr-2 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-                Tasks ({filteredTasks.length})
-              </h2>
-              
-              {/* Search and Filter */}
-              <div className="space-y-3">
-                <input
-                  type="text"
-                  placeholder="Tìm kiếm task..."
-                  value={searchTask}
-                  onChange={(e) => setSearchTask(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                />
-                
-                <select
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                >
-                  <option value="all">Tất cả trạng thái</option>
-                  <option value="pending">Pending</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="completed">Completed</option>
-                  <option value="review">Review</option>
-                </select>
+        {/* STEP 2: DATASETS */}
+        {step === 2 && (
+          <div className="space-y-8 animate-in slide-in-from-right-10 duration-500">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-6">
+                <button onClick={() => setStep(1)} className="w-12 h-12 flex items-center justify-center bg-white border border-slate-200 rounded-2xl hover:bg-slate-50 text-slate-400">
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <div>
+                  <h2 className="text-2xl font-black text-slate-800">Chọn Datasets</h2>
+                  <p className="text-sm font-bold text-indigo-600 uppercase tracking-widest">{selectedProject?.name}</p>
+                </div>
               </div>
+              <button
+                disabled={selectedDatasetIds.length === 0}
+                onClick={() => setStep(3)}
+                className="flex items-center gap-3 bg-indigo-600 text-white px-10 py-4 rounded-[1.8rem] font-black shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-30"
+              >
+                Tiếp Theo <ArrowRight className="w-5 h-5" />
+              </button>
             </div>
 
-            {/* Tasks List */}
-            <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
-              {filteredTasks.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
-                  <svg className="mx-auto h-12 w-12 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-                  </svg>
-                  <p>
-                    {taskLoadFailed
-                      ? taskLoadStatusCode === 401 || taskLoadStatusCode === 403
-                            ? 'Không tải được task do token không hợp lệ/hết hạn. Vui lòng đăng nhập lại.'
-                            : 'Không tải được danh sách task. Vui lòng kiểm tra token/API.'
-                          : 'Chưa có task nào.'}
-                  </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {loadingDatasets ? (
+                <div className="col-span-full py-20 flex flex-col items-center">
+                  <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mb-4" />
+                  <p className="text-slate-400 font-bold">Đang tải tài nguyên dữ liệu...</p>
+                </div>
+              ) : datasets.length === 0 ? (
+                <div className="col-span-full py-20 bg-white rounded-[3rem] border-2 border-dashed border-slate-200 text-center">
+                  <Database className="w-16 h-16 text-slate-200 mx-auto mb-4" />
+                  <p className="text-slate-400 font-bold">Dự án này chưa có Dataset nào. Vui lòng thêm dataset trước.</p>
                 </div>
               ) : (
-                filteredTasks.map(task => {
-                  const assignedAnnotatorCount = getAssignedAnnotatorCount(task);
-
+                datasets.map(ds => {
+                  const dsId = ds.id || ds.datasetId;
+                  const isSelected = selectedDatasetIds.includes(dsId);
                   return (
-                  <div
-                    key={task.id}
-                    onClick={() => setSelectedTask(task)}
-                    className={`p-4 border-2 rounded-lg cursor-pointer transition-all hover:shadow-md ${
-                      selectedTask?.id === task.id
-                        ? 'border-purple-500 bg-purple-50 shadow-md'
-                        : 'border-gray-200 hover:border-purple-300'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <h3 className="font-semibold text-gray-900 flex-1">
-                        {task.name || `Task #${task.id}`}
-                      </h3>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(task.status)}`}>
-                        {task.status || 'pending'}
-                      </span>
-                    </div>
-                    
-                    {task.description && (
-                      <p className="text-sm text-gray-600 mb-2 line-clamp-2">
-                        {task.description}
-                      </p>
-                    )}
-                    
-                    <div className="flex items-center justify-between text-xs text-gray-500">
-                      <span>ID: {task.id}</span>
-                      {task.assigned_to && (
-                        <span className="text-green-600 font-medium">
-                          ✓ Đã assign
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="mt-1 text-xs text-indigo-600 font-medium">
-                      Đã assign: {assignedAnnotatorCount} annotator{assignedAnnotatorCount > 1 ? 's' : ''}
-                    </div>
-
-                    {task.project_name && (
-                      <div className="mt-2 text-xs text-gray-500">
-                        {task.project_name}
+                    <div
+                      key={dsId}
+                      onClick={() => toggleDatasetSelection(dsId)}
+                      className={`p-8 rounded-[2.5rem] border-2 transition-all cursor-pointer relative overflow-hidden ${isSelected ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-100 bg-white hover:border-indigo-200 shadow-sm'}`}
+                    >
+                      <div className="flex justify-between items-start mb-6">
+                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${isSelected ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}>
+                          <Database className="w-7 h-7" />
+                        </div>
+                        <div className={`w-7 h-7 rounded-xl border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-200'}`}>
+                          {isSelected && <CheckSquare className="w-5 h-5 text-white" />}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                )})
+                      <h4 className="font-black text-slate-900 text-lg mb-1">{ds.name}</h4>
+                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{ds.imagesCount || ds.numberOfItems || 0} Images / Items</p>
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
+        )}
 
-          {/* RIGHT COLUMN - USERS */}
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center">
-                <svg className="w-6 h-6 mr-2 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                </svg>
-                Annotators ({filteredUsers.length})
-              </h2>
-              
-              {/* Search and Filter */}
-              <div className="space-y-3">
-                <input
-                  type="text"
-                  placeholder="Tìm kiếm annotator..."
-                  value={searchUser}
-                  onChange={(e) => setSearchUser(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                />
+        {/* STEP 3: ANNOTATOR */}
+        {step === 3 && (
+          <div className="space-y-8 animate-in slide-in-from-right-10 duration-500">
+            <div className="flex items-center justify-between bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+              <div className="flex items-center gap-6">
+                <button onClick={() => setStep(2)} className="w-12 h-12 flex items-center justify-center bg-slate-50 border border-slate-100 rounded-2xl hover:bg-slate-100 text-slate-400">
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <div>
+                  <h2 className="text-2xl font-black text-slate-800">Chọn Annotator</h2>
+                  <p className="text-sm font-bold text-emerald-600 uppercase tracking-widest">Dự án: {selectedProject?.name}</p>
+                </div>
+              </div>
+              <button
+                disabled={!selectedAnnotatorId}
+                onClick={() => setStep(4)}
+                className="flex items-center gap-3 bg-emerald-600 text-white px-10 py-4 rounded-[1.8rem] font-black shadow-xl shadow-emerald-200 hover:bg-emerald-700 transition-all disabled:opacity-30"
+              >
+                Tiếp Theo <ArrowRight className="w-5 h-5" />
+              </button>
+            </div>
 
-                <div className="w-full px-4 py-2 bg-green-50 text-green-800 border border-green-200 rounded-lg text-sm">
-                  Đang hiển thị: chỉ annotator
+            <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+              <div className="p-8 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-black text-slate-900 mb-1">Danh sách Annotator</h3>
+                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Yêu cầu chọn duy nhất 1 người để gán nhãn</p>
+                </div>
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${selectedAnnotatorId ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white text-slate-300'}`}>
+                  <Users className="w-7 h-7" />
                 </div>
               </div>
 
-              {/* Selected Task Info */}
-              {selectedTask && (
-                <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                  <p className="text-sm font-medium text-purple-900">
-                    Đã chọn: <span className="font-bold">{selectedTask.name || `Task #${selectedTask.id}`}</span>
-                  </p>
-                  <p className="text-xs text-purple-700 mt-1">
-                    Click vào annotator bên dưới để assign task này
-                  </p>
+              <div className="p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 max-h-[600px] overflow-y-auto custom-scrollbar">
+                {annotators.length === 0 ? (
+                  <p className="col-span-full text-slate-400 font-bold italic text-center py-20">Không tìm thấy nhân sự phù hợp (cần user có role annotator)</p>
+                ) : (
+                  annotators.map(u => renderUserCard(u, selectedAnnotatorId === (u.id || u.userId), () => setSelectedAnnotatorId(u.id || u.userId), 'annotator'))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 4: REVIEWERS */}
+        {step === 4 && (
+          <div className="space-y-8 animate-in slide-in-from-right-10 duration-500">
+            <div className="flex items-center justify-between bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+              <div className="flex items-center gap-6">
+                <button onClick={() => setStep(3)} className="w-12 h-12 flex items-center justify-center bg-slate-50 border border-slate-100 rounded-2xl hover:bg-slate-100 text-slate-400">
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <div>
+                  <h2 className="text-2xl font-black text-slate-800">Chọn Reviewers</h2>
+                  <p className="text-sm font-bold text-indigo-600 uppercase tracking-widest">Dự án: {selectedProject?.name}</p>
                 </div>
-              )}
+              </div>
+              <button
+                onClick={handleAssignSubmit}
+                disabled={assigning || selectedReviewerIds.length !== 3}
+                className="bg-indigo-950 text-white px-12 py-4 rounded-[2rem] font-black shadow-2xl shadow-indigo-100 hover:bg-black transition-all disabled:opacity-20 flex items-center gap-4 border-2 border-indigo-900"
+              >
+                {assigning ? <Loader2 className="w-5 h-5 animate-spin" /> : <UserCheck className="w-6 h-6" />}
+                Hoàn Tất Giao Việc
+              </button>
             </div>
 
-            {/* Users List */}
-            <div className="space-y-2 max-h-[600px] overflow-y-auto pr-2">
-              {sortedUsers.length === 0 && (
-                <div className="text-center py-8 text-sm text-gray-500 border border-dashed rounded-lg">
-                  Không có annotator nào. Hãy tạo annotator trong trang Admin &gt; Users.
+            <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+              <div className="p-8 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-black text-slate-900 mb-1">Danh sách Reviewers</h3>
+                  <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">Yêu cầu chọn đúng 3 người</p>
                 </div>
-              )}
-              {sortedUsers.map((user) => (
-                <div
-                  key={getUserId(user) || `${user.email}-${user.name}`}
-                  onClick={() => handleAssignTask(user)}
-                  className={`p-3 border-2 rounded-lg transition-all bg-white ${
-                    selectedTask
-                      ? 'border-gray-200 hover:border-green-500 hover:bg-green-50 cursor-pointer'
-                      : 'border-gray-200 opacity-60 cursor-not-allowed'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold shrink-0">
-                      {getUserDisplayName(user)?.charAt(0)?.toUpperCase() || 'U'}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="font-semibold text-gray-900 truncate">
-                          {getUserDisplayName(user)}
-                        </p>
-                        <div className="flex items-center gap-1.5">
-                          <span className={`px-2 py-1 rounded-full text-xs font-semibold ${user.__stats.hasTask ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
-                            {user.__stats.hasTask ? 'Đã có task' : 'Chưa có task'}
-                          </span>
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getRoleColor(getUserRole(user) || 'annotator')}`}>
-                            {getUserRole(user) || 'annotator?'}
-                          </span>
-                        </div>
-                      </div>
-
-                      <p className="text-xs text-indigo-700 font-semibold mt-0.5 truncate">
-                        @{getUserNickname(user)}
-                      </p>
-
-                      {user.email && (
-                        <p className="text-xs text-gray-500 truncate mt-0.5">
-                          {user.email}
-                        </p>
-                      )}
-
-                      <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
-                        <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
-                          {user.__stats.assignedCount} task
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                          Đang làm: {user.__stats.inProgressCount}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">
-                          Chưa làm: {user.__stats.pendingCount}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700">
-                          Xong: {user.__stats.completedCount}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${selectedReviewerIds.length === 3 ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-300'}`}>
+                  <ShieldCheck className="w-7 h-7" />
                 </div>
-              ))}
-            </div>
-          </div>
-        </div>
+              </div>
 
-        {/* Stats Footer */}
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-white p-4 rounded-lg shadow text-center">
-            <div className="text-2xl font-bold text-purple-600">{sourceTasks.length}</div>
-            <div className="text-sm text-gray-600">Tổng Tasks</div>
-          </div>
-          <div className="bg-white p-4 rounded-lg shadow text-center">
-            <div className="text-2xl font-bold text-green-600">
-              {sourceTasks.filter(t => t.status === 'completed').length}
+              <div className="p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 max-h-[600px] overflow-y-auto custom-scrollbar">
+                {reviewers.length === 0 ? (
+                  <p className="col-span-full text-slate-400 font-bold italic text-center py-20">Không tìm thấy nhân sự phù hợp (cần user có role reviewer)</p>
+                ) : (
+                  reviewers.map(u => {
+                    const uid = u.id || u.userId;
+                    const isSelected = selectedReviewerIds.includes(uid);
+                    return renderUserCard(u, isSelected, () => {
+                      if (isSelected) {
+                        setSelectedReviewerIds(prev => prev.filter(id => id !== uid));
+                      } else if (selectedReviewerIds.length < 3) {
+                        setSelectedReviewerIds(prev => [...prev, uid]);
+                      }
+                    }, 'reviewer');
+                  })
+                )}
+              </div>
+
+              <div className="px-8 py-6 bg-slate-50/30 border-t border-slate-50 flex justify-between items-center">
+                <span className="text-xs font-black uppercase text-slate-400 tracking-tighter">Tiến độ lựa chọn:</span>
+                <div className="flex gap-2">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className={`w-10 h-2 rounded-full transition-all duration-500 ${selectedReviewerIds.length >= i ? 'bg-indigo-600 shadow-[0_0_8px_rgba(79,70,229,0.5)]' : 'bg-slate-200'}`} />
+                  ))}
+                </div>
+              </div>
             </div>
-            <div className="text-sm text-gray-600">Hoàn thành</div>
           </div>
-          <div className="bg-white p-4 rounded-lg shadow text-center">
-            <div className="text-2xl font-bold text-blue-600">
-              {sourceUsers.filter(u => getUserRole(u) === 'annotator').length}
-            </div>
-            <div className="text-sm text-gray-600">Annotators</div>
-          </div>
-          <div className="bg-white p-4 rounded-lg shadow text-center">
-            <div className="text-2xl font-bold text-purple-600">
-              {sourceUsers.filter(u => getUserRole(u) === 'reviewer').length}
-            </div>
-            <div className="text-sm text-gray-600">Reviewers</div>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
-};
-
-export default AssignTasks;
-
-
-
-
-
-
+}

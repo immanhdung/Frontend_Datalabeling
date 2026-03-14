@@ -56,6 +56,7 @@ export const taskAPI = {
     }),
   getMyTasks: () =>
     trySequential([
+      () => api.get("/tasks/annotator"),
       () => api.get("/tasks/my-tasks"),
       () => api.get("/tasks"),
     ]),

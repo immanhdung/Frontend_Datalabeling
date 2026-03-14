@@ -1,4 +1,4 @@
-const readJsonStorage = (key, fallbackValue) => {
+﻿const readJsonStorage = (key, fallbackValue) => {
   try {
     const rawValue = localStorage.getItem(key);
     if (!rawValue) {
@@ -172,27 +172,15 @@ export const fetchAssignedTasksForUser = async (taskApi, userIdOrIds) => {
   }
 
   const ids = Array.isArray(userIdOrIds) ? userIdOrIds : [userIdOrIds];
-  const stringIds = ids.map(id => String(id).toLowerCase().trim());
-  const isMatch = (task) => {
-     const assignedId = String(getTaskAssigneeId(task) || '').toLowerCase().trim();
-     return stringIds.includes(assignedId) || assignedId === '';
-  };
-  
-  let mergedTasks = [];
+  const isMatch = (task) => ids.some(id => String(task.assignedTo) === String(id));
 
   try {
     const myTasksResponse = await taskApi.getMyTasks();
     const myTasks = resolveApiData(myTasksResponse);
-    mergedTasks = normalizeTasks(myTasks).filter(isMatch);
+    return normalizeTasks(myTasks).filter(isMatch);
   } catch {
     const allTasksResponse = await taskApi.getAll();
     const allTasks = resolveApiData(allTasksResponse);
-    mergedTasks = normalizeTasks(allTasks).filter(isMatch);
+    return normalizeTasks(allTasks).filter(isMatch);
   }
-  
-  // NẾU BACKEND KHÔNG TRẢ GÌ, LẤY ĐỠ LOCAL CHỮA CHÁY DO MANAGER VỪA ĐẨY XUỐNG
-  if (mergedTasks.length === 0) {
-     return getLocalAssignedTasksForUser(ids);
-  }
-  return mergedTasks;
 };
