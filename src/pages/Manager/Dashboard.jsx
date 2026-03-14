@@ -43,15 +43,15 @@ export default function ManagerDashboard() {
                 const [projectsRes, usersRes, rolesRes] = await Promise.allSettled([
                     requestSequential([
                         () => api.get("/projects"),
-                        () => api.get("/Projects"),
+
                     ]),
                     requestSequential([
                         () => api.get("/users"),
-                        () => api.get("/Users"),
+
                     ]),
                     requestSequential([
                         () => api.get("/roles"),
-                        () => api.get("/Roles"),
+
                     ]),
                 ]);
 

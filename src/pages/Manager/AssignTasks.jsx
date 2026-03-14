@@ -20,7 +20,7 @@ import {
 export default function AssignTasks() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
-  
+
   const [message, setMessage] = useState({ type: '', text: '' });
   const [assigning, setAssigning] = useState(false);
 
@@ -32,7 +32,7 @@ export default function AssignTasks() {
   const [datasets, setDatasets] = useState([]);
   const [loadingDatasets, setLoadingDatasets] = useState(false);
   const [selectedDatasetIds, setSelectedDatasetIds] = useState([]);
-  
+
   const [users, setUsers] = useState([]);
   const [rolesMap, setRolesMap] = useState({});
   const [selectedAnnotatorId, setSelectedAnnotatorId] = useState(null);
@@ -44,7 +44,7 @@ export default function AssignTasks() {
   const fetchInitialData = async () => {
     try {
       setLoading(true);
-      
+
       const [projRes, usersRes, rolesRes] = await Promise.allSettled([
         api.get('/projects').catch(() => api.get('/Projects')),
         api.get('/users').catch(() => api.get('/Users')),
@@ -87,15 +87,15 @@ export default function AssignTasks() {
     try {
       setLoadingDatasets(true);
       const projectId = project.id || project.projectId;
-      
+
       // Lấy chi tiết dự án và danh sách dataset bằng tham số ProjectId
       const [res, dsRes] = await Promise.allSettled([
         api.get(`/projects/${projectId}`),
         api.get(`/datasets?ProjectId=${projectId}`)
       ]);
-      
+
       let foundDatasets = [];
-      
+
       // Lấy từ chi tiết dự án trước
       if (res.status === 'fulfilled') {
         const projectDetail = res.value.data?.data || res.value.data || {};
@@ -103,17 +103,17 @@ export default function AssignTasks() {
           foundDatasets = projectDetail.datasets;
         }
       }
-      
+
       // Nếu không có, lấy từ query tham số ProjectId
       if (foundDatasets.length === 0 && dsRes.status === 'fulfilled') {
         const dsData = dsRes.value.data?.data || dsRes.value.data?.items || dsRes.value.data;
         if (Array.isArray(dsData)) {
           foundDatasets = dsData;
         } else if (Array.isArray(dsRes.value.data)) {
-           foundDatasets = dsRes.value.data;
+          foundDatasets = dsRes.value.data;
         }
       }
-      
+
       setDatasets(foundDatasets);
     } catch (err) {
       console.error('Error fetching datasets:', err);
@@ -194,10 +194,10 @@ export default function AssignTasks() {
         try {
           // Gửi config validateStatus để axios nuốt trôi mọi HTTP Error code
           await api.post(`/projects/${projectId}/members/${userId}`, {}, {
-            validateStatus: () => true 
-          }).catch(() => {}); // Cản mọi Exception mạng
+            validateStatus: () => true
+          }).catch(() => { }); // Cản mọi Exception mạng
         } catch (e) {
-             // Bỏ qua lỗi tĩnh hoàn toàn
+          // Bỏ qua lỗi tĩnh hoàn toàn
         }
       }
 
@@ -217,11 +217,11 @@ export default function AssignTasks() {
         } catch (err) {
           const backendError = err.response?.data?.message || err.response?.data?.title || JSON.stringify(err.response?.data) || err.message;
           console.error(`Assign failed for user ${selectedAnnotatorId} on dataset ${datasetId}. Error:`, backendError);
-          
+
           if (backendError.includes("tasks do not belong")) {
-             throw new Error(`Dataset này dường như chứa các mẫu (tasks) không hợp lệ hoặc khác dự án hiện tại. Backend trả về: "${backendError}"`);
+            throw new Error(`Dataset này dường như chứa các mẫu (tasks) không hợp lệ hoặc khác dự án hiện tại. Backend trả về: "${backendError}"`);
           } else {
-             throw new Error(`Annotator bị từ chối / Lỗi CSDL Backend: ${backendError}`);
+            throw new Error(`Annotator bị từ chối / Lỗi CSDL Backend: ${backendError}`);
           }
         }
       }
@@ -235,17 +235,17 @@ export default function AssignTasks() {
             offlineMap[selectedAnnotatorId] = [];
           }
           selectedDatasetIds.forEach(datasetId => {
-             // Đẩy 1 task ảo nhỏ gọn lưu id = datasetId để lừa Dashboard hiển thị tạm
-             offlineMap[selectedAnnotatorId].push({
-               id: datasetId,
-               assignedTo: selectedAnnotatorId,
-               status: 'pending',
-               title: 'Nhiệm vụ mới'
-             });
+            // Đẩy 1 task ảo nhỏ gọn lưu id = datasetId để lừa Dashboard hiển thị tạm
+            offlineMap[selectedAnnotatorId].push({
+              id: datasetId,
+              assignedTo: selectedAnnotatorId,
+              status: 'pending',
+              title: 'Nhiệm vụ mới'
+            });
           });
           localStorage.setItem('assignedTasksByUser', JSON.stringify(offlineMap));
-        } catch(e) { /* ignore */ }
-      
+        } catch (e) { /* ignore */ }
+
         showMessage('success', 'Giao việc hoàn tất thành công!');
         setTimeout(() => {
           setStep(1);
@@ -270,7 +270,7 @@ export default function AssignTasks() {
     const uid = u.id || u.userId;
     const projectCount = u.projectCount || Math.floor(Math.random() * 5); // Fallback: số dự án đang làm
     const themeColor = type === 'annotator' ? 'emerald' : 'indigo';
-    
+
     return (
       <div
         key={uid}
@@ -289,7 +289,7 @@ export default function AssignTasks() {
         </div>
         <h4 className="font-black text-slate-900 text-lg line-clamp-1">{u.username || 'Unknown'}</h4>
         <p className="text-[10px] font-bold text-slate-400 mt-1 mb-4">{u.displayName || 'No Name'}</p>
-        
+
         <div className="mt-auto px-4 py-2 bg-white rounded-xl border border-slate-100 w-full">
           <p className="text-[10px] font-black uppercase text-slate-400 mb-0.5">Đang làm</p>
           <p className={`text-sm font-black text-${themeColor}-600`}>{projectCount} dự án</p>

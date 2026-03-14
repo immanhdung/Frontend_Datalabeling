@@ -144,7 +144,7 @@ export default function CreateProjectPage() {
         setLoadingDatasets(true);
         const response = await requestSequential([
           () => api.get("/datasets"),
-          () => api.get("/Datasets"),
+
         ]);
         setDatasets(toArray(response?.data));
       } catch {
@@ -257,9 +257,9 @@ export default function CreateProjectPage() {
       datasetIds.map((datasetId) =>
         requestSequential([
           () => api.post(`/datasets/add/${projectId}`, { datasetId }),
-          () => api.post(`/Datasets/add/${projectId}`, { datasetId }),
+
           () => api.post(`/datasets/${datasetId}/attach/${projectId}`, {}),
-          () => api.post(`/Datasets/${datasetId}/attach/${projectId}`, {}),
+
         ])
       )
     );
@@ -352,7 +352,7 @@ export default function CreateProjectPage() {
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
-        <button className="p-2 rounded hover:bg-gray-100" onClick={() => navigate("/manager/projects")}> 
+        <button className="p-2 rounded hover:bg-gray-100" onClick={() => navigate("/manager/projects")}>
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div>
@@ -368,13 +368,12 @@ export default function CreateProjectPage() {
           <div key={s.number} className="flex items-center">
             <div className={`flex items-center gap-2 ${step >= s.number ? "text-indigo-600" : "text-gray-400"}`}>
               <div
-                className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  step > s.number
+                className={`w-10 h-10 rounded-full flex items-center justify-center ${step > s.number
                     ? "bg-indigo-600 text-white"
                     : step === s.number
                       ? "border-2 border-indigo-600"
                       : "bg-gray-200"
-                }`}
+                  }`}
               >
                 {step > s.number ? <Check /> : <s.icon className="w-4 h-4" />}
               </div>
@@ -449,9 +448,8 @@ export default function CreateProjectPage() {
                             key={label.id}
                             onClick={() => toggleLabel(label.name)}
                             type="button"
-                            className={`px-3 py-1 rounded-full text-sm border ${
-                              selected ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-700 border-gray-300"
-                            }`}
+                            className={`px-3 py-1 rounded-full text-sm border ${selected ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-700 border-gray-300"
+                              }`}
                           >
                             {label.name}
                           </button>

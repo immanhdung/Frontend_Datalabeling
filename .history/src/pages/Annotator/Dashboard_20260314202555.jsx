@@ -66,92 +66,29 @@ const AnnotatorDashboard = () => {
         const localAssignedTasks = getLocalAssignedTasksForUser(currentUserIdentifiers);
         const normalizedLocalTasks = normalizeTasks(localAssignedTasks, currentUserId);
 
-        // 3. Define Mock Projects (Always available for testing)
-        const MOCK_PROJECTS = [
-          {
-            id: "mock-1",
-            title: "Phân loại phương tiện giao thông TP.HCM",
-            projectName: "HCMC Traffic AI",
-            description: "Gán nhãn các loại xe (ô tô, xe máy, xe buýt) trong ảnh chụp từ camera giao thông để huấn luyện mô hình giám sát.",
-            type: "image",
-            status: "pending",
-            priority: "high",
-            progress: 0,
-            totalItems: 5,
-            dueDate: new Date(Date.now() + 86400000 * 3).toISOString(),
-            updatedAt: new Date().toISOString(),
-            items: [
-              { id: "i1", data: { url: "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=1200", width: 1200, height: 800 }, annotations: [], status: "pending" },
-              { id: "i2", data: { url: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=1200", width: 1200, height: 800 }, annotations: [], status: "pending" },
-              { id: "i3", data: { url: "https://images.unsplash.com/photo-1449034446853-66c86144b0ad?w=1200", width: 1200, height: 800 }, annotations: [], status: "pending" },
-              { id: "i4", data: { url: "https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=1200", width: 1200, height: 800 }, annotations: [], status: "pending" },
-              { id: "i5", data: { url: "https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?w=1200", width: 1200, height: 800 }, annotations: [], status: "pending" },
-            ]
-          },
-          {
-            id: "mock-2",
-            title: "Nhận diện văn bản y tế",
-            projectName: "Medical OCR",
-            description: "Trích xuất thông tin từ các đơn thuốc và bệnh án viết tay.",
-            type: "text",
-            status: "in_progress",
-            priority: "medium",
-            progress: 40,
-            totalItems: 10,
-            dueDate: new Date(Date.now() + 86400000 * 7).toISOString(),
-            updatedAt: new Date().toISOString(),
-            items: Array(10).fill(0).map((_, i) => ({ 
-              id: `t${i}`, 
-              data: { content: `Mẫu văn bản y tế số ${i+1}: Bệnh nhân có triệu chứng đau đầu, chóng mặt. Chỉ định chụp CT và xét nghiệm máu bổ sung để xác định nguyên nhân.` }, 
-              status: i < 4 ? "annotated" : "pending",
-              annotations: i < 4 ? [{ id: Date.now() + i, label: "PERSON", text: "Bệnh nhân", type: 'entity', color: '#3b82f6' }] : []
-            }))
-          }
-        ];
-
-        // 4. Merge them (Dedupe by ID)
+        // 3. Merge them (Dedupe by ID)
         const mergedMap = new Map();
 
-        // Always add Mock projects first
-        MOCK_PROJECTS.forEach(task => {
-          mergedMap.set(String(task.id), { ...task, isMock: true });
-        });
-
-        // Add local ones (they might have more recent local progress)
+        // Add local ones first (they might have more recent local progress)
         normalizedLocalTasks.forEach(task => {
-          if (task.id) {
-            const existing = mergedMap.get(String(task.id));
-            mergedMap.set(String(task.id), { ...existing, ...task });
-          }
+          if (task.id) mergedMap.set(String(task.id), task);
         });
 
-        // Add API ones (if any)
+        // Add/Overwrite with API ones (API is source of truth for global status)
         apiTasks.forEach(task => {
           if (task.id) {
+            // If it already exists in map, we might want to preserve local items if they have annotations
             const existing = mergedMap.get(String(task.id));
             mergedMap.set(String(task.id), {
               ...existing,
               ...task,
+              // Favor local items/annotations if API doesn't have them yet or local is more complete
               items: task.items?.length > 0 ? task.items : (existing?.items || task.items)
             });
           }
         });
 
-        const finalTasks = Array.from(mergedMap.values());
-        
-        // Sync mock projects to local storage for persistent testing
-        const taskMap = JSON.parse(localStorage.getItem('assignedTasksByUser') || '{}');
-        const key = String(currentUserId);
-        if (!taskMap[key]) taskMap[key] = [];
-        
-        MOCK_PROJECTS.forEach(mock => {
-           if (!taskMap[key].some(t => String(t.id) === String(mock.id))) {
-             taskMap[key].push(mock);
-           }
-        });
-        localStorage.setItem('assignedTasksByUser', JSON.stringify(taskMap));
-
-        setTasks(finalTasks);
+        setTasks(Array.from(mergedMap.values()));
       } catch (loadError) {
         console.error("Failed to load assigned tasks:", loadError);
         setError("Không thể đồng bộ danh sách nhiệm vụ. Vui lòng kiểm tra kết nối.");
