@@ -81,11 +81,16 @@ export default function Login() {
           : resolvedRole?.name ?? resolvedRole?.roleName;
 
       const userId = responseData.userId ?? responseData.id ?? nestedUser.id;
-      const username =
+      const usernameFromResponse =
         responseData.username ??
         responseData.userName ??
-        nestedUser.username ??
-        usernameOrEmail.trim();
+        nestedUser.username;
+
+      const normalizedLoginInput = usernameOrEmail.trim();
+      const loginByEmail = normalizedLoginInput.includes("@");
+      const username = loginByEmail
+        ? (usernameFromResponse || normalizedLoginInput)
+        : normalizedLoginInput;
 
       if (!token || !roleName) {
         throw new Error("Ph\u1ea3n h\u1ed3i \u0111\u0103ng nh\u1eadp kh\u00f4ng \u0111\u1ea7y \u0111\u1ee7 token ho\u1eb7c role");
@@ -95,6 +100,7 @@ export default function Login() {
         {
           id: userId,
           username,
+          serverUsername: usernameFromResponse || null,
           role: roleName,
         },
         token

@@ -31,6 +31,8 @@ import AnnotatorFeedback from "./pages/Annotator/Feedback";
 import ReviewerDashboard from "./pages/Reviewer/Dashboard";
 import ReviewerHistory from "./pages/Reviewer/History";
 import ReviewerAnalytics from "./pages/Reviewer/Analytics";
+import ReviewerTask from "./pages/Reviewer/Task";
+import ReviewInbox from "./pages/Reviewer/ReviewInbox";
 
 
 function ProtectedRoute({ children, allowRoles }) {
@@ -231,7 +233,15 @@ function App() {
           path="/reviewer/review"
           element={
             <ProtectedRoute allowRoles={["reviewer"]}>
-              <ReviewerDashboard />
+              <ReviewInbox />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reviewer/task/:taskId"
+          element={
+            <ProtectedRoute allowRoles={["reviewer"]}>
+              <ReviewerTask />
             </ProtectedRoute>
           }
         />
