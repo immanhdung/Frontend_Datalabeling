@@ -184,10 +184,15 @@ export const fetchAssignedTasksForUser = async (taskApi, userIdOrIds) => {
     const myTasksResponse = await taskApi.getMyTasks();
     const myTasks = resolveApiData(myTasksResponse);
     mergedTasks = normalizeTasks(myTasks).filter(isMatch);
-  } catch {
-    const allTasksResponse = await taskApi.getAll();
-    const allTasks = resolveApiData(allTasksResponse);
-    mergedTasks = normalizeTasks(allTasks).filter(isMatch);
+  } catch (err) {
+    console.warn("getMyTasks failed, trying getAll", err);
+    try {
+      const allTasksResponse = await taskApi.getAll();
+      const allTasks = resolveApiData(allTasksResponse);
+      mergedTasks = normalizeTasks(allTasks).filter(isMatch);
+    } catch (err2) {
+      console.warn("Both API calls failed for tasks, falling back to local storage", err2);
+    }
   }
   
   // NẾU BACKEND KHÔNG TRẢ GÌ, LẤY ĐỠ LOCAL CHỮA CHÁY DO MANAGER VỪA ĐẨY XUỐNG
