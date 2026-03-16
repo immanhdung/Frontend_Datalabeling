@@ -23,6 +23,7 @@ import Datasets from "./pages/Manager/Datasets";
 
 // Annotator
 import AnnotatorDashboard from "./pages/Annotator/Dashboard";
+import AnnotatorTasks from "./pages/Annotator/Tasks";
 import AnnotatorTask from "./pages/Annotator/Task";
 import AnnotatorHistory from "./pages/Annotator/History";
 import AnnotatorFeedback from "./pages/Annotator/Feedback";
@@ -199,7 +200,7 @@ function App() {
           path="/annotator/tasks"
           element={
             <ProtectedRoute allowRoles={["annotator"]}>
-              <AnnotatorDashboard />
+              <AnnotatorTasks />
             </ProtectedRoute>
           }
         />
