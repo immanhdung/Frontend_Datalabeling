@@ -38,18 +38,34 @@ const PREDEFINED_COLORS = [
   '#14b8a6', '#f43f5e', '#a855f7', '#0ea5e9', '#22c55e',
 ];
 
+// Stable color per label name (same label → same color always)
+const _labelColorRegistry = {};
 function getLabelColor(label, index = 0) {
-  const predefined = {
-    Car: '#3b82f6', Person: '#10b981', Bicycle: '#f59e0b',
-    Truck: '#ef4444', Motorcycle: '#8b5cf6',
-    PERSON: '#3b82f6', LOCATION: '#10b981', ORGANIZATION: '#f59e0b',
-    DATE: '#ef4444', PRODUCT: '#8b5cf6',
-  };
-  return predefined[label] || PREDEFINED_COLORS[index % PREDEFINED_COLORS.length];
+  if (!label) return PREDEFINED_COLORS[index % PREDEFINED_COLORS.length];
+  if (_labelColorRegistry[label]) return _labelColorRegistry[label];
+  let hash = 0;
+  for (let i = 0; i < label.length; i++) hash = (hash * 31 + label.charCodeAt(i)) & 0xffff;
+  const color = PREDEFINED_COLORS[hash % PREDEFINED_COLORS.length];
+  _labelColorRegistry[label] = color;
+  return color;
 }
 
+// Label colors are assigned dynamically when project labels are loaded
+
+// ────────────────────────────────────────────────────────────
+// FIX: resolveImageUrl now handles nested datasetItem structure
+// API returns: { taskItemId, datasetItem: { storageUri, ... } }
+// ────────────────────────────────────────────────────────────
 function resolveImageUrl(item) {
   if (!item) return '';
+
+  // Unwrap nested datasetItem from API response
+  const nested = item?.datasetItem || item?.DatasetItem;
+  if (nested) {
+    const nestedUrl = resolveImageUrl(nested);
+    if (nestedUrl) return nestedUrl;
+  }
+
   const candidate =
     item?.storageUri || item?.StorageUri ||
     item?.thumbnailUrl || item?.previewUrl ||
@@ -82,9 +98,9 @@ export default function AnnotatorTask() {
   const [error, setError] = useState(null);
 
   const [task, setTask] = useState(null);
-  const [items, setItems] = useState([]); // task items (images/etc)
+  const [items, setItems] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [labels, setLabels] = useState(['Car', 'Person', 'Bicycle', 'Truck']);
+  const [labels, setLabels] = useState([]); // Loaded from project API on mount
   const [selectedLabel, setSelectedLabel] = useState('');
 
   // Per-item state: Map of itemId -> { annotations[], status, skipReason }
@@ -109,7 +125,8 @@ export default function AnnotatorTask() {
 
   // ── Derived ────────────────────────────────────────────────
   const currentItem = items[currentIndex] || null;
-  const currentItemId = currentItem?.id || `item-${currentIndex}`;
+  // FIX: Use taskItemId for annotation API calls (backend expects this)
+  const currentItemId = currentItem?.taskItemId || currentItem?.id || `item-${currentIndex}`;
   const currentState = itemStates[currentItemId] || { annotations: [], status: 'pending', skipReason: '' };
   const annotations = currentState.annotations;
 
@@ -130,7 +147,6 @@ export default function AnnotatorTask() {
     setLoading(true);
     setError(null);
     try {
-      // Try state passed from navigation first
       const passedTask = location.state?.task;
 
       let taskData = null;
@@ -160,38 +176,97 @@ export default function AnnotatorTask() {
         taskItems = Array.isArray(rawItems) ? rawItems : [];
       } catch (e) {
         console.warn('[Task] getItems failed:', e?.message);
-        // Use items from task if available
         taskItems = taskData.items || [];
       }
 
-      // Fetch labels from project (annotator may not have access - ignore 403)
-      let projectLabels = [];
-      if (taskData.projectId) {
-        try {
-          const projRes = await projectAPI.getById(taskData.projectId);
-          const projData = resolveApiData(projRes);
-          const proj = Array.isArray(projData) ? projData[0] : projData;
-          const raw =
-            proj?.category?.labels ||
-            proj?.Category?.Labels ||
-            proj?.labels ||
-            proj?.Labels ||
-            [];
-          projectLabels = raw
-            .map((l) => (typeof l === 'string' ? l : l?.name || l?.Name))
-            .filter(Boolean);
-        } catch (e) {
-          // 403 = annotator has no project access, use default labels
-          console.warn('[Task] getProject failed (ignored):', e?.message);
-        }
-      }
-
-      // Debug: log first item to see image URL fields
+      // ── FIX: Log first item so we can debug structure ──────
       if (taskItems.length > 0) {
         console.log('[Task] First item sample:', JSON.stringify(taskItems[0]).slice(0, 500));
       }
 
-      if (projectLabels.length > 0) setLabels(projectLabels);
+      // ── FIX: Normalize nested API item structure ───────────
+      // API returns: { taskItemId, projectId, datasetItem: { itemId, storageUri, metadata } }
+      // Flatten so resolveImageUrl and ID extraction work correctly.
+      taskItems = taskItems.map((item) => {
+        if (item?.taskItemId && item?.datasetItem) {
+          return {
+            ...item.datasetItem,          // spread datasetItem fields (storageUri, itemId, etc.)
+            taskItemId: item.taskItemId,  // keep taskItemId for annotation submission
+            id: item.taskItemId,          // use taskItemId as primary key
+            _raw: item,
+          };
+        }
+        return item;
+      });
+
+      // Fetch labels from project
+      // Manager stores selected labels in project's category.labels when creating project
+      let projectLabels = [];
+      if (taskData.projectId) {
+        try {
+          const projRes = await projectAPI.getById(taskData.projectId);
+
+          // Log raw response để debug — sẽ xóa sau khi fix xong
+          console.log('[Task] RAW projRes:', JSON.stringify(projRes).slice(0, 1200));
+
+          // resolveApiData có thể unwrap data/result/items — thử tất cả các tầng
+          const tryExtractLabels = (obj) => {
+            if (!obj || typeof obj !== 'object') return [];
+            const raw =
+              obj?.category?.labels ||
+              obj?.category?.selectedLabels ||
+              obj?.Category?.Labels ||
+              obj?.Category?.SelectedLabels ||
+              obj?.selectedLabels ||
+              obj?.SelectedLabels ||
+              obj?.labels ||
+              obj?.Labels ||
+              obj?.labelNames ||
+              obj?.LabelNames ||
+              null;
+            if (raw && Array.isArray(raw) && raw.length > 0) {
+              return raw
+                .map((l) => typeof l === 'string' ? l : (l?.name || l?.Name || l?.value || l?.label || ''))
+                .filter(Boolean);
+            }
+            return [];
+          };
+
+          // Thử nhiều tầng của response
+          const candidates = [
+            projRes,
+            projRes?.data,
+            projRes?.data?.data,
+            projRes?.data?.result,
+            projRes?.result,
+          ];
+
+          for (const candidate of candidates) {
+            const obj = Array.isArray(candidate) ? candidate[0] : candidate;
+            const found = tryExtractLabels(obj);
+            if (found.length > 0) {
+              projectLabels = found;
+              console.log('[Task] Labels found at candidate:', JSON.stringify(candidate).slice(0, 200));
+              break;
+            }
+          }
+
+          console.log('[Task] Final labels:', projectLabels);
+        } catch (e) {
+          console.warn('[Task] getProject labels failed:', e?.message);
+        }
+      }
+
+      if (projectLabels.length > 0) {
+        // Assign stable colors to each project label by position
+        projectLabels.forEach((l, i) => {
+          if (!_labelColorRegistry[l]) {
+            _labelColorRegistry[l] = PREDEFINED_COLORS[i % PREDEFINED_COLORS.length];
+          }
+        });
+        setLabels(projectLabels);
+        setSelectedLabel(''); // reset selection when labels change
+      }
       setTask(taskData);
       setItems(taskItems);
 
@@ -207,7 +282,7 @@ export default function AnnotatorTask() {
       // Load existing annotations for each item
       const initialStates = {};
       for (const item of taskItems) {
-        const itemId = item?.id || item?.itemId;
+        const itemId = item?.taskItemId || item?.id || item?.itemId;
         const itemStatus = String(item?.status || '').toLowerCase();
         initialStates[itemId] = {
           annotations: [],
@@ -216,7 +291,6 @@ export default function AnnotatorTask() {
               itemStatus === 'skipped' ? 'skipped' : 'pending',
           skipReason: '',
         };
-        // Try to load existing annotations
         if (itemId && (itemStatus === 'completed' || itemStatus === 'done')) {
           try {
             const annRes = await annotationAPI.getByItem(itemId);
@@ -311,7 +385,7 @@ export default function AnnotatorTask() {
       };
       updateItemState(currentItemId, {
         annotations: [...annotations, newAnn],
-        status: 'pending', // mark dirty
+        status: 'pending',
       });
     }
   }
@@ -329,21 +403,32 @@ export default function AnnotatorTask() {
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw saved annotations
     annotations.forEach((ann) => {
-      ctx.strokeStyle = ann.color || '#ef4444';
+      const color = ann.color || '#ef4444';
+      // Semi-transparent fill like reference image
+      ctx.fillStyle = color + '33';
+      ctx.fillRect(ann.x, ann.y, ann.width, ann.height);
+      // Solid border
+      ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.strokeRect(ann.x, ann.y, ann.width, ann.height);
-      ctx.fillStyle = ann.color || '#ef4444';
-      ctx.font = 'bold 13px Inter, sans-serif';
-      const textY = ann.y > 20 ? ann.y - 5 : ann.y + 16;
-      ctx.fillText(ann.label, ann.x + 2, textY);
+      // Label badge
+      ctx.font = 'bold 12px Inter, sans-serif';
+      const textMetrics = ctx.measureText(ann.label);
+      const badgeW = textMetrics.width + 10;
+      const badgeH = 18;
+      const badgeX = ann.x;
+      const badgeY = ann.y > badgeH ? ann.y - badgeH : ann.y + ann.height;
+      ctx.fillStyle = color;
+      ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(ann.label, badgeX + 5, badgeY + 13);
     });
 
-    // Draw preview box
     if (previewBox && selectedLabel) {
-      const labelIdx = labels.indexOf(selectedLabel);
-      const color = getLabelColor(selectedLabel, labelIdx >= 0 ? labelIdx : 0);
+      const color = getLabelColor(selectedLabel, labels.indexOf(selectedLabel));
+      ctx.fillStyle = color + '22';
+      ctx.fillRect(previewBox.x, previewBox.y, previewBox.width, previewBox.height);
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 3]);
@@ -388,13 +473,10 @@ export default function AnnotatorTask() {
   async function goNext() {
     if (!currentItem) return;
 
-    // Auto-save if there are annotations and not yet done
     if (currentState.status !== 'done' && currentState.status !== 'skipped') {
       if (annotations.length > 0) {
         const ok = await saveCurrentItem();
         if (!ok) return;
-      } else {
-        // Allow moving without saving (user may skip later)
       }
     }
 
@@ -435,15 +517,14 @@ export default function AnnotatorTask() {
 
   // ── Submit project ─────────────────────────────────────────
   async function handleSubmit() {
-    // Check all items processed
     if (!allProcessed) {
       const unprocessed = items.filter((item, idx) => {
-        const id = item?.id || `item-${idx}`;
+        const id = item?.taskItemId || item?.id || `item-${idx}`;
         const st = itemStates[id]?.status;
         return st !== 'done' && st !== 'skipped';
       });
       const firstUnprocessedIdx = items.findIndex((item, idx) => {
-        const id = item?.id || `item-${idx}`;
+        const id = item?.taskItemId || item?.id || `item-${idx}`;
         const st = itemStates[id]?.status;
         return st !== 'done' && st !== 'skipped';
       });
@@ -457,14 +538,12 @@ export default function AnnotatorTask() {
 
     setSubmitting(true);
     try {
-      // Try to submit task via API
       try {
         await taskAPI.submit(taskId);
       } catch (e) {
         console.warn('[Task] submit API not available:', e?.message);
-        // Continue anyway - submissions are already saved per item
       }
-      alert('Nộp dự án thành công! Đang chuyển hướng đến trang reviewer...');
+      alert('Nộp dự án thành công! Đang chuyển hướng...');
       navigate('/annotator/tasks');
     } catch (err) {
       console.error('[Task] submit error:', err);
@@ -517,7 +596,6 @@ export default function AnnotatorTask() {
       {/* ── Top Bar ── */}
       <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-30 shadow-sm">
         <div className="max-w-screen-2xl mx-auto flex items-center justify-between gap-4">
-          {/* Left: back + task info */}
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => navigate('/annotator/tasks')}
@@ -531,7 +609,6 @@ export default function AnnotatorTask() {
             </div>
           </div>
 
-          {/* Center: progress */}
           <div className="hidden md:flex flex-col items-center gap-1 min-w-[200px]">
             <div className="w-full bg-gray-200 rounded-full h-2">
               <div
@@ -544,7 +621,6 @@ export default function AnnotatorTask() {
             </span>
           </div>
 
-          {/* Right: actions */}
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={saveCurrentItem}
@@ -574,8 +650,8 @@ export default function AnnotatorTask() {
               }}
               disabled={submitting}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-md ${canSubmit
-                  ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'
-                  : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'
+                : 'bg-gray-200 text-gray-500 cursor-not-allowed'
                 }`}
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -598,7 +674,8 @@ export default function AnnotatorTask() {
           </div>
           <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
             {items.map((item, idx) => {
-              const id = item?.id || `item-${idx}`;
+              // FIX: use taskItemId as state key
+              const id = item?.taskItemId || item?.id || `item-${idx}`;
               const state = itemStates[id] || {};
               const url = resolveImageUrl(item);
               const isActive = idx === currentIndex;
@@ -610,12 +687,12 @@ export default function AnnotatorTask() {
                   key={id}
                   onClick={() => setCurrentIndex(idx)}
                   className={`w-full rounded-xl border-2 overflow-hidden transition-all relative ${isActive
-                      ? 'border-indigo-500 shadow-md'
-                      : isDone
-                        ? 'border-emerald-300 opacity-80'
-                        : isSkipped
-                          ? 'border-amber-300 opacity-70'
-                          : 'border-transparent hover:border-slate-300'
+                    ? 'border-indigo-500 shadow-md'
+                    : isDone
+                      ? 'border-emerald-300 opacity-80'
+                      : isSkipped
+                        ? 'border-amber-300 opacity-70'
+                        : 'border-transparent hover:border-slate-300'
                     }`}
                 >
                   {url ? (
@@ -630,7 +707,6 @@ export default function AnnotatorTask() {
                       <Tag className="w-8 h-8" />
                     </div>
                   )}
-                  {/* Status badge */}
                   <div className="absolute top-1 right-1">
                     {isDone && (
                       <span className="bg-emerald-500 text-white rounded-full w-5 h-5 flex items-center justify-center">
@@ -782,7 +858,17 @@ export default function AnnotatorTask() {
               <Tag className="w-4 h-4" /> Chọn nhãn
             </h3>
             <div className="space-y-1.5 max-h-48 overflow-y-auto">
-              {labels.map((label, idx) => {
+              {loading ? (
+                <div className="flex items-center justify-center py-4 text-gray-400">
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  <span className="text-xs">Đang tải nhãn...</span>
+                </div>
+              ) : labels.length === 0 ? (
+                <div className="text-center py-4 text-gray-400">
+                  <Tag className="w-6 h-6 mx-auto mb-1 opacity-40" />
+                  <p className="text-xs">Không có nhãn trong dự án</p>
+                </div>
+              ) : labels.map((label, idx) => {
                 const color = getLabelColor(label, idx);
                 const isSelected = selectedLabel === label;
                 return (
@@ -790,8 +876,8 @@ export default function AnnotatorTask() {
                     key={label}
                     onClick={() => setSelectedLabel(isSelected ? '' : label)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left font-semibold text-sm transition-all ${isSelected
-                        ? 'text-white shadow-md'
-                        : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                      ? 'text-white shadow-md'
+                      : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
                       }`}
                     style={isSelected ? { backgroundColor: color } : {}}
                   >
@@ -805,7 +891,7 @@ export default function AnnotatorTask() {
                 );
               })}
             </div>
-            {!selectedLabel && (
+            {!selectedLabel && labels.length > 0 && (
               <p className="text-xs text-amber-600 mt-2 font-medium">
                 ↑ Chọn nhãn, rồi kéo trên ảnh để vẽ
               </p>
@@ -866,7 +952,6 @@ export default function AnnotatorTask() {
               </div>
             )}
 
-            {/* Skip reason display */}
             {currentState.status === 'skipped' && currentState.skipReason && (
               <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
                 <p className="text-xs font-bold text-amber-700 mb-1">Lý do bỏ qua:</p>
@@ -944,7 +1029,6 @@ export default function AnnotatorTask() {
             </p>
             <p className="text-sm text-gray-500 mb-6">
               Sau khi nộp, dự án sẽ được chuyển đến <strong>Reviewer</strong> để kiểm duyệt.
-              Bạn không thể chỉnh sửa thêm sau khi nộp.
             </p>
             <div className="flex gap-3">
               <button
