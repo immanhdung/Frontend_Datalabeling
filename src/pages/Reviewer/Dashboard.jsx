@@ -94,11 +94,7 @@ const ReviewerDashboard = () => {
     dateFrom: '',
     dateTo: '',
   });
-
-  // Reject modal
-  const [showRejectModal, setShowRejectModal] = useState(false);
-  const [rejectingAnnotationId, setRejectingAnnotationId] = useState(null);
-  const [rejectFeedback, setRejectFeedback] = useState('');
+  const [actionLoadingById, setActionLoadingById] = useState({});
 
   // Get unique values for filter dropdowns
   const uniqueAnnotators = [...new Set(annotations.map(a => a.annotatorName))];
@@ -167,7 +163,10 @@ const ReviewerDashboard = () => {
   };
 
   const handleApprove = async (id) => {
+    if (actionLoadingById[id]) return;
+
     try {
+      setActionLoadingById((prev) => ({ ...prev, [id]: 'approve' }));
       const annotation = annotations.find(ann => ann.id === id);
       const now = new Date().toISOString();
       
@@ -201,23 +200,32 @@ const ReviewerDashboard = () => {
     } catch (err) {
       console.error('Error approving annotation:', err);
       alert(err.response?.data?.message || 'Không thể duyệt annotation');
+    } finally {
+      setActionLoadingById((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
     }
   };
 
-  const handleReject = async (id, feedback) => {
+  const handleReject = async (id) => {
+    if (actionLoadingById[id]) return;
+
     try {
+      setActionLoadingById((prev) => ({ ...prev, [id]: 'reject' }));
       const annotation = annotations.find(ann => ann.id === id);
       const now = new Date().toISOString();
       
       // Call API to reject
       await reviewAPI.reject(id, {
-        feedback: feedback,
+        feedback: '',
         reviewedAt: now
       });
       
       // Update local state
       setAnnotations(annotations.map(ann => 
-        ann.id === id ? { ...ann, status: 'rejected', feedback, reviewedAt: now } : ann
+        ann.id === id ? { ...ann, status: 'rejected', feedback: '', reviewedAt: now } : ann
       ));
       
       // Add to review history
@@ -229,7 +237,7 @@ const ReviewerDashboard = () => {
         annotatorName: annotation.annotatorName,
         projectName: annotation.projectName,
         decision: 'rejected',
-        feedback: feedback,
+        feedback: '',
         reviewedAt: now,
         reviewTime: Math.floor(Math.random() * 10) + 3, // Mock review time
         type: annotation.type,
@@ -239,25 +247,12 @@ const ReviewerDashboard = () => {
     } catch (err) {
       console.error('Error rejecting annotation:', err);
       alert(err.response?.data?.message || 'Không thể từ chối annotation');
-    }
-  };
-
-  const openRejectModal = (id) => {
-    setRejectingAnnotationId(id);
-    setRejectFeedback('');
-    setShowRejectModal(true);
-  };
-
-  const closeRejectModal = () => {
-    setShowRejectModal(false);
-    setRejectingAnnotationId(null);
-    setRejectFeedback('');
-  };
-
-  const submitReject = () => {
-    if (rejectFeedback.trim()) {
-      handleReject(rejectingAnnotationId, rejectFeedback);
-      closeRejectModal();
+    } finally {
+      setActionLoadingById((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
     }
   };
 
@@ -314,14 +309,14 @@ const ReviewerDashboard = () => {
         {/* Statistics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <StatsCard
-            title="Tổng Annotations"
+            title="Tổng annotation"
             value={stats.total}
             icon={<FileText className="w-6 h-6" />}
             iconBgColor="bg-blue-100"
             iconColor="text-blue-600"
           />
           <StatsCard
-            title="Ch? Review"
+            title="Chờ Review"
             value={stats.pending}
             icon={<Clock className="w-6 h-6" />}
             iconBgColor="bg-yellow-100"
@@ -350,7 +345,7 @@ const ReviewerDashboard = () => {
               <div>
                 <p className="text-blue-100 text-sm font-medium mb-1">Hôm nay</p>
                 <p className="text-3xl font-bold">{stats.todayReviews}</p>
-                <p className="text-blue-100 text-sm mt-1">reviews hoàn thành</p>
+                <p className="text-blue-100 text-sm mt-1">mục đã xử lý</p>
               </div>
               <div className="bg-blue-400 bg-opacity-30 p-4 rounded-lg">
                 <TrendingUp className="w-8 h-8" />
@@ -363,7 +358,7 @@ const ReviewerDashboard = () => {
               <div>
                 <p className="text-green-100 text-sm font-medium mb-1">Tỷ lệ duyệt</p>
                 <p className="text-3xl font-bold">{stats.approvalRate}%</p>
-                <p className="text-green-100 text-sm mt-1">annotations được duyệt</p>
+                <p className="text-green-100 text-sm mt-1">mẫu được duyệt</p>
               </div>
               <div className="bg-green-400 bg-opacity-30 p-4 rounded-lg">
                 <CheckCircle2 className="w-8 h-8" />
@@ -376,7 +371,7 @@ const ReviewerDashboard = () => {
               <div>
                 <p className="text-purple-100 text-sm font-medium mb-1">TB thời gian</p>
                 <p className="text-3xl font-bold">{stats.avgReviewTime}m</p>
-                <p className="text-purple-100 text-sm mt-1">mỗi review</p>
+                <p className="text-purple-100 text-sm mt-1">mỗi lần duyệt</p>
               </div>
               <div className="bg-purple-400 bg-opacity-30 p-4 rounded-lg">
                 <Clock className="w-8 h-8" />
@@ -555,7 +550,8 @@ const ReviewerDashboard = () => {
             {/* Status Filter Tabs */}
             <div className="flex gap-3 overflow-x-auto">{[
               { key: 'all', label: 'Tất cả', count: annotations.length },
-              { key: 'pending_review', label: 'Ch? review', count: annotations.filter(a => a.status === 'pending_review').length },
+              { key: 'pending_review', label: 'Chờ review', count: annotations.filter(a => a.status === 'pending_review').length },
+              { key: 'expired', label: 'Quá hạn', count: annotations.filter(a => a.status === 'expired').length },
               { key: 'approved', label: 'Đã duyệt', count: annotations.filter(a => a.status === 'approved').length },
               { key: 'rejected', label: 'Đã từ chối', count: annotations.filter(a => a.status === 'rejected').length },
             ].map((tab) => (
@@ -603,7 +599,7 @@ const ReviewerDashboard = () => {
                       </div>
                       <div className="flex-1 min-w-0">
                         <h3 className="font-bold text-gray-900 text-xl mb-1">{annotation.taskTitle}</h3>
-                        <p className="text-sm text-gray-600">Task ID: {annotation.taskId}</p>
+                        <p className="text-sm text-gray-600">Mã task: {annotation.taskId}</p>
                       </div>
                     </div>
                     
@@ -621,10 +617,12 @@ const ReviewerDashboard = () => {
                     <div className="flex flex-wrap items-center gap-3 mb-4">
                       <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
                         annotation.status === 'pending_review' ? 'bg-yellow-100 text-yellow-800' :
+                        annotation.status === 'expired' ? 'bg-rose-100 text-rose-800' :
                         annotation.status === 'approved' ? 'bg-green-100 text-green-800' :
                         'bg-red-100 text-red-800'
                       }`}>
-                        {annotation.status === 'pending_review' ? 'Ch? review' :
+                        {annotation.status === 'pending_review' ? 'Chờ review' :
+                         annotation.status === 'expired' ? 'Quá hạn' :
                          annotation.status === 'approved' ? 'Đã duyệt' : 'Đã từ chối'}
                       </span>
                       <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-800 uppercase">
@@ -645,7 +643,7 @@ const ReviewerDashboard = () => {
                     {annotation.feedback && (
                       <div className="p-4 bg-red-50 border border-red-200 rounded-lg mb-3">
                         <p className="text-sm text-red-900">
-                          <span className="font-semibold">Feedback: </span>
+                          <span className="font-semibold">Phản hồi: </span>
                           {annotation.feedback}
                         </p>
                       </div>
@@ -653,7 +651,7 @@ const ReviewerDashboard = () => {
 
                     {annotation.reviewedAt && (
                       <p className="text-xs text-gray-500">
-                        Reviewed: {new Date(annotation.reviewedAt).toLocaleString('vi-VN')}
+                        Đã review: {new Date(annotation.reviewedAt).toLocaleString('vi-VN')}
                       </p>
                     )}
                   </div>
@@ -670,17 +668,19 @@ const ReviewerDashboard = () => {
                       <>
                         <button 
                           onClick={() => handleApprove(annotation.id)}
-                          className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-semibold transition-all flex items-center justify-center gap-2"
+                          disabled={Boolean(actionLoadingById[annotation.id])}
+                          className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                         >
                           <ThumbsUp className="w-4 h-4" />
-                          Duyệt
+                          {actionLoadingById[annotation.id] === 'approve' ? 'Đang duyệt...' : 'Duyệt'}
                         </button>
                         <button 
-                          onClick={() => openRejectModal(annotation.id)}
-                          className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-semibold transition-all flex items-center justify-center gap-2"
+                          onClick={() => handleReject(annotation.id)}
+                          disabled={Boolean(actionLoadingById[annotation.id])}
+                          className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                         >
                           <ThumbsDown className="w-4 h-4" />
-                          T? ch?i
+                          {actionLoadingById[annotation.id] === 'reject' ? 'Đang từ chối...' : 'Từ chối'}
                         </button>
                       </>
                     )}
@@ -692,60 +692,6 @@ const ReviewerDashboard = () => {
         </div>
       </main>
 
-      {/* Reject Modal */}
-      {showRejectModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold text-gray-900">Từ chối gán nhãn</h3>
-                <button
-                  onClick={closeRejectModal}
-                  className="text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-            </div>
-            
-            <div className="p-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Lý do từ chối *
-              </label>
-              <textarea
-                value={rejectFeedback}
-                onChange={(e) => setRejectFeedback(e.target.value)}
-                placeholder="Nhập lý do từ chối gán nhãn này..."
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none"
-                rows="4"
-              />
-              
-              <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <p className="text-sm text-yellow-800">
-                  <AlertCircle className="w-4 h-4 inline mr-1" />
-                  Vui lòng cung cấp lý do rõ ràng để annotator có thể cải thiện.
-                </p>
-              </div>
-            </div>
-            
-            <div className="p-6 border-t border-gray-200 flex gap-3">
-              <button
-                onClick={closeRejectModal}
-                className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition-all"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={submitReject}
-                disabled={!rejectFeedback.trim()}
-                className="flex-1 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed font-medium transition-all"
-              >
-                Xác nhận từ chối
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

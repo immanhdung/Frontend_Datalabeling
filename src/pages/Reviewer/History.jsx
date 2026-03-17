@@ -98,7 +98,7 @@ const ReviewHistory = () => {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Back Button */}
         <button
-          onClick={() => navigate('/reviewer')}
+          onClick={() => navigate('/reviewer/dashboard')}
           className="mb-8 flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors font-semibold group"
         >
           <div className="p-2 rounded-xl bg-white border shadow-sm group-hover:bg-slate-50 transition-colors">
