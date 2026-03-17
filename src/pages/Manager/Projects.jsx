@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Search,
   Plus,
@@ -22,17 +22,6 @@ const toArray = (value) => {
   return [];
 };
 
-const requestSequential = async (factories) => {
-  let lastError;
-  for (const factory of factories) {
-    try {
-      return await factory();
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError;
-};
 
 const getProjectId = (project) =>
   project?.id ??
@@ -89,10 +78,7 @@ export default function ManagerProjects() {
       setSubmittingLabel(true);
       const projectId = selectedProject.id || selectedProject.projectId;
 
-      await requestSequential([
-        () => api.post(`/datasets/add/${projectId}`, { datasetId }),
-        () => api.post(`/Datasets/${datasetId}/attach/${projectId}`, {}),
-      ]);
+      await api.post(`/datasets/add/${projectId}`, { datasetId });
 
       alert(`Đã gán dataset cho dự án "${selectedProject.name}" thành công!`);
       setShowDatasetModal(false);
@@ -219,10 +205,7 @@ export default function ManagerProjects() {
     if (!window.confirm("Bạn có chắc chắn muốn xóa dự án này?")) return;
 
     try {
-      await requestSequential([
-        () => api.delete(`/projects/${id}`),
-        () => api.delete(`/Projects/${id}`),
-      ]);
+      await api.delete(`/projects/${id}`);
       const nextProjects = projects.filter((p) => String(p.projectId || p.id) !== String(id));
       setProjects(nextProjects);
       await fetchProjects();

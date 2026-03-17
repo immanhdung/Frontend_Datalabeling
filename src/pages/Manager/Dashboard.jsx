@@ -16,7 +16,6 @@ import {
 import api from "../../config/api";
 import {
     toArrayData,
-    requestSequential,
     isActiveProject,
     isCompletedProject,
     getProjectStatusMeta,
@@ -29,87 +28,101 @@ import {
 
 export default function ManagerDashboard() {
     const navigate = useNavigate();
+    const [loading, setLoading] = useState(true);
     const [projectList, setProjectList] = useState([]);
+    const [taskStats, setTaskStats] = useState([]);
     const [statsData, setStatsData] = useState({
-        totalProjects: 4,
-        activeProjects: 2,
-        completedProjects: 1,
-        annotators: 3,
+        totalProjects: 0,
+        activeProjects: 0,
+        completedProjects: 0,
+        annotators: 0,
     });
 
     useEffect(() => {
-        const loadStats = async () => {
+        const loadDashboardData = async () => {
             try {
-                const [projectsRes, usersRes, rolesRes] = await Promise.allSettled([
-                    requestSequential([
-                        () => api.get("/projects"),
-
-                    ]),
-                    requestSequential([
-                        () => api.get("/users"),
-
-                    ]),
-                    requestSequential([
-                        () => api.get("/roles"),
-
-                    ]),
+                setLoading(true);
+                const [projectsRes, usersRes, rolesRes, tasksRes] = await Promise.allSettled([
+                    api.get("/projects"),
+                    api.get("/users"),
+                    api.get("/roles"),
+                    api.get("/tasks"),
                 ]);
 
-                const projects = projectsRes.status === "fulfilled"
-                    ? toArrayData(projectsRes.value?.data)
-                    : [];
-
-                const roles = rolesRes.status === "fulfilled"
-                    ? toArrayData(rolesRes.value?.data)
-                    : [];
-
-                const roleMap = {};
-                roles.forEach((role) => {
-                    const roleId = role?.id ?? role?.roleId;
-                    const roleName = role?.roleName ?? role?.name;
-                    if (roleId && roleName) {
-                        roleMap[String(roleId)] = String(roleName).toLowerCase();
-                    }
-                });
-
-                const users = usersRes.status === "fulfilled"
-                    ? toArrayData(usersRes.value?.data)
-                    : [];
+                const projects = projectsRes.status === "fulfilled" ? toArrayData(projectsRes.value?.data) : [];
+                const users = usersRes.status === "fulfilled" ? toArrayData(usersRes.value?.data) : [];
+                const roles = rolesRes.status === "fulfilled" ? toArrayData(rolesRes.value?.data) : [];
+                const tasks = tasksRes.status === "fulfilled" ? toArrayData(tasksRes.value?.data) : [];
 
                 setProjectList(projects);
 
-                const annotatorCount = users.filter((user) => {
-                    const mappedRoleById = roleMap[String(user?.roleId ?? user?.roleID ?? user?.role_id ?? user?.role?.id ?? user?.role?.roleId ?? "")];
-                    const rawRole = user?.roleName ?? user?.role?.name ?? user?.role ?? mappedRoleById;
-                    return String(rawRole || "").toLowerCase() === "annotator";
+                // 1. Role mapping for annotator count
+                const roleMap = {};
+                roles.forEach((role) => {
+                    const id = role?.id ?? role?.roleId;
+                    const name = role?.roleName ?? role?.name;
+                    if (id && name) roleMap[String(id)] = String(name).toLowerCase();
+                });
+
+                const annotatorCount = users.filter((u) => {
+                    const rId = String(u?.roleId ?? u?.role?.id ?? "");
+                    const rName = String(u?.roleName ?? u?.role?.name ?? u?.role ?? "").toLowerCase();
+                    return rName === "annotator" || roleMap[rId] === "annotator";
                 }).length;
 
-                const activeProjects = projects.filter((project) => isActiveProject(project)).length;
-                const completedProjects = projects.filter((project) => isCompletedProject(project)).length;
+                // 2. Project stats
+                const activeCount = projects.filter(isActiveProject).length;
+                const completedCount = projects.filter(isCompletedProject).length;
 
-                setStatsData((prev) => ({
-                    ...prev,
-                    totalProjects: projects.length || prev.totalProjects,
-                    activeProjects,
-                    completedProjects,
-                    annotators: annotatorCount || 0,
-                }));
-            } catch {
-                // Keep fallback stats if API is unavailable.
+                setStatsData({
+                    totalProjects: projects.length,
+                    activeProjects: activeCount,
+                    completedProjects: completedCount,
+                    annotators: annotatorCount,
+                });
+
+                // 3. Project Progress calculation
+                const projectProgressMap = projects.slice(0, 3).map(proj => {
+                    const pid = String(proj.id || proj.projectId);
+                    const projTasks = tasks.filter(t => String(t.projectId || t.project?.id || "") === pid);
+                    
+                    const total = projTasks.length;
+                    const done = projTasks.filter(t => 
+                        ['completed', 'submitted', 'done', 'hoàn thành'].includes(String(t.status || "").toLowerCase())
+                    ).length;
+                    
+                    const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+                    
+                    return {
+                        name: proj.name || "Dự án không tên",
+                        done,
+                        total,
+                        percent,
+                        status: percent === 100 ? "Đã xong" : percent > 0 ? "Đang thực hiện" : "Chờ xử lý",
+                        color: percent === 100 ? "bg-emerald-500" : percent > 0 ? "bg-blue-500" : "bg-slate-300"
+                    };
+                });
+                
+                setTaskStats(projectProgressMap);
+
+            } catch (err) {
+                console.error("Manager Dashboard data load error:", err);
+            } finally {
+                setLoading(false);
             }
         };
 
-        loadStats();
+        loadDashboardData();
     }, []);
 
-    const stats = [
+    const statsUI = [
         {
             label: "Tổng dự án",
             value: statsData.totalProjects,
             icon: FolderOpen,
             color: "text-blue-600",
             bgColor: "bg-blue-50",
-            trend: "+2 tháng này"
+            trend: "Dữ liệu thực tế"
         },
         {
             label: "Đang hoạt động",
@@ -117,7 +130,7 @@ export default function ManagerDashboard() {
             icon: Clock,
             color: "text-amber-600",
             bgColor: "bg-amber-50",
-            trend: "1 dự án ưu tiên"
+            trend: "Dữ liệu thực tế"
         },
         {
             label: "Hoàn thành",
@@ -125,7 +138,7 @@ export default function ManagerDashboard() {
             icon: CheckCircle2,
             color: "text-emerald-600",
             bgColor: "bg-emerald-50",
-            trend: "98% độ chính xác"
+            trend: "Dữ liệu thực tế"
         },
         {
             label: "Annotators",
@@ -133,7 +146,7 @@ export default function ManagerDashboard() {
             icon: Users,
             color: "text-indigo-600",
             bgColor: "bg-indigo-50",
-            trend: "2 người mới"
+            trend: "Dữ liệu thực tế"
         },
     ];
 
@@ -178,32 +191,22 @@ export default function ManagerDashboard() {
         })
         : fallbackProjects;
 
-    const progress = [
-        {
-            name: "Phân loại chó mèo",
-            done: 2,
-            total: 5,
-            percent: 40,
-            status: "Đang thực hiện",
-            color: "bg-blue-500"
-        },
-        {
-            name: "Nhận dạng phương tiện",
-            done: 0,
-            total: 3,
-            percent: 0,
-            status: "Chờ xử lý",
-            color: "bg-slate-300"
-        },
-        {
-            name: "Dữ liệu y tế X-Ray",
-            done: 3,
-            total: 3,
-            percent: 100,
-            status: "Đã xong",
-            color: "bg-emerald-500"
-        },
+    const fallbackProgress = [
+        { name: "Phân loại chó mèo", done: 2, total: 5, percent: 40, status: "Đang thực hiện", color: "bg-blue-500" },
+        { name: "Nhận dạng phương tiện", done: 0, total: 3, percent: 0, status: "Chờ xử lý", color: "bg-slate-300" },
     ];
+    const progress = taskStats.length > 0 ? taskStats : fallbackProgress;
+
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-[#fcfdfe] flex items-center justify-center">
+                <div className="text-center space-y-4">
+                    <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                    <p className="text-slate-500 font-bold">Đang tải dữ liệu thực tế...</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-[#fcfdfe] p-4 md:p-10 font-sans text-slate-900">
@@ -228,7 +231,7 @@ export default function ManagerDashboard() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-                    {stats.map((s, i) => (
+                    {statsUI.map((s, i) => (
                         <div key={i} className="bg-white p-8 rounded-[28px] border border-slate-100 shadow-premium hover:shadow-premium-hover transition-all duration-300 group">
                             <div className="flex justify-between items-start mb-5">
                                 <div className={`p-4 rounded-2xl ${s.bgColor} ${s.color} group-hover:scale-110 transition-transform`}>

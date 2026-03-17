@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api, { categoryAPI, labelAPI } from "../../config/api";
 import { Plus, Folder, ChevronRight, Tag, X, Layers3, Pencil, Trash2, Check } from "lucide-react";
@@ -10,17 +10,6 @@ const readArray = (value) => {
   return [];
 };
 
-const requestSequential = async (requestFactories) => {
-  let lastError;
-  for (const requestFactory of requestFactories) {
-    try {
-      return await requestFactory();
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError;
-};
 
 const asArray = (value) => {
   if (Array.isArray(value)) return value;
@@ -160,10 +149,7 @@ export default function Categories() {
 
       let labelsByCategory = {};
       try {
-        const labelsRes = await requestSequential([
-          () => api.get("/labels"),
-          () => api.get("/Labels"),
-        ]);
+        const labelsRes = await api.get("/labels");
         const allLabels = readArray(labelsRes?.data);
         labelsByCategory = allLabels.reduce((acc, label) => {
           const categoryId = getLabelCategoryId(label);
@@ -203,11 +189,7 @@ export default function Categories() {
 
     try {
       setFetchingProjects(true);
-      const response = await requestSequential([
-        () => api.get("/projects"),
-        () => api.get("/Projects"),
-        () => api.get("/projects/mine"),
-      ]);
+      const response = await api.get("/projects");
       const allProjects = readArray(response?.data);
 
       const filtered = allProjects.filter((project) => {

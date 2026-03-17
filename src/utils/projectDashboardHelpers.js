@@ -5,17 +5,6 @@ export const toArrayData = (value) => {
   return [];
 };
 
-export const requestSequential = async (factories) => {
-  let lastError;
-  for (const factory of factories) {
-    try {
-      return await factory();
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError;
-};
 
 export const normalizeProjectStatus = (status) => String(status || "").trim().toLowerCase();
 

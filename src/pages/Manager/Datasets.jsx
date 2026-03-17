@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
     Plus,
     Search,
@@ -32,17 +32,6 @@ const MIME_EXTENSION_MAP = {
     "image/svg+xml": "svg",
 };
 
-const requestSequential = async (factories) => {
-    let lastError;
-    for (const factory of factories) {
-        try {
-            return await factory();
-        } catch (error) {
-            lastError = error;
-        }
-    }
-    throw lastError;
-};
 
 const formatBytes = (bytes) => {
     const numeric = Number(bytes || 0);
@@ -504,12 +493,7 @@ export default function Datasets() {
                     try {
                         const datasetId = item?.__datasetId ?? selectedDataset?.id ?? selectedDataset?.datasetId ?? null;
 
-                        const response = await requestSequential([
-                            () => api.get(`/datasets/items/${itemId}`, { responseType: "blob" }),
-                            () => api.get(`/DatasetItems/${itemId}`, { responseType: "blob" }),
-                            () => datasetId ? api.get(`/datasets/${datasetId}/items/${itemId}`, { responseType: "blob" }) : Promise.reject(new Error("skip")),
-                            () => datasetId ? api.get(`/Datasets/${datasetId}/items/${itemId}`, { responseType: "blob" }) : Promise.reject(new Error("skip")),
-                        ]);
+                        const response = await api.get(`/datasets/items/${itemId}`, { responseType: "blob" });
                         const mimeType = String(response?.data?.type || "").toLowerCase();
 
                         // Fallback: some backends may return item metadata JSON instead of binary file.
@@ -649,31 +633,15 @@ export default function Datasets() {
             let projectList = [];
 
             try {
-                const datasetRes = await requestSequential([
-                    () => api.get("/datasets"),
-                    () => api.get("/Datasets"),
-                ]);
-
-                datasetList =
-                    datasetRes.data?.items ||
-                    datasetRes.data?.data ||
-                    datasetRes.data ||
-                    [];
+                const datasetRes = await api.get("/datasets");
+                datasetList = datasetRes.data?.items || datasetRes.data?.data || datasetRes.data || [];
             } catch {
                 setError("Không thể tải dữ liệu dataset.");
             }
 
             try {
-                const projRes = await requestSequential([
-                    () => api.get("/projects"),
-                    () => api.get("/Projects"),
-                ]);
-
-                projectList =
-                    projRes.data?.items ||
-                    projRes.data?.data ||
-                    projRes.data ||
-                    [];
+                const projRes = await api.get("/projects");
+                projectList = projRes.data?.items || projRes.data?.data || projRes.data || [];
             } catch {
                 projectList = [];
             }
@@ -682,19 +650,11 @@ export default function Datasets() {
             setDatasets(safeDatasets);
             setProjects(Array.isArray(projectList) ? projectList : []);
 
-            // Some backends do not return item counts on the dataset list endpoint.
             const countResults = await Promise.allSettled(
                 safeDatasets.map(async (dataset) => {
                     const datasetId = getDatasetId(dataset);
-                    if (!datasetId) {
-                        return { datasetId: null, itemCount: 0 };
-                    }
-
-                    const itemsRes = await requestSequential([
-                        () => api.get(`/datasets/${datasetId}/items`),
-                        () => api.get(`/Datasets/${datasetId}/items`),
-                    ]);
-
+                    if (!datasetId) return { datasetId: null, itemCount: 0 };
+                    const itemsRes = await api.get(`/datasets/${datasetId}/items`);
                     return {
                         datasetId,
                         itemCount: normalizeDatasetItems(itemsRes?.data).length,
@@ -809,11 +769,7 @@ export default function Datasets() {
             const uploadedInsights = {};
 
             // 1. Create Dataset
-            const createRes = await requestSequential([
-                () => api.post("/datasets", { name: newDataset.name }),
-                () => api.post("/Datasets", { name: newDataset.name }),
-            ]);
-
+            const createRes = await api.post("/datasets", { name: newDataset.name });
             const datasetId = createRes.data?.id || createRes.data?.datasetId;
             if (!datasetId) throw new Error("Không tạo được dataset");
 
@@ -822,19 +778,13 @@ export default function Datasets() {
                 const formData = new FormData();
                 formData.append("File", newDataset.zipFile);
                 formData.append("Name", newDataset.zipFile.name);
-                await requestSequential([
-                    () => api.post(`/datasets/${datasetId}/items`, formData),
-                    () => api.post(`/Datasets/${datasetId}/items`, formData),
-                ]);
+                await api.post(`/datasets/${datasetId}/items`, formData);
             } else {
                 for (const file of newDataset.images) {
                     const formData = new FormData();
                     formData.append("File", file);
                     formData.append("Name", file.name);
-                    const uploadRes = await requestSequential([
-                        () => api.post(`/datasets/${datasetId}/items`, formData),
-                        () => api.post(`/Datasets/${datasetId}/items`, formData),
-                    ]);
+                    const uploadRes = await api.post(`/datasets/${datasetId}/items`, formData);
                     const uploadedItemId =
                         uploadRes?.data?.id ??
                         uploadRes?.data?.itemId ??
@@ -869,10 +819,7 @@ export default function Datasets() {
         try {
             setLoading(true);
             const id = selectedDataset.id || selectedDataset.datasetId;
-            await requestSequential([
-                () => api.put(`/datasets/${id}`, { name: editName }),
-                () => api.put(`/Datasets/${id}`, { name: editName }),
-            ]);
+            await api.put(`/datasets/${id}`, { name: editName });
             alert("Cập nhật thành công!");
             setShowEditModal(false);
             fetchData();
@@ -890,10 +837,7 @@ export default function Datasets() {
         try {
             setLoading(true);
             // Standarizing to uppercase for this resource
-            await requestSequential([
-                () => api.delete(`/datasets/${id}`),
-                () => api.delete(`/Datasets/${id}`),
-            ]);
+            await api.delete(`/datasets/${id}`);
             setDatasets(prev => prev.filter(d => (d.id || d.datasetId) !== id));
             alert("Đã xóa dataset thành công!");
         } catch (err) {
@@ -913,11 +857,7 @@ export default function Datasets() {
         try {
             setLoading(true);
             const dsId = selectedDataset.id || selectedDataset.datasetId;
-            await requestSequential([
-                () => api.post(`/datasets/add/${projectId}`, { datasetId: dsId }),
-                () => api.post(`/datasets/${dsId}/attach/${projectId}`, {}),
-                () => api.post(`/Datasets/${dsId}/attach/${projectId}`, {}),
-            ]);
+            await api.post(`/datasets/add/${projectId}`, { datasetId: dsId });
             alert("Gán vào project thành công!");
             setShowAssignModal(false);
             fetchData();
@@ -931,14 +871,8 @@ export default function Datasets() {
 
     const fetchDatasetDetail = async (datasetId) => {
         const [infoRes, itemsRes] = await Promise.all([
-            requestSequential([
-                () => api.get(`/datasets/${datasetId}`),
-                () => api.get(`/Datasets/${datasetId}`),
-            ]),
-            requestSequential([
-                () => api.get(`/datasets/${datasetId}/items`),
-                () => api.get(`/Datasets/${datasetId}/items`),
-            ]),
+            api.get(`/datasets/${datasetId}`),
+            api.get(`/datasets/${datasetId}/items`),
         ]);
 
         return {
@@ -1022,10 +956,7 @@ export default function Datasets() {
                 const formData = new FormData();
                 formData.append("File", file);
                 formData.append("Name", file.name);
-                const uploadRes = await requestSequential([
-                    () => api.post(`/datasets/${dsId}/items`, formData),
-                    () => api.post(`/Datasets/${dsId}/items`, formData),
-                ]);
+                const uploadRes = await api.post(`/datasets/${dsId}/items`, formData);
 
                 const uploadedItemId =
                     uploadRes?.data?.id ??
@@ -1071,12 +1002,7 @@ export default function Datasets() {
 
         try {
             setDeletingItemIds((prev) => [...prev, String(itemId)]);
-            await requestSequential([
-                () => api.delete(`/datasets/${dsId}/items/${itemId}`),
-                () => api.delete(`/Datasets/${dsId}/items/${itemId}`),
-                () => api.delete(`/datasets/items/${itemId}`),
-                () => api.delete(`/DatasetItems/${itemId}`),
-            ]);
+            await api.delete(`/datasets/${dsId}/items/${itemId}`);
 
             setDetailItems((prev) => prev.filter((it) => String(it?.id || it?.itemId || it?.datasetItemId) !== String(itemId)));
             patchDatasetCount(dsId, Math.max(detailItems.length - 1, 0));

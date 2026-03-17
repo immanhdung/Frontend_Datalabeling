@@ -22,17 +22,6 @@ const toArray = (value) => {
   return [];
 };
 
-const requestSequential = async (factories) => {
-  let lastError;
-  for (const factory of factories) {
-    try {
-      return await factory();
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError;
-};
 
 const extractProjectIdFromResponse = (responseData) => {
   const candidates = [
@@ -55,9 +44,15 @@ const getApiErrorMessage = (error) =>
   error?.message ||
   "Tạo dự án thất bại";
 
+const extractCreatedId = (resData) => {
+  return resData?.id || resData?.labelId || resData?.data?.id || resData?.data?.labelId || "";
+};
+
 const normalizeCategoryLabels = (category) => {
   const candidates = [
     ...(Array.isArray(category?.labels) ? category.labels : []),
+    ...(Array.isArray(category?.items) ? category.items : []),
+    ...(Array.isArray(category?.data) ? category.data : []),
     ...(Array.isArray(category?.labelSets) ? category.labelSets.flatMap((set) => set?.labels || []) : []),
   ];
 
@@ -116,10 +111,7 @@ export default function CreateProjectPage() {
     const fetchCategories = async () => {
       try {
         setLoadingCategories(true);
-        const response = await requestSequential([
-          () => api.get("/categories"),
-          () => api.get("/Categories"),
-        ]);
+        const response = await api.get("/categories");
 
         const normalized = toArray(response?.data).map((category, idx) => ({
           ...category,
@@ -142,10 +134,7 @@ export default function CreateProjectPage() {
     const fetchDatasets = async () => {
       try {
         setLoadingDatasets(true);
-        const response = await requestSequential([
-          () => api.get("/datasets"),
-
-        ]);
+        const response = await api.get("/datasets");
         setDatasets(toArray(response?.data));
       } catch {
         setDatasets([]);
@@ -176,12 +165,9 @@ export default function CreateProjectPage() {
 
         let fromApi = [];
         try {
-          const labelsRes = await requestSequential([
-            () => api.get(`/labels?CategoryId=${selectedCategoryId}`),
-            () => api.get(`/categories/${selectedCategoryId}/labels`),
-            () => api.get(`/Categories/${selectedCategoryId}/labels`),
-            () => api.get(`/labelsets/${selectedCategoryId}/labels`),
-          ]);
+          const labelsRes = await api.get(`/labels?CategoryId=${selectedCategoryId}`).catch(() => 
+            api.get(`/categories/${selectedCategoryId}/labels`)
+          );
           fromApi = toArray(labelsRes?.data).map((item, idx) => ({
             id: item?.id ?? `api-label-${idx}`,
             name: item?.name ?? item?.labelName,
@@ -255,12 +241,7 @@ export default function CreateProjectPage() {
 
     const results = await Promise.allSettled(
       datasetIds.map((datasetId) =>
-        requestSequential([
-          () => api.post(`/datasets/add/${projectId}`, { datasetId }),
-
-          () => api.post(`/datasets/${datasetId}/attach/${projectId}`, {}),
-
-        ])
+        api.post(`/datasets/add/${projectId}`, { datasetId })
       )
     );
 
@@ -298,17 +279,11 @@ export default function CreateProjectPage() {
       let createRes;
       try {
         console.log("Attempting project creation with templateId:", payload);
-        createRes = await requestSequential([
-            () => api.post("/projects", payload),
-            () => api.post("/Projects", payload),
-        ]);
+        createRes = await api.post("/projects", payload);
       } catch (firstErr) {
         console.warn("Project creation with templateId failed, trying without templateId...", firstErr);
         try {
-          createRes = await requestSequential([
-            () => api.post("/projects", payloadNoTemplate),
-            () => api.post("/Projects", payloadNoTemplate),
-          ]);
+          createRes = await api.post("/projects", payloadNoTemplate);
         } catch (secondErr) {
           console.error("Project creation failed completely", secondErr);
           throw secondErr;
@@ -318,10 +293,7 @@ export default function CreateProjectPage() {
       let projectId = extractProjectIdFromResponse(createRes?.data);
 
       if (!projectId) {
-        const refreshProjects = await requestSequential([
-          () => api.get(`/projects?Name=${encodeURIComponent(projectName.trim())}`),
-          () => api.get("/Projects"),
-        ]);
+        const refreshProjects = await api.get(`/projects?Name=${encodeURIComponent(projectName.trim())}`);
 
         const projectList = toArray(refreshProjects?.data);
         const latestMatch = projectList
@@ -338,16 +310,10 @@ export default function CreateProjectPage() {
       // 2. Tao Guideline neu co
       if (normalizedGuideline) {
         try {
-          await requestSequential([
-            () => api.post("/guidelines", {
-              content: normalizedGuideline,
-              projectId: projectId
-            }),
-            () => api.post("/Guidelines", {
-              content: normalizedGuideline,
-              projectId: projectId
-            }),
-          ]);
+          await api.post("/guidelines", {
+            content: normalizedGuideline,
+            projectId: projectId
+          });
         } catch (gErr) {
           console.error("Failed to create guideline:", gErr);
         }
@@ -363,23 +329,16 @@ export default function CreateProjectPage() {
             // If not exists, try to create it
             if (!labelId || String(labelId).startsWith('api-label-')) {
               try {
-                const newLabelRes = await requestSequential([
-                  () => api.post("/labels", { name: labelName, categoryId: normalizedCategoryId }),
-                  () => api.post("/Labels", { name: labelName, categoryId: normalizedCategoryId }),
-                ]);
-                labelId = newLabelRes?.data?.id || newLabelRes?.data?.labelId;
+                const newLabelRes = await api.post("/labels", { name: labelName, categoryId: normalizedCategoryId });
+                labelId = extractCreatedId(newLabelRes?.data);
               } catch (createLErr) {
                 console.warn(`Could not create label ${labelName}, it might already exist or API failed`, createLErr);
-                // Try to find it again by getting all labels?
               }
             }
 
-            if (labelId) {
+            if (labelId && !String(labelId).startsWith('api-label-')) {
               try {
-                await requestSequential([
-                  () => api.post(`/labels/add/${projectId}`, { labelId: String(labelId) }),
-                  () => api.post(`/Labels/add/${projectId}`, { labelId: String(labelId) }),
-                ]);
+                await api.post(`/labels/add/${projectId}`, { labelId: String(labelId) });
               } catch (attachLErr) {
                 console.error(`Failed to attach label ${labelName} (${labelId})`, attachLErr);
               }

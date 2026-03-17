@@ -28,18 +28,6 @@ const toObject = (value) => {
   return typeof value === "object" && !Array.isArray(value) ? value : null;
 };
 
-const requestSequential = async (factories) => {
-  let lastError;
-  for (const factory of factories) {
-    try {
-      return await factory();
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError;
-};
-
 const normalizeLabelNames = (project, labelSets) => {
   const fromProject = toArray(project?.labels).map((item) => (typeof item === "string" ? item : item?.name)).filter(Boolean);
   const fromLabelSets = labelSets.flatMap((set) => toArray(set?.labels).map((item) => item?.name)).filter(Boolean);
@@ -63,15 +51,10 @@ const normalizeLabelItem = (item, index) => {
   if (typeof item === "string") {
     const name = String(item).trim();
     if (!name) return null;
-    return {
-      id: `label-local-${index}-${name}`,
-      name,
-    };
+    return { id: `label-local-${index}-${name}`, name };
   }
-
   const name = item?.name ?? item?.labelName ?? item?.title;
   if (!name) return null;
-
   return {
     id: item?.id ?? item?.labelId ?? `label-local-${index}-${name}`,
     name: String(name).trim(),
@@ -129,18 +112,17 @@ export default function ManagerProjectDetail() {
       ...toArray(selectedCategory?.labels),
       ...toArray(selectedCategory?.labelSets).flatMap((set) => toArray(set?.labels)),
     ];
-
     const byName = new Map();
     candidates.forEach((item, index) => {
       const normalized = normalizeLabelItem(item, index);
       if (!normalized?.name) return;
       byName.set(String(normalized.name).trim().toLowerCase(), normalized);
     });
-
     return Array.from(byName.values());
   }, [selectedCategory]);
 
   const allLabels = useMemo(() => normalizeLabelNames(project, labelSets), [project, labelSets]);
+
   const selectedCategoryName = useMemo(() => {
     const cid = String(project?.categoryId || project?.category?.id || "");
     const matched = categories.find((item) => String(item?.id || item?.categoryId || "") === cid);
@@ -166,32 +148,18 @@ export default function ManagerProjectDetail() {
 
   const getEntityId = (entity) =>
     String(
-      entity?.userId ??
-        entity?.id ??
-        entity?.memberId ??
-        entity?.user?.id ??
-        entity?.user?._id ??
-        entity?.user?.userId ??
-        entity?._id ??
-        ""
+      entity?.userId ?? entity?.id ?? entity?.memberId ??
+      entity?.user?.id ?? entity?.user?._id ?? entity?.user?.userId ?? entity?._id ?? ""
     );
 
   const getEntityDisplayName = (entity, fallbackPrefix = "User") =>
-    entity?.displayName ||
-    entity?.name ||
-    entity?.username ||
-    entity?.email ||
-    `${fallbackPrefix}`;
+    entity?.displayName || entity?.name || entity?.username || entity?.email || fallbackPrefix;
 
   const getEntityRole = (entity) =>
     String(entity?.roleName || entity?.role?.name || entity?.role || "").toLowerCase();
 
   const projectMemberIdSet = useMemo(() => {
-    const ids = projectMembers
-      .map((member) => getEntityId(member))
-      .filter(Boolean)
-      .map((item) => String(item));
-
+    const ids = projectMembers.map((member) => getEntityId(member)).filter(Boolean).map((item) => String(item));
     return new Set(ids);
   }, [projectMembers]);
 
@@ -207,14 +175,8 @@ export default function ManagerProjectDetail() {
       const displayName = String(getEntityDisplayName(user, "User")).toLowerCase();
       const email = String(user?.email || "").toLowerCase();
       const username = String(user?.username || "").toLowerCase();
-
       const matchRole = role === memberRoleFilter;
-      const matchKeyword =
-        !keyword ||
-        displayName.includes(keyword) ||
-        email.includes(keyword) ||
-        username.includes(keyword);
-
+      const matchKeyword = !keyword || displayName.includes(keyword) || email.includes(keyword) || username.includes(keyword);
       return matchRole && matchKeyword;
     });
   }, [availableUsersToAdd, memberRoleFilter, memberSearch]);
@@ -232,19 +194,12 @@ export default function ManagerProjectDetail() {
       setLoading(true);
       setError(null);
 
-      const [projectRes, labelSetsRes, categoriesRes, datasetsRes, projectDatasetsRes, membersRes, tasksRes, projectLabelsRes, usersRes] = await Promise.all([
+      // ✅ Chỉ gọi các endpoint thực sự tồn tại
+      const [projectRes, categoriesRes, datasetsRes, projectDatasetsRes, tasksRes, projectLabelsRes, usersRes] = await Promise.all([
         api.get(`/projects/${id}`),
-        api.get(`/projects/${id}/label-sets`).catch(() => ({ data: [] })),
-        requestSequential([
-          () => api.get("/categories"),
-          () => api.get("/Categories"),
-        ]).catch(() => ({ data: [] })),
-        requestSequential([
-          () => api.get("/datasets"),
-          () => api.get("/Datasets"),
-        ]).catch(() => ({ data: [] })),
+        api.get("/categories").catch(() => ({ data: [] })),
+        api.get("/datasets").catch(() => ({ data: [] })),
         api.get(`/datasets?ProjectId=${id}`).catch(() => ({ data: [] })),
-        api.get(`/projects/${id}/members`).catch(() => ({ data: [] })),
         api.get("/tasks").catch(() => ({ data: [] })),
         api.get(`/labels?ProjectId=${id}`).catch(() => ({ data: [] })),
         api.get("/users").catch(() => ({ data: [] })),
@@ -254,21 +209,33 @@ export default function ManagerProjectDetail() {
         toObject(projectRes?.data) ||
         toObject(projectRes?.data?.project) ||
         projectRes?.data;
-      const fetchedLabelSets = toArray(labelSetsRes?.data);
-      const fetchedMembers = toArray(membersRes?.data);
-      const allTasks = toArray(tasksRes?.data);
-      const fetchedTasks = allTasks.filter(
-        (task) => String(task?.projectId || task?.project?.id || "") === String(id)
-      );
-      const projectLabels = toArray(projectLabelsRes?.data);
 
+      // Lấy members từ project detail (nếu có) hoặc từ allUsers filter
+      // ❌ Bỏ /projects/{id}/members vì 400
+      // ❌ Bỏ /projects/{id}/label-sets vì 404
+      let fetchedMembers = [];
+      const membersFromProject = toArray(fetchedProject?.members);
+      if (membersFromProject.length > 0) {
+        fetchedMembers = membersFromProject;
+      }
+
+      // Labels từ project detail
+      const fetchedLabelSets = toArray(fetchedProject?.labelSets || fetchedProject?.label_sets);
+      const projectLabels = toArray(projectLabelsRes?.data);
       if (projectLabels.length > 0) {
         fetchedProject.labels = projectLabels;
       }
 
+      const allTasks = toArray(tasksRes?.data);
+      const fetchedTasks = allTasks.filter(
+        (task) => String(task?.projectId || task?.project?.id || "") === String(id)
+      );
+
       setProject(fetchedProject);
       setLabelSets(fetchedLabelSets);
       setCategories(toArray(categoriesRes?.data));
+
+      // Merge all datasets + project datasets
       const allDatasets = toArray(datasetsRes?.data);
       const projectDatasets = toArray(projectDatasetsRes?.data);
       const datasetMap = new Map();
@@ -311,23 +278,18 @@ export default function ManagerProjectDetail() {
 
       setSelectedTaskId((prev) => {
         const validTaskIds = fetchedTasks.map((task) => String(task?.id || task?.taskId || "")).filter(Boolean);
-        if (prev && validTaskIds.includes(String(prev))) {
-          return prev;
-        }
+        if (prev && validTaskIds.includes(String(prev))) return prev;
         return String(fetchedTasks[0]?.id || fetchedTasks[0]?.taskId || "");
       });
 
       setSelectedAssigneeId((prev) => {
-        const validAssigneeIds = fetchedAnnotators
-          .map((member) => getEntityId(member))
-          .filter(Boolean);
-        if (prev && validAssigneeIds.includes(String(prev))) {
-          return prev;
-        }
+        const validAssigneeIds = fetchedAnnotators.map((member) => getEntityId(member)).filter(Boolean);
+        if (prev && validAssigneeIds.includes(String(prev))) return prev;
         return getEntityId(fetchedAnnotators[0]);
       });
 
-    } catch {
+    } catch (err) {
+      console.error("fetchProjectDetail error:", err);
       setError("Không thể tải thông tin chi tiết dự án. Vui lòng thử lại sau.");
     } finally {
       setLoading(false);
@@ -336,22 +298,12 @@ export default function ManagerProjectDetail() {
 
   const handleRemoveMemberFromProject = async (member) => {
     const memberId = getEntityId(member);
-    if (!memberId) {
-      alert("Không tìm thấy member ID để xóa");
-      return;
-    }
-
+    if (!memberId) { alert("Không tìm thấy member ID để xóa"); return; }
     const memberName = getEntityDisplayName(member, "Member");
-    if (!window.confirm(`Bạn có chắc chắn muốn xóa ${memberName} khỏi dự án?`)) {
-      return;
-    }
-
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa ${memberName} khỏi dự án?`)) return;
     try {
       setRemovingMemberId(memberId);
-      await requestSequential([
-        () => api.delete(`/projects/${id}/members/${memberId}`),
-        () => api.delete(`/Projects/${id}/members/${memberId}`),
-      ]);
+      await api.delete(`/projects/${id}/members/${memberId}`);
       alert("Đã xóa thành viên khỏi dự án");
       await fetchProjectDetail();
     } catch (err) {
@@ -364,12 +316,7 @@ export default function ManagerProjectDetail() {
   const handleAssignTask = async () => {
     const taskId = String(selectedTaskId || "");
     const assigneeId = String(selectedAssigneeId || "");
-
-    if (!taskId || !assigneeId) {
-      alert("Vui lòng chọn task và annotator");
-      return;
-    }
-
+    if (!taskId || !assigneeId) { alert("Vui lòng chọn task và annotator"); return; }
     try {
       setAssigningTask(true);
       await taskAPI.assign(taskId, assigneeId, id);
@@ -384,22 +331,11 @@ export default function ManagerProjectDetail() {
 
   const handleAddMemberToProject = async (targetMemberId) => {
     const memberId = String(targetMemberId || "");
-    if (!memberId) {
-      alert("Vui lòng chọn user để thêm vào dự án");
-      return;
-    }
-
-    if (projectMemberIdSet.has(memberId)) {
-      alert("User này đã thuộc dự án");
-      return;
-    }
-
+    if (!memberId) { alert("Vui lòng chọn user để thêm vào dự án"); return; }
+    if (projectMemberIdSet.has(memberId)) { alert("User này đã thuộc dự án"); return; }
     try {
       setAddingMember(true);
-      await requestSequential([
-        () => api.post(`/projects/${id}/members/${memberId}`),
-        () => api.post(`/Projects/${id}/members/${memberId}`),
-      ]);
+      await api.post(`/projects/${id}/members/${memberId}`, null, { validateStatus: () => true });
       alert("Thêm thành viên vào dự án thành công");
       await fetchProjectDetail();
     } catch (err) {
@@ -409,20 +345,9 @@ export default function ManagerProjectDetail() {
     }
   };
 
-  useEffect(() => {
-    if (id) fetchProjectDetail();
-  }, [id]);
-
-  useEffect(() => {
-    setMemberPage(1);
-  }, [memberSearch, memberRoleFilter]);
-
-  useEffect(() => {
-    if (memberPage > totalMemberPages) {
-      setMemberPage(totalMemberPages);
-    }
-  }, [memberPage, totalMemberPages]);
-
+  useEffect(() => { if (id) fetchProjectDetail(); }, [id]);
+  useEffect(() => { setMemberPage(1); }, [memberSearch, memberRoleFilter]);
+  useEffect(() => { if (memberPage > totalMemberPages) setMemberPage(totalMemberPages); }, [memberPage, totalMemberPages]);
   useEffect(() => {
     setEditingCategoryLabelId("");
     setEditingCategoryLabelName("");
@@ -432,25 +357,13 @@ export default function ManagerProjectDetail() {
   const patchSelectedCategoryLabels = (updater) => {
     const selectedCategoryId = String(editForm.categoryId || "");
     if (!selectedCategoryId) return;
-
     setCategories((prev) =>
       prev.map((category) => {
         const currentCategoryId = String(category?.id ?? category?.categoryId ?? "");
-        if (currentCategoryId !== selectedCategoryId) {
-          return category;
-        }
-
-        const normalizedLabels = toArray(category?.labels)
-          .map((item, index) => normalizeLabelItem(item, index))
-          .filter(Boolean);
-
+        if (currentCategoryId !== selectedCategoryId) return category;
+        const normalizedLabels = toArray(category?.labels).map((item, index) => normalizeLabelItem(item, index)).filter(Boolean);
         const nextLabels = updater(normalizedLabels);
-
-        return {
-          ...category,
-          labels: nextLabels,
-          labelsCount: nextLabels.length,
-        };
+        return { ...category, labels: nextLabels, labelsCount: nextLabels.length };
       })
     );
   };
@@ -459,41 +372,19 @@ export default function ManagerProjectDetail() {
     setEditingCategoryLabelId(String(label.id));
     setEditingCategoryLabelName(String(label.name || ""));
   };
-
-  const cancelEditCategoryLabel = () => {
-    setEditingCategoryLabelId("");
-    setEditingCategoryLabelName("");
-  };
+  const cancelEditCategoryLabel = () => { setEditingCategoryLabelId(""); setEditingCategoryLabelName(""); };
 
   const handleAddCategoryLabel = async () => {
     const categoryId = String(editForm.categoryId || "");
     const nextName = customLabelInput.trim();
-
-    if (!categoryId || !nextName) {
-      alert("Vui lòng chọn category và nhập tên nhãn");
-      return;
-    }
-
-    const duplicate = categoryLabelItems.some(
-      (item) => String(item.name).trim().toLowerCase() === nextName.toLowerCase()
-    );
-
-    if (duplicate) {
-      alert("Nhãn đã tồn tại trong category");
-      return;
-    }
-
+    if (!categoryId || !nextName) { alert("Vui lòng chọn category và nhập tên nhãn"); return; }
+    const duplicate = categoryLabelItems.some((item) => String(item.name).trim().toLowerCase() === nextName.toLowerCase());
+    if (duplicate) { alert("Nhãn đã tồn tại trong category"); return; }
     setLabelActionTargetId("new");
     try {
       await labelAPI.create(categoryId, { name: nextName });
-      patchSelectedCategoryLabels((prev) => [
-        ...prev,
-        { id: `label-${Date.now()}`, name: nextName },
-      ]);
-      setEditForm((prev) => ({
-        ...prev,
-        labels: prev.labels.includes(nextName) ? prev.labels : [...prev.labels, nextName],
-      }));
+      patchSelectedCategoryLabels((prev) => [...prev, { id: `label-${Date.now()}`, name: nextName }]);
+      setEditForm((prev) => ({ ...prev, labels: prev.labels.includes(nextName) ? prev.labels : [...prev.labels, nextName] }));
       setCustomLabelInput("");
     } catch (error) {
       alert(error?.response?.data?.message || error?.response?.data?.title || "Thêm nhãn thất bại");
@@ -505,42 +396,18 @@ export default function ManagerProjectDetail() {
   const handleSaveCategoryLabel = async (label) => {
     const categoryId = String(editForm.categoryId || "");
     const nextName = editingCategoryLabelName.trim();
-
-    if (!categoryId || !nextName) {
-      alert("Tên nhãn không hợp lệ");
-      return;
-    }
-
+    if (!categoryId || !nextName) { alert("Tên nhãn không hợp lệ"); return; }
     const currentName = String(label.name || "").trim();
-    if (currentName.toLowerCase() === nextName.toLowerCase()) {
-      cancelEditCategoryLabel();
-      return;
-    }
-
+    if (currentName.toLowerCase() === nextName.toLowerCase()) { cancelEditCategoryLabel(); return; }
     const duplicate = categoryLabelItems.some(
-      (item) =>
-        String(item.id) !== String(label.id) &&
-        String(item.name).trim().toLowerCase() === nextName.toLowerCase()
+      (item) => String(item.id) !== String(label.id) && String(item.name).trim().toLowerCase() === nextName.toLowerCase()
     );
-    if (duplicate) {
-      alert("Tên nhãn đã tồn tại trong category");
-      return;
-    }
-
+    if (duplicate) { alert("Tên nhãn đã tồn tại trong category"); return; }
     setLabelActionTargetId(String(label.id));
     try {
       await labelAPI.update(categoryId, label.id, { name: nextName });
-      patchSelectedCategoryLabels((prev) =>
-        prev.map((item) =>
-          String(item.id) === String(label.id) ? { ...item, name: nextName } : item
-        )
-      );
-      setEditForm((prev) => ({
-        ...prev,
-        labels: prev.labels.map((item) =>
-          String(item).trim().toLowerCase() === currentName.toLowerCase() ? nextName : item
-        ),
-      }));
+      patchSelectedCategoryLabels((prev) => prev.map((item) => String(item.id) === String(label.id) ? { ...item, name: nextName } : item));
+      setEditForm((prev) => ({ ...prev, labels: prev.labels.map((item) => String(item).trim().toLowerCase() === currentName.toLowerCase() ? nextName : item) }));
       cancelEditCategoryLabel();
     } catch (error) {
       alert(error?.response?.data?.message || error?.response?.data?.title || "Cập nhật nhãn thất bại");
@@ -552,24 +419,13 @@ export default function ManagerProjectDetail() {
   const handleDeleteCategoryLabel = async (label) => {
     const categoryId = String(editForm.categoryId || "");
     if (!categoryId) return;
-
     if (!window.confirm(`Bạn có chắc chắn muốn xóa nhãn "${label.name}"?`)) return;
-
     setLabelActionTargetId(String(label.id));
     try {
       await labelAPI.remove(categoryId, label.id, label.name);
-      patchSelectedCategoryLabels((prev) =>
-        prev.filter((item) => String(item.id) !== String(label.id))
-      );
-      setEditForm((prev) => ({
-        ...prev,
-        labels: prev.labels.filter(
-          (item) => String(item).trim().toLowerCase() !== String(label.name).trim().toLowerCase()
-        ),
-      }));
-      if (String(editingCategoryLabelId) === String(label.id)) {
-        cancelEditCategoryLabel();
-      }
+      patchSelectedCategoryLabels((prev) => prev.filter((item) => String(item.id) !== String(label.id)));
+      setEditForm((prev) => ({ ...prev, labels: prev.labels.filter((item) => String(item).trim().toLowerCase() !== String(label.name).trim().toLowerCase()) }));
+      if (String(editingCategoryLabelId) === String(label.id)) cancelEditCategoryLabel();
     } catch (error) {
       alert(error?.response?.data?.message || error?.response?.data?.title || "Xóa nhãn thất bại");
     } finally {
@@ -580,12 +436,9 @@ export default function ManagerProjectDetail() {
   const toggleLabel = (name) => {
     const normalized = String(name || "").trim();
     if (!normalized) return;
-
     setEditForm((prev) => ({
       ...prev,
-      labels: prev.labels.includes(normalized)
-        ? prev.labels.filter((item) => item !== normalized)
-        : [...prev.labels, normalized],
+      labels: prev.labels.includes(normalized) ? prev.labels.filter((item) => item !== normalized) : [...prev.labels, normalized],
     }));
   };
 
@@ -593,49 +446,30 @@ export default function ManagerProjectDetail() {
     const idString = String(datasetId);
     setEditForm((prev) => ({
       ...prev,
-      datasetIds: prev.datasetIds.includes(idString)
-        ? prev.datasetIds.filter((item) => item !== idString)
-        : [...prev.datasetIds, idString],
+      datasetIds: prev.datasetIds.includes(idString) ? prev.datasetIds.filter((item) => item !== idString) : [...prev.datasetIds, idString],
     }));
   };
 
   const saveProject = async () => {
     try {
       setSaving(true);
-
-      const payload = {
+      await api.put(`/projects/${id}`, {
         name: editForm.name.trim(),
         description: editForm.description.trim(),
         isActive: String(editForm.status || "").toLowerCase() !== "inactive",
-      };
-
-      await requestSequential([
-        () => api.put(`/projects/${id}`, payload),
-        () =>
-          api.put(`/projects/${id}`, {
-            ...payload,
-            guideline: editForm.guideline,
-            categoryId: editForm.categoryId || null,
-            status: editForm.status,
-            type: editForm.type,
-            deadline: editForm.deadline || null,
-            labels: editForm.labels,
-            labelNames: editForm.labels,
-          }),
-      ]);
-
+        guideline: editForm.guideline,
+        categoryId: editForm.categoryId || null,
+        status: editForm.status,
+        type: editForm.type,
+        deadline: editForm.deadline || null,
+        labels: editForm.labels,
+        labelNames: editForm.labels,
+      });
       if (editForm.datasetIds.length > 0) {
         await Promise.allSettled(
-          editForm.datasetIds.map((datasetId) =>
-            requestSequential([
-              () => api.post(`/datasets/add/${id}`, { datasetId }),
-              () => api.post(`/datasets/${datasetId}/attach/${id}`, {}),
-              () => api.post(`/Datasets/${datasetId}/attach/${id}`, {}),
-            ])
-          )
+          editForm.datasetIds.map((datasetId) => api.post(`/datasets/add/${id}`, { datasetId }, { validateStatus: () => true }))
         );
       }
-
       alert("Cập nhật dự án thành công");
       setIsEditMode(false);
       await fetchProjectDetail();
@@ -660,7 +494,7 @@ export default function ManagerProjectDetail() {
       <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
         <AlertCircle className="w-12 h-12 text-red-500" />
         <p className="text-gray-800 font-bold text-lg">{error || "Không tìm thấy dự án"}</p>
-        <button onClick={() => navigate("/manager/projects")} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+        <button onClick={() => navigate("/manager/projects")} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
           Quay lại danh sách
         </button>
       </div>
@@ -680,11 +514,9 @@ export default function ManagerProjectDetail() {
           </div>
           <p className="text-gray-500 mt-1">{project.description || "Chưa có mô tả cho dự án này."}</p>
         </div>
-
         <div className="flex gap-3">
           <button className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50">
-            <Download className="w-4 h-4" />
-            Xuất dữ liệu
+            <Download className="w-4 h-4" /> Xuất dữ liệu
           </button>
           <button onClick={() => setIsEditMode((prev) => !prev)} className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-black">
             {isEditMode ? <X className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
@@ -694,28 +526,22 @@ export default function ManagerProjectDetail() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-4 shadow border border-gray-100">
-          <p className="text-xs font-semibold text-gray-500 uppercase">Category</p>
-          <p className="text-lg font-bold text-gray-900 mt-1">{selectedCategoryName}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 shadow border border-gray-100">
-          <p className="text-xs font-semibold text-gray-500 uppercase">Datasets</p>
-          <p className="text-lg font-bold text-gray-900 mt-1">{linkedDatasets.length}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 shadow border border-gray-100">
-          <p className="text-xs font-semibold text-gray-500 uppercase">Members</p>
-          <p className="text-lg font-bold text-gray-900 mt-1">{projectMembers.length}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 shadow border border-gray-100">
-          <p className="text-xs font-semibold text-gray-500 uppercase">Tasks</p>
-          <p className="text-lg font-bold text-gray-900 mt-1">{projectTasks.length}</p>
-        </div>
+        {[
+          { label: "Category", value: selectedCategoryName },
+          { label: "Datasets", value: linkedDatasets.length },
+          { label: "Members", value: projectMembers.length },
+          { label: "Tasks", value: projectTasks.length },
+        ].map(({ label, value }) => (
+          <div key={label} className="bg-white rounded-xl p-4 shadow border border-gray-100">
+            <p className="text-xs font-semibold text-gray-500 uppercase">{label}</p>
+            <p className="text-lg font-bold text-gray-900 mt-1">{value}</p>
+          </div>
+        ))}
       </div>
 
       {isEditMode && (
         <div className="bg-white rounded-xl p-5 shadow space-y-5 border border-indigo-100">
           <h3 className="font-semibold text-indigo-700">Chỉnh sửa chi tiết dự án</h3>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">Tên dự án</label>
@@ -734,28 +560,21 @@ export default function ManagerProjectDetail() {
               <input type="date" className="w-full border rounded px-3 py-2" value={editForm.deadline} onChange={(e) => setEditForm((prev) => ({ ...prev, deadline: e.target.value }))} />
             </div>
           </div>
-
           <div>
             <label className="block text-sm font-medium mb-1">Mô tả</label>
             <textarea className="w-full border rounded px-3 py-2" rows={3} value={editForm.description} onChange={(e) => setEditForm((prev) => ({ ...prev, description: e.target.value }))} />
           </div>
-
           <div>
             <label className="block text-sm font-medium mb-1">Hướng dẫn</label>
             <textarea className="w-full border rounded px-3 py-2" rows={3} value={editForm.guideline} onChange={(e) => setEditForm((prev) => ({ ...prev, guideline: e.target.value }))} />
           </div>
-
           <div>
             <label className="block text-sm font-medium mb-1">Category</label>
             <select className="w-full border rounded px-3 py-2" value={editForm.categoryId} onChange={(e) => setEditForm((prev) => ({ ...prev, categoryId: e.target.value }))}>
               <option value="">-- Chọn category --</option>
               {categories.map((category, idx) => {
                 const catId = category?.id ?? category?.categoryId ?? `cat-${idx}`;
-                return (
-                  <option key={catId} value={String(catId)}>
-                    {category?.name || `Category ${idx + 1}`}
-                  </option>
-                );
+                return <option key={catId} value={String(catId)}>{category?.name || `Category ${idx + 1}`}</option>;
               })}
             </select>
           </div>
@@ -768,39 +587,19 @@ export default function ManagerProjectDetail() {
                   const checked = editForm.labels.includes(label.name);
                   const isEditing = String(editingCategoryLabelId) === String(label.id);
                   const isBusy = String(labelActionTargetId) === String(label.id);
-
                   return (
                     <div key={label.id} className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-sm border ${checked ? "bg-indigo-600 text-white border-indigo-600" : "bg-white border-gray-300 text-slate-700"}`}>
                       {isEditing ? (
                         <>
-                          <input
-                            value={editingCategoryLabelName}
-                            onChange={(e) => setEditingCategoryLabelName(e.target.value)}
-                            className="w-28 border rounded px-2 py-0.5 text-xs text-slate-700"
-                            disabled={isBusy}
-                          />
-                          <button type="button" onClick={() => handleSaveCategoryLabel(label)} disabled={isBusy || !editingCategoryLabelName.trim()} className="p-1 rounded hover:bg-black/10 disabled:opacity-50">
-                            <Check className="w-3.5 h-3.5" />
-                          </button>
-                          <button type="button" onClick={cancelEditCategoryLabel} disabled={isBusy} className="p-1 rounded hover:bg-black/10 disabled:opacity-50">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
+                          <input value={editingCategoryLabelName} onChange={(e) => setEditingCategoryLabelName(e.target.value)} className="w-28 border rounded px-2 py-0.5 text-xs text-slate-700" disabled={isBusy} />
+                          <button type="button" onClick={() => handleSaveCategoryLabel(label)} disabled={isBusy || !editingCategoryLabelName.trim()} className="p-1 rounded hover:bg-black/10 disabled:opacity-50"><Check className="w-3.5 h-3.5" /></button>
+                          <button type="button" onClick={cancelEditCategoryLabel} disabled={isBusy} className="p-1 rounded hover:bg-black/10 disabled:opacity-50"><X className="w-3.5 h-3.5" /></button>
                         </>
                       ) : (
                         <>
-                          <button
-                            type="button"
-                            onClick={() => toggleLabel(label.name)}
-                            className="px-1"
-                          >
-                            {label.name}
-                          </button>
-                          <button type="button" onClick={() => startEditCategoryLabel(label)} disabled={isBusy} className="p-1 rounded hover:bg-black/10 disabled:opacity-50">
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button type="button" onClick={() => handleDeleteCategoryLabel(label)} disabled={isBusy} className="p-1 rounded hover:bg-black/10 disabled:opacity-50">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <button type="button" onClick={() => toggleLabel(label.name)} className="px-1">{label.name}</button>
+                          <button type="button" onClick={() => startEditCategoryLabel(label)} disabled={isBusy} className="p-1 rounded hover:bg-black/10 disabled:opacity-50"><Pencil className="w-3.5 h-3.5" /></button>
+                          <button type="button" onClick={() => handleDeleteCategoryLabel(label)} disabled={isBusy} className="p-1 rounded hover:bg-black/10 disabled:opacity-50"><Trash2 className="w-3.5 h-3.5" /></button>
                         </>
                       )}
                     </div>
@@ -808,45 +607,40 @@ export default function ManagerProjectDetail() {
                 })}
               </div>
             )}
-
             <div className="flex gap-2">
               <input value={customLabelInput} onChange={(e) => setCustomLabelInput(e.target.value)} className="flex-1 border rounded px-3 py-2" placeholder="Thêm nhãn tùy chỉnh..." />
-              <button
-                type="button"
-                onClick={handleAddCategoryLabel}
-                disabled={labelActionTargetId === "new" || !customLabelInput.trim() || !editForm.categoryId}
-                className="px-3 py-2 bg-gray-900 text-white rounded disabled:opacity-50"
-              >
-                Thêm
-              </button>
+              <button type="button" onClick={handleAddCategoryLabel} disabled={labelActionTargetId === "new" || !customLabelInput.trim() || !editForm.categoryId} className="px-3 py-2 bg-gray-900 text-white rounded disabled:opacity-50">Thêm</button>
             </div>
-
             <div className="flex flex-wrap gap-2">
               {editForm.labels.map((name) => (
                 <span key={name} className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 text-sm">
                   {name}
-                  <button type="button" onClick={() => toggleLabel(name)}>
-                    <X className="w-3 h-3" />
-                  </button>
+                  <button type="button" onClick={() => toggleLabel(name)}><X className="w-3 h-3" /></button>
                 </span>
               ))}
             </div>
           </div>
 
           <div className="space-y-2">
-            <p className="text-sm font-medium">Datasets</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1">
-              {datasets.map((dataset, idx) => {
-                const dsId = String(dataset?.id ?? dataset?.datasetId ?? `ds-${idx}`);
-                const checked = editForm.datasetIds.includes(dsId);
-                return (
-                  <label key={dsId} className={`p-2 rounded border flex items-center gap-2 cursor-pointer ${checked ? "border-indigo-500 bg-indigo-50" : "border-gray-200"}`}>
-                    <input type="checkbox" checked={checked} onChange={() => toggleDataset(dsId)} />
-                    <span className="text-sm">{dataset?.name || `Dataset ${idx + 1}`}</span>
-                  </label>
-                );
-              })}
-            </div>
+            <p className="text-sm font-medium">Datasets (chỉ hiện dataset thuộc dự án này)</p>
+            {linkedDatasets.length === 0 ? (
+              <p className="text-sm text-amber-600 bg-amber-50 px-3 py-2 rounded">
+                Dự án chưa có dataset nào. Vào trang Datasets → gán dataset vào dự án này trước.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1">
+                {linkedDatasets.map((dataset, idx) => {
+                  const dsId = String(dataset?.id ?? dataset?.datasetId ?? `ds-${idx}`);
+                  const checked = editForm.datasetIds.includes(dsId);
+                  return (
+                    <label key={dsId} className={`p-2 rounded border flex items-center gap-2 cursor-pointer ${checked ? "border-indigo-500 bg-indigo-50" : "border-gray-200"}`}>
+                      <input type="checkbox" checked={checked} onChange={() => toggleDataset(dsId)} />
+                      <span className="text-sm">{dataset?.name || `Dataset ${idx + 1}`}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end">
@@ -863,17 +657,12 @@ export default function ManagerProjectDetail() {
           <h3 className="font-semibold mb-2">Hướng dẫn gán nhãn</h3>
           <p className="text-sm text-gray-600 whitespace-pre-line">{project.guideline || "Dự án này chưa có hướng dẫn chi tiết."}</p>
         </div>
-
         <div className="bg-white rounded-xl p-5 shadow">
           <h3 className="font-semibold mb-3">Nhãn ({allLabels.length})</h3>
           <div className="flex gap-2 flex-wrap">
-            {allLabels.length > 0 ? (
-              allLabels.map((label) => (
-                <span key={label} className="px-3 py-1 text-sm rounded-full bg-blue-100 text-blue-700">{label}</span>
-              ))
-            ) : (
-              <p className="text-sm text-gray-400">Chưa có nhãn</p>
-            )}
+            {allLabels.length > 0
+              ? allLabels.map((label) => <span key={label} className="px-3 py-1 text-sm rounded-full bg-blue-100 text-blue-700">{label}</span>)
+              : <p className="text-sm text-gray-400">Chưa có nhãn</p>}
           </div>
         </div>
       </div>
@@ -881,56 +670,33 @@ export default function ManagerProjectDetail() {
       <div className="bg-white rounded-xl p-5 shadow border border-blue-100 space-y-4">
         <h3 className="font-semibold text-blue-700">Giao việc trong dự án</h3>
         {projectTasks.length === 0 ? (
-          <p className="text-sm text-gray-500">Dự án này chưa có task để giao. Vui lòng tạo task trước khi giao việc.</p>
+          <p className="text-sm text-gray-500">Dự án này chưa có task để giao.</p>
         ) : annotatorMembers.length === 0 ? (
-          <p className="text-sm text-gray-500">Dự án chưa có annotator member. Vui lòng thêm member role annotator trong dự án.</p>
+          <p className="text-sm text-gray-500">Dự án chưa có annotator member.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
             <div>
               <label className="block text-sm font-medium mb-1">Task</label>
-              <select
-                value={selectedTaskId}
-                onChange={(e) => setSelectedTaskId(e.target.value)}
-                className="w-full border rounded px-3 py-2"
-              >
+              <select value={selectedTaskId} onChange={(e) => setSelectedTaskId(e.target.value)} className="w-full border rounded px-3 py-2">
                 <option value="">-- Chọn task --</option>
                 {projectTasks.map((task, idx) => {
                   const taskId = String(task?.id || task?.taskId || `task-${idx}`);
-                  const taskName = task?.name || task?.title || `Task ${idx + 1}`;
-                  return (
-                    <option key={taskId} value={taskId}>
-                      {taskName}
-                    </option>
-                  );
+                  return <option key={taskId} value={taskId}>{task?.name || task?.title || `Task ${idx + 1}`}</option>;
                 })}
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Annotator</label>
-              <select
-                value={selectedAssigneeId}
-                onChange={(e) => setSelectedAssigneeId(e.target.value)}
-                className="w-full border rounded px-3 py-2"
-              >
+              <select value={selectedAssigneeId} onChange={(e) => setSelectedAssigneeId(e.target.value)} className="w-full border rounded px-3 py-2">
                 <option value="">-- Chọn annotator --</option>
                 {annotatorMembers.map((member, idx) => {
-                  const memberId = String(member?.id || member?.userId || `member-${idx}`);
-                  const memberName = member?.displayName || member?.name || member?.username || member?.email || `Annotator ${idx + 1}`;
-                  return (
-                    <option key={memberId} value={memberId}>
-                      {memberName}
-                    </option>
-                  );
+                  const memberId = getEntityId(member);
+                  return <option key={memberId || `member-${idx}`} value={memberId}>{getEntityDisplayName(member, `Annotator ${idx + 1}`)}</option>;
                 })}
               </select>
             </div>
             <div>
-              <button
-                type="button"
-                onClick={handleAssignTask}
-                disabled={assigningTask || !selectedTaskId || !selectedAssigneeId}
-                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              >
+              <button type="button" onClick={handleAssignTask} disabled={assigningTask || !selectedTaskId || !selectedAssigneeId} className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                 {assigningTask ? "Đang giao..." : "Giao task"}
               </button>
             </div>
@@ -940,20 +706,9 @@ export default function ManagerProjectDetail() {
 
       <div className="bg-white rounded-xl p-5 shadow border border-emerald-100 space-y-4">
         <h3 className="font-semibold text-emerald-700">Thêm thành viên vào dự án</h3>
-
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <input
-            type="text"
-            value={memberSearch}
-            onChange={(e) => setMemberSearch(e.target.value)}
-            placeholder="Tìm theo tên, username, email..."
-            className="md:col-span-2 border rounded px-3 py-2"
-          />
-          <select
-            value={memberRoleFilter}
-            onChange={(e) => setMemberRoleFilter(e.target.value)}
-            className="border rounded px-3 py-2"
-          >
+          <input type="text" value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)} placeholder="Tìm theo tên, username, email..." className="md:col-span-2 border rounded px-3 py-2" />
+          <select value={memberRoleFilter} onChange={(e) => setMemberRoleFilter(e.target.value)} className="border rounded px-3 py-2">
             <option value="annotator">Annotator</option>
             <option value="reviewer">Reviewer</option>
           </select>
@@ -961,9 +716,7 @@ export default function ManagerProjectDetail() {
 
         {filteredUsersToAdd.length === 0 ? (
           <p className="text-sm text-gray-500">
-            {availableUsersToAdd.length === 0
-              ? "Tất cả users hiện đã thuộc dự án này."
-              : "Không có user phù hợp với bộ lọc hiện tại."}
+            {availableUsersToAdd.length === 0 ? "Tất cả users hiện đã thuộc dự án này." : "Không có user phù hợp với bộ lọc hiện tại."}
           </p>
         ) : (
           <div className="space-y-3">
@@ -987,12 +740,7 @@ export default function ManagerProjectDetail() {
                         <td className="px-4 py-3 text-sm text-gray-900">{getEntityDisplayName(user, `User ${idx + 1}`)}</td>
                         <td className="px-4 py-3 text-sm text-gray-600">{role || "---"}</td>
                         <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => handleAddMemberToProject(userId)}
-                            disabled={addingMember || !userId}
-                            className="px-3 py-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50 text-sm"
-                          >
+                          <button type="button" onClick={() => handleAddMemberToProject(userId)} disabled={addingMember || !userId} className="px-3 py-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50 text-sm">
                             {addingMember ? "Đang thêm..." : "Thêm"}
                           </button>
                         </td>
@@ -1002,30 +750,11 @@ export default function ManagerProjectDetail() {
                 </tbody>
               </table>
             </div>
-
             <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">
-                Trang {currentMemberPage}/{totalMemberPages} - {filteredUsersToAdd.length} user
-              </p>
+              <p className="text-sm text-gray-500">Trang {currentMemberPage}/{totalMemberPages} - {filteredUsersToAdd.length} user</p>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setMemberPage((prev) => (prev <= 1 ? totalMemberPages : prev - 1))
-                  }
-                  className="px-3 py-1.5 border rounded text-sm hover:bg-gray-50"
-                >
-                  Trước
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setMemberPage((prev) => (prev >= totalMemberPages ? 1 : prev + 1))
-                  }
-                  className="px-3 py-1.5 border rounded text-sm hover:bg-gray-50"
-                >
-                  Sau
-                </button>
+                <button type="button" onClick={() => setMemberPage((prev) => (prev <= 1 ? totalMemberPages : prev - 1))} className="px-3 py-1.5 border rounded text-sm hover:bg-gray-50">Trước</button>
+                <button type="button" onClick={() => setMemberPage((prev) => (prev >= totalMemberPages ? 1 : prev + 1))} className="px-3 py-1.5 border rounded text-sm hover:bg-gray-50">Sau</button>
               </div>
             </div>
           </div>
@@ -1040,18 +769,10 @@ export default function ManagerProjectDetail() {
                 const memberId = getEntityId(member);
                 const busy = removingMemberId === memberId;
                 return (
-                  <div
-                    key={`${getEntityId(member)}-${idx}`}
-                    className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs bg-gray-100 text-gray-700"
-                  >
+                  <div key={`${memberId}-${idx}`} className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs bg-gray-100 text-gray-700">
                     {getEntityDisplayName(member, `Member ${idx + 1}`)}
                     {role ? <span className="text-gray-500">({role})</span> : null}
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveMemberFromProject(member)}
-                      disabled={busy}
-                      className="ml-1 text-red-600 hover:text-red-700 disabled:opacity-50"
-                    >
+                    <button type="button" onClick={() => handleRemoveMemberFromProject(member)} disabled={busy} className="ml-1 text-red-600 hover:text-red-700 disabled:opacity-50">
                       {busy ? "..." : "xóa"}
                     </button>
                   </div>
@@ -1064,7 +785,3 @@ export default function ManagerProjectDetail() {
     </div>
   );
 }
-
-
-
-

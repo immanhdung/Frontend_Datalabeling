@@ -16,6 +16,14 @@ import {
   AlertCircle,
   ArrowRight,
   Calendar,
+  Folder,
+  Image as ImageIcon,
+  FileText,
+  Volume2,
+  Video,
+  ThumbsUp,
+  Play,
+  FolderOpen
 } from 'lucide-react';
 
 const MOCK_PROJECTS = [
@@ -55,6 +63,9 @@ export default function AnnotatorDashboard() {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState('pending');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState('recent');
 
   useEffect(() => {
     const loadTasks = async () => {
@@ -137,6 +148,21 @@ export default function AnnotatorDashboard() {
       .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
       .slice(0, 4);
   }, [tasks]);
+
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((task) => {
+      const matchesTab = activeTab === 'all' || task.status === activeTab;
+      return matchesTab;
+    });
+  }, [tasks, activeTab]);
+
+  const handleRefresh = () => {
+    window.location.reload();
+  };
+
+  const handleStartTask = (taskId) => {
+    navigate(`/annotator/tasks/${taskId}`);
+  };
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">

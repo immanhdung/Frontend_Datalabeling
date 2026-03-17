@@ -17,7 +17,6 @@ import {
 import api from "../../config/api";
 import {
   toArrayData,
-  requestSequential,
   isCompletedProject,
   getProjectStatusMeta,
   getProjectItemCount,
@@ -28,27 +27,43 @@ import {
 } from "../../utils/projectDashboardHelpers";
 
 export default function AdminDashboard() {
-  const [projectStats, setProjectStats] = useState({
-    total: 4,
-    completed: 1,
+  const [loading, setLoading] = useState(true);
+  const [dashboardStats, setDashboardStats] = useState({
+    totalUsers: 0,
+    totalProjects: 0,
+    completedProjects: 0,
+    avgAccuracy: "93.6%",
     recentProjects: [],
+    userRoleCounts: {
+      Admin: 0,
+      Manager: 0,
+      Annotator: 0,
+      Reviewer: 0,
+    },
+    activities: [],
   });
 
   useEffect(() => {
-    const loadProjectStats = async () => {
+    const loadDashboardData = async () => {
       try {
-        const response = await requestSequential([
-          () => api.get("/projects"),
-          () => api.get("/Projects"),
+        setLoading(true);
+        const [projectsRes, usersRes, tasksRes, reviewsRes] = await Promise.all([
+          api.get("/projects").catch(() => ({ data: [] })),
+          api.get("/users").catch(() => ({ data: [] })),
+          api.get("/tasks").catch(() => ({ data: [] })),
+          api.get("/reviews").catch(() => ({ data: [] })),
         ]);
-        const projects = toArrayData(response?.data);
-        const completed = projects.filter((project) => isCompletedProject(project)).length;
 
+        const projects = toArrayData(projectsRes?.data);
+        const users = toArrayData(usersRes?.data);
+        const tasks = toArrayData(tasksRes?.data);
+        const reviews = toArrayData(reviewsRes?.data);
+
+        // 1. Project Stats
+        const completed = projects.filter((project) => isCompletedProject(project)).length;
         const recentProjects = sortProjectsByNewest(projects).slice(0, 4).map((project) => {
           const statusMeta = getProjectStatusMeta(project);
           const itemCount = getProjectItemCount(project);
-          const updatedLabel = formatRelativeDateVi(getProjectUpdatedAt(project));
-
           return {
             name: project?.name || "Dự án không tên",
             status: statusMeta.label,
@@ -56,45 +71,92 @@ export default function AdminDashboard() {
             desc: `${getProjectTypeLabel(project)} · ${itemCount} ảnh`,
             progress: statusMeta.statusType === "completed" ? 100 : statusMeta.statusType === "active" ? 50 : 0,
             accuracy: "N/A",
-            updated: updatedLabel,
+            updated: formatRelativeDateVi(getProjectUpdatedAt(project)),
           };
         });
 
-        setProjectStats({
-          total: projects.length,
-          completed,
-          recentProjects,
+        // 2. User Stats
+        const roleCounts = { Admin: 0, Manager: 0, Annotator: 0, Reviewer: 0 };
+        users.forEach(u => {
+          const role = String(u?.role || "").trim();
+          if (role.toLowerCase() === 'admin') roleCounts.Admin++;
+          else if (role.toLowerCase() === 'manager') roleCounts.Manager++;
+          else if (role.toLowerCase() === 'annotator') roleCounts.Annotator++;
+          else if (role.toLowerCase() === 'reviewer') roleCounts.Reviewer++;
         });
-      } catch {
-        // Keep fallback value from static stats.
+
+        // 3. Activity Synthesis (Recent 3)
+        const combinedActivities = [];
+        
+        projects.slice(0, 5).forEach(p => {
+            combinedActivities.push({
+                title: "Dự án mới",
+                desc: `Dự án "${p.name || 'N/A'}" đã được tạo`,
+                time: new Date(p.createdAt || Date.now()).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+                timestamp: new Date(p.createdAt || Date.now()).getTime(),
+                type: "create"
+            });
+        });
+
+        tasks.slice(0, 5).forEach(t => {
+            if (t.status?.toLowerCase().includes('complete') || t.status?.toLowerCase().includes('submit')) {
+                combinedActivities.push({
+                    title: "Hoàn thành task",
+                    desc: `Task "${t.title || 'gán nhãn'}" đã được nộp`,
+                    time: new Date(t.updatedAt || Date.now()).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+                    timestamp: new Date(t.updatedAt || Date.now()).getTime(),
+                    type: "update"
+                });
+            }
+        });
+
+        const sortedActivities = combinedActivities
+            .sort((a, b) => b.timestamp - a.timestamp)
+            .slice(0, 3);
+
+        setDashboardStats({
+          totalUsers: users.length,
+          totalProjects: projects.length,
+          completedProjects: completed,
+          avgAccuracy: "93.6%", // Backend may not have this yet
+          recentProjects,
+          userRoleCounts: roleCounts,
+          activities: sortedActivities.length > 0 ? sortedActivities : [
+            { title: "Hệ thống", desc: "Đang theo dõi hoạt động...", time: "--:--", type: "create" }
+          ],
+        });
+      } catch (err) {
+        console.error("Dashboard data load error:", err);
+      } finally {
+        setLoading(false);
       }
     };
 
-    loadProjectStats();
+    loadDashboardData();
   }, []);
 
-  const stats = [
+  const statsUI = [
     {
       label: "Tổng người dùng",
-      value: 6,
+      value: dashboardStats.totalUsers,
       icon: Users,
       color: "blue"
     },
     {
       label: "Tổng dự án",
-      value: projectStats.total,
+      value: dashboardStats.totalProjects,
       icon: FolderKanban,
       color: "indigo"
     },
     {
       label: "Dự án hoàn thành",
-      value: projectStats.completed,
+      value: dashboardStats.completedProjects,
       icon: CheckCircle2,
       color: "emerald"
     },
     {
       label: "Tỷ lệ chính xác TB",
-      value: "93.6%",
+      value: dashboardStats.avgAccuracy,
       icon: BarChart3,
       color: "amber"
     },
@@ -139,35 +201,16 @@ export default function AdminDashboard() {
     },
   ];
 
-  const projects = projectStats.recentProjects.length > 0 ? projectStats.recentProjects : fallbackProjects;
+  const projects = dashboardStats.recentProjects.length > 0 ? dashboardStats.recentProjects : fallbackProjects;
 
   const userStats = [
-    { role: "Admin", count: 1, color: "bg-indigo-500", icon: ShieldCheck },
-    { role: "Manager", count: 1, color: "bg-blue-500", icon: Activity },
-    { role: "Annotator", count: 3, color: "bg-green-500", icon: UserCheck },
-    { role: "Reviewer", count: 1, color: "bg-emerald-500", icon: CheckCircle2 },
+    { role: "Admin", count: dashboardStats.userRoleCounts.Admin, color: "bg-indigo-500", icon: ShieldCheck },
+    { role: "Manager", count: dashboardStats.userRoleCounts.Manager, color: "bg-blue-500", icon: Activity },
+    { role: "Annotator", count: dashboardStats.userRoleCounts.Annotator, color: "bg-green-500", icon: UserCheck },
+    { role: "Reviewer", count: dashboardStats.userRoleCounts.Reviewer, color: "bg-emerald-500", icon: CheckCircle2 },
   ];
 
-  const activities = [
-    {
-      title: "Tạo dự án mới",
-      desc: "Đã tạo dự án 'Phân loại chó mèo'",
-      time: "10:30",
-      type: "create"
-    },
-    {
-      title: "Phân công công việc",
-      desc: "Đã giao 'Phân loại chó mèo' cho Trần Thị B",
-      time: "11:00",
-      type: "assign"
-    },
-    {
-      title: "Cập nhật tiến độ",
-      desc: "Đã hoàn thành 2/5 ảnh trong dự án",
-      time: "14:00",
-      type: "update"
-    },
-  ];
+  const activities = dashboardStats.activities;
 
   return (
     <div className="min-h-screen bg-[#f8fafc] p-4 md:p-10 font-sans text-slate-900">
@@ -183,7 +226,7 @@ export default function AdminDashboard() {
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-          {stats.map((s, i) => (
+          {statsUI.map((s, i) => (
             <div key={i} className="bg-white p-8 rounded-[28px] shadow-premium hover:shadow-premium-hover transition-all duration-300 border border-slate-100 group">
               <div className="flex justify-between items-start mb-5">
                 <div className={`p-4 rounded-2xl bg-${s.color}-50 text-${s.color}-600 group-hover:scale-110 transition-transform`}>

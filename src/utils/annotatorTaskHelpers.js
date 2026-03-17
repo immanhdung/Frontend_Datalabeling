@@ -50,38 +50,126 @@ export const getCurrentUserIdentifiers = () => {
 };
 
 export const getTaskAssigneeId = (task) => {
-  const directAssignee = task?.assignedTo ?? task?.AssignedTo ?? task?.assigned_to ?? task?.assigneeId ?? task?.AssigneeId ?? task?.annotatorId ?? task?.AnnotatorId ?? task?.assignee ?? task?.Assignee ?? task?.user ?? task?.member ?? task?.Member;
+  const directAssignee =
+    task?.assignedTo ??
+    task?.AssignedTo ??
+    task?.assigned_to ??
+    task?.assigneeId ??
+    task?.AssigneeId ??
+    task?.annotatorId ??
+    task?.AnnotatorId ??
+    task?.assignee ??
+    task?.Assignee ??
+    task?.user ??
+    task?.member ??
+    task?.Member;
+
   if (typeof directAssignee === 'object' && directAssignee !== null) {
-    return directAssignee.id ?? directAssignee.Id ?? directAssignee._id ?? directAssignee.userId ?? directAssignee.UserId;
+    return (
+      directAssignee.id ??
+      directAssignee.Id ??
+      directAssignee._id ??
+      directAssignee.userId ??
+      directAssignee.UserId
+    );
   }
   return directAssignee;
 };
 
 export const normalizeTask = (task, assignedUserId = undefined) => {
-  const taskId = String(task?.id ?? task?.Id ?? task?._id ?? task?.assignmentId ?? task?.AssignmentId ?? task?.taskId ?? task?.TaskId ?? '');
+  const taskId = String(
+    task?.id ??
+    task?.Id ??
+    task?._id ??
+    task?.assignmentId ??
+    task?.AssignmentId ??
+    task?.taskId ??
+    task?.TaskId ??
+    ''
+  );
+
+  const rawStatus = String(task?.status || task?.Status || '').toLowerCase();
+  let normalizedStatus = rawStatus;
+  if (rawStatus === 'assigned' || rawStatus === 'unassigned' || rawStatus === 'opened' || rawStatus === 'open') {
+    normalizedStatus = 'pending';
+  } else if (rawStatus === 'incompleted' || rawStatus === 'in_progress' || rawStatus === 'incomplete' || rawStatus === 'inprogress') {
+    normalizedStatus = 'in_progress';
+  } else if (rawStatus === 'completed' || rawStatus === 'closed' || rawStatus === 'done') {
+    normalizedStatus = 'completed';
+  } else if (!rawStatus) {
+    normalizedStatus = 'pending';
+  }
+
   return {
     ...task,
     id: taskId,
-    title: task?.title || task?.Title || (taskId ? `Task #${taskId.slice(0, 8)}` : 'Nhiệm vụ'),
+    title:
+      task?.title ||
+      task?.Title ||
+      task?.name ||
+      task?.Name ||
+      (taskId ? `Task #${taskId.slice(0, 8)}` : 'Nhiệm vụ'),
     description: task?.description ?? task?.Description ?? '',
-    type: task?.type ?? task?.MediaType ?? 'image',
-    status: (() => {
-      const s = String(task?.status || task?.Status || '').toLowerCase();
-      if (s === 'assigned' || s === 'unassigned' || s === 'opened') return 'pending';
-      if (s === 'incompleted' || s === 'in_progress' || s === 'incomplete') return 'in_progress';
-      if (s === 'completed' || s === 'closed') return 'completed';
-      return s || 'pending';
-    })(),
+    type: task?.type ?? task?.MediaType ?? task?.mediaType ?? 'image',
+    status: normalizedStatus,
     priority: task?.priority ?? task?.Priority ?? 'medium',
-    projectName: task?.projectName ?? task?.ProjectName ?? task?.project_name ?? task?.project?.name ?? task?.project?.projectName ?? 'Dự án',
-    datasetName: task?.datasetName ?? task?.DatasetName ?? task?.dataset_name ?? task?.dataset?.name ?? task?.dataset?.datasetName ?? 'Bộ dữ liệu',
-    createdAt: task?.createdAt ?? task?.CreatedAt ?? task?.created_at ?? new Date().toISOString(),
-    updatedAt: task?.updatedAt ?? task?.UpdatedAt ?? task?.updated_at ?? task?.createdAt ?? new Date().toISOString(),
-    dueDate: task?.dueDate ?? task?.DueDate ?? task?.due_date ?? task?.deadline ?? task?.createdAt ?? new Date().toISOString(),
+    projectName:
+      task?.projectName ??
+      task?.ProjectName ??
+      task?.project_name ??
+      task?.project?.name ??
+      task?.project?.projectName ??
+      'Dự án',
+    projectId:
+      task?.projectId ??
+      task?.ProjectId ??
+      task?.project?.id ??
+      task?.project?.projectId ??
+      null,
+    datasetName:
+      task?.datasetName ??
+      task?.DatasetName ??
+      task?.dataset_name ??
+      task?.dataset?.name ??
+      task?.dataset?.datasetName ??
+      'Bộ dữ liệu',
+    datasetId:
+      task?.datasetId ??
+      task?.DatasetId ??
+      task?.dataset?.id ??
+      task?.dataset?.datasetId ??
+      null,
+    createdAt:
+      task?.createdAt ??
+      task?.CreatedAt ??
+      task?.created_at ??
+      task?.assignedAt ??
+      new Date().toISOString(),
+    updatedAt:
+      task?.updatedAt ??
+      task?.UpdatedAt ??
+      task?.updated_at ??
+      task?.createdAt ??
+      new Date().toISOString(),
+    dueDate:
+      task?.dueDate ??
+      task?.DueDate ??
+      task?.due_date ??
+      task?.deadline ??
+      task?.expiresAt ??
+      task?.expiredAt ??
+      // Default 7 days from now if no due date
+      new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     progress: task?.progress ?? task?.Progress ?? 0,
-    totalItems: task?.totalItems ?? task?.TotalItems ?? task?.total_items ?? task?.items?.length ?? 0,
+    totalItems:
+      task?.totalItems ??
+      task?.TotalItems ??
+      task?.total_items ??
+      task?.items?.length ??
+      0,
     reviewStatus: task?.reviewStatus ?? task?.ReviewStatus ?? task?.review_status,
     feedback: task?.feedback ?? task?.Feedback,
+    items: task?.items ?? task?.Items ?? [],
     assignedTo:
       assignedUserId !== undefined
         ? String(assignedUserId)
@@ -105,9 +193,7 @@ export const getLocalAssignedTasksForUser = (userIdOrIds) => {
     return [];
   }
 
-  const userIds = Array.isArray(userIdOrIds)
-    ? userIdOrIds
-    : [userIdOrIds];
+  const userIds = Array.isArray(userIdOrIds) ? userIdOrIds : [userIdOrIds];
 
   const taskMap = getAssignedTasksByUserMap();
   const safeTasks = userIds.flatMap((userId) => {
@@ -140,7 +226,8 @@ export const upsertLocalAssignedTask = (task, userId) => {
   taskMap[key] = [
     normalizedTask,
     ...currentTasks.filter(
-      (existingTask) => String(existingTask?.id ?? existingTask?._id) !== String(normalizedTask.id)
+      (existingTask) =>
+        String(existingTask?.id ?? existingTask?._id) !== String(normalizedTask.id)
     ),
   ];
 
@@ -168,6 +255,7 @@ export const assignLocalTaskToUser = (task, userId) => {
       items: existingTask?.items ?? task?.items,
       assigned_to: userId,
       assignedTo: userId,
+      assignedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     },
     userId
@@ -183,46 +271,61 @@ export const assignLocalTaskToUser = (task, userId) => {
   localStorage.setItem('assignedTasksByUser', JSON.stringify(taskMap));
 };
 
+/**
+ * Fetch tasks assigned to the current user from API.
+ * Strategy: Get all tasks from API, filter by current user's IDs.
+ * The API returns all tasks visible to the user (annotator sees only their own).
+ */
 export const fetchAssignedTasksForUser = async (taskApi, userIdOrIds) => {
   if (!userIdOrIds) {
     return [];
   }
 
   const ids = Array.isArray(userIdOrIds) ? userIdOrIds : [userIdOrIds];
-  const stringIds = ids.map(id => String(id).toLowerCase().trim());
+  const stringIds = ids.map((id) => String(id).toLowerCase().trim());
+
   const isMatch = (task) => {
-     const assignedId = String(getTaskAssigneeId(task) || '').toLowerCase().trim();
-     return stringIds.includes(assignedId);
+    const assignedId = String(getTaskAssigneeId(task) || '').toLowerCase().trim();
+    if (!assignedId) return false;
+    return stringIds.includes(assignedId);
   };
-  
+
   let mergedTasks = [];
 
+  // Try getMyTasks first (annotator-scoped)
   try {
     const myTasksResponse = await taskApi.getMyTasks();
     const myTasks = resolveApiData(myTasksResponse);
-    if (myTasks.length > 0) console.log("Task API Sample:", myTasks[0]);
-    mergedTasks = normalizeTasks(myTasks).filter(isMatch);
+    if (import.meta.env.DEV && myTasks.length > 0) {
+      console.log('[Tasks] API Sample:', myTasks[0]);
+    }
+    // For annotators: the API already returns only their tasks, so include all
+    const normalized = normalizeTasks(myTasks);
+    // Try with filter first, if none match include all (annotator scope)
+    const filtered = normalized.filter(isMatch);
+    mergedTasks = filtered.length > 0 ? filtered : normalized;
   } catch (err) {
-    console.warn("getMyTasks failed, trying getAll", err);
+    console.warn('[Tasks] getMyTasks failed:', err?.message || err);
   }
 
-  // Try getAll if still empty or failed
+  // If still empty, try getAll
   if (mergedTasks.length === 0) {
     try {
       const allTasksResponse = await taskApi.getAll();
       const allTasks = resolveApiData(allTasksResponse);
-      if (allTasks.length > 0 && mergedTasks.length === 0) console.log("All Tasks Sample:", allTasks[0]);
-      mergedTasks = normalizeTasks(allTasks).filter(isMatch);
+      const normalized = normalizeTasks(allTasks);
+      const filtered = normalized.filter(isMatch);
+      mergedTasks = filtered.length > 0 ? filtered : normalized;
     } catch (err2) {
-      console.warn("getAll failed for tasks", err2);
+      console.warn('[Tasks] getAll failed:', err2?.message || err2);
     }
   }
 
-  // Final fallback to local storage
+  // Final fallback: local storage
   if (mergedTasks.length === 0) {
     const local = getLocalAssignedTasksForUser(ids);
     if (local.length > 0) {
-      console.log("Using local offline tasks fallback");
+      console.log('[Tasks] Using offline local fallback');
       mergedTasks = normalizeTasks(local);
     }
   }
