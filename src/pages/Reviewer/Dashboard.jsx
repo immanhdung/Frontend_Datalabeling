@@ -5,6 +5,7 @@ import { reviewAPI } from '../../config/api';
 import Header from '../../components/common/Header';
 import StatsCard from '../../components/common/StatsCard';
 import useReviewHistory from '../../hooks/useReviewHistory';
+import { mockReviewerInboxAnnotations } from '../../mock/taskInbox';
 import {
   FileText,
   Clock,
@@ -63,14 +64,15 @@ const ReviewerDashboard = () => {
       // Load pending reviews from API
       const response = await reviewAPI.getPendingReviews();
       const data = response.data.data || response.data || [];
-      
-      setAnnotations(data);
+      const safeData = Array.isArray(data) ? data : [];
+
+      setAnnotations(safeData.length > 0 ? safeData : mockReviewerInboxAnnotations);
       
       // Also save to localStorage as backup
-      localStorage.setItem('reviewerAnnotations', JSON.stringify(data));
+      localStorage.setItem('reviewerAnnotations', JSON.stringify(safeData));
     } catch (err) {
       console.error('Error loading annotations from API:', err);
-      setAnnotations([]);
+      setAnnotations(mockReviewerInboxAnnotations);
       if (isEndpointMissing(err)) {
         setError('Endpoint review ch\u01b0a s\u1eb5n s\u00e0ng tr\u00ean backend. Vui l\u00f2ng ki\u1ec3m tra API.');
       } else {
@@ -127,6 +129,19 @@ const ReviewerDashboard = () => {
     return matchesFilter && matchesSearch && matchesAnnotator && 
            matchesProject && matchesType && matchesPriority && 
            matchesDateFrom && matchesDateTo;
+  }).sort((a, b) => {
+    const statusWeight = (item) => {
+      if (item.status === 'expired') return 0;
+      if (item.status === 'pending_review') return 1;
+      return 2;
+    };
+
+    const statusDiff = statusWeight(a) - statusWeight(b);
+    if (statusDiff !== 0) {
+      return statusDiff;
+    }
+
+    return new Date(a.dueDate || a.createdAt).getTime() - new Date(b.dueDate || b.createdAt).getTime();
   });
 
   const handleRefresh = () => {
@@ -152,6 +167,7 @@ const ReviewerDashboard = () => {
     pending: annotations.filter(a => a.status === 'pending_review').length,
     approved: annotations.filter(a => a.status === 'approved').length,
     rejected: annotations.filter(a => a.status === 'rejected').length,
+    expired: annotations.filter(a => a.status === 'expired').length,
     completed: annotations.filter(a => a.status === 'approved' || a.status === 'rejected').length,
     todayReviews: reviewHistory.filter(r => {
       const reviewDate = new Date(r.reviewedAt);
@@ -263,6 +279,11 @@ const ReviewerDashboard = () => {
 
   const handleViewDetails = (annotationId) => {
     navigate(`/reviewer/task/${annotationId}`);
+  };
+
+  const getDaysUntilDue = (dueDate) => {
+    if (!dueDate) return null;
+    return Math.ceil((new Date(dueDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
   };
   
   if (loading) {
@@ -556,6 +577,7 @@ const ReviewerDashboard = () => {
             <div className="flex gap-3 overflow-x-auto">{[
               { key: 'all', label: 'Tất cả', count: annotations.length },
               { key: 'pending_review', label: 'Ch? review', count: annotations.filter(a => a.status === 'pending_review').length },
+              { key: 'expired', label: 'Quá hạn', count: annotations.filter(a => a.status === 'expired').length },
               { key: 'approved', label: 'Đã duyệt', count: annotations.filter(a => a.status === 'approved').length },
               { key: 'rejected', label: 'Đã từ chối', count: annotations.filter(a => a.status === 'rejected').length },
             ].map((tab) => (
@@ -588,6 +610,14 @@ const ReviewerDashboard = () => {
                 key={annotation.id}
                 className="bg-white rounded-lg shadow-sm hover:shadow-md transition-all p-6"
               >
+                {(() => {
+                  const dueDays = getDaysUntilDue(annotation.dueDate);
+                  return dueDays !== null && annotation.status !== 'approved' && annotation.status !== 'rejected' ? (
+                    <div className={`inline-flex mb-4 px-3 py-1 rounded-full text-xs font-bold ${dueDays < 0 ? 'bg-rose-100 text-rose-700' : dueDays <= 2 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+                      {dueDays < 0 ? `Quá hạn ${Math.abs(dueDays)} ngày` : dueDays === 0 ? 'Hết hạn hôm nay' : `Còn ${dueDays} ngày đến hạn`}
+                    </div>
+                  ) : null;
+                })()}
                 <div className="flex flex-col lg:flex-row items-start justify-between gap-6">
                   <div className="flex-1 min-w-0 w-full">
                     <div className="flex items-start gap-4 mb-4">
@@ -621,10 +651,12 @@ const ReviewerDashboard = () => {
                     <div className="flex flex-wrap items-center gap-3 mb-4">
                       <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
                         annotation.status === 'pending_review' ? 'bg-yellow-100 text-yellow-800' :
+                        annotation.status === 'expired' ? 'bg-rose-100 text-rose-800' :
                         annotation.status === 'approved' ? 'bg-green-100 text-green-800' :
                         'bg-red-100 text-red-800'
                       }`}>
                         {annotation.status === 'pending_review' ? 'Ch? review' :
+                         annotation.status === 'expired' ? 'Quá hạn' :
                          annotation.status === 'approved' ? 'Đã duyệt' : 'Đã từ chối'}
                       </span>
                       <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-800 uppercase">

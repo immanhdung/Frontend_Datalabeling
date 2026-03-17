@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import Header from "../../components/common/Header";
 import { History, Clock, CheckCircle2, AlertCircle } from "lucide-react";
+import { mockAnnotatorInboxTasks } from "../../mock/taskInbox";
 
 const getCurrentUser = () => {
   const userRaw = localStorage.getItem("user");
@@ -27,6 +28,8 @@ const normalizeTask = (task) => ({
   projectName: task.projectName ?? task.project_name ?? task.project?.name ?? "N/A",
   status: task.status ?? "pending",
   updatedAt: task.updatedAt ?? task.updated_at ?? task.createdAt ?? new Date().toISOString(),
+  dueDate: task.dueDate ?? task.due_date ?? task.deadline ?? null,
+  expiredAt: task.expiredAt ?? task.expired_at ?? null,
   progress: task.progress ?? 0,
   totalItems: task.totalItems ?? task.total_items ?? task.items?.length ?? 0,
 });
@@ -50,8 +53,11 @@ export default function AnnotatorHistory() {
       mergedMap.set(task.id, task);
     });
 
-    return Array.from(mergedMap.values())
-      .filter((task) => task.status === "in_progress" || task.status === "completed")
+    const mergedTasks = Array.from(mergedMap.values());
+    const sourceTasks = mergedTasks.length > 0 ? mergedTasks : mockAnnotatorInboxTasks.map(normalizeTask);
+
+    return sourceTasks
+      .filter((task) => ["in_progress", "completed", "expired"].includes(task.status))
       .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   }, []);
 
@@ -93,6 +99,8 @@ export default function AnnotatorHistory() {
                     <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
                       {task.status === 'completed' ? (
                         <CheckCircle2 className="w-7 h-7 text-emerald-500" />
+                      ) : task.status === 'expired' ? (
+                        <AlertCircle className="w-7 h-7 text-rose-500" />
                       ) : (
                         <Clock className="w-7 h-7 text-amber-500" />
                       )}
@@ -103,11 +111,11 @@ export default function AnnotatorHistory() {
                       <div className="flex items-center gap-4 mt-3">
                         <span className="inline-flex items-center gap-1.5 text-xs font-black text-slate-500">
                           <Clock className="w-3.5 h-3.5" />
-                          {new Date(task.updatedAt).toLocaleString("vi-VN", { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          {new Date(task.expiredAt || task.updatedAt).toLocaleString("vi-VN", { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </span>
-                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${task.status === 'completed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${task.status === 'completed' ? 'bg-emerald-50 text-emerald-700' : task.status === 'expired' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'
                           }`}>
-                          {task.status === 'completed' ? 'Hoàn thành' : 'Đang làm'}
+                          {task.status === 'completed' ? 'Hoàn thành' : task.status === 'expired' ? 'Quá hạn' : 'Đang làm'}
                         </span>
                       </div>
                     </div>

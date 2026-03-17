@@ -23,6 +23,7 @@ import Datasets from "./pages/Manager/Datasets";
 
 // Annotator
 import AnnotatorDashboard from "./pages/Annotator/Dashboard";
+import AnnotatorTasks from "./pages/Annotator/Tasks";
 import AnnotatorTask from "./pages/Annotator/Task";
 import AnnotatorHistory from "./pages/Annotator/History";
 import AnnotatorFeedback from "./pages/Annotator/Feedback";
@@ -31,6 +32,8 @@ import AnnotatorFeedback from "./pages/Annotator/Feedback";
 import ReviewerDashboard from "./pages/Reviewer/Dashboard";
 import ReviewerHistory from "./pages/Reviewer/History";
 import ReviewerAnalytics from "./pages/Reviewer/Analytics";
+import ReviewerTask from "./pages/Reviewer/Task";
+import ReviewInbox from "./pages/Reviewer/ReviewInbox";
 
 
 function ProtectedRoute({ children, allowRoles }) {
@@ -197,7 +200,7 @@ function App() {
           path="/annotator/tasks"
           element={
             <ProtectedRoute allowRoles={["annotator"]}>
-              <AnnotatorDashboard />
+              <AnnotatorTasks />
             </ProtectedRoute>
           }
         />
@@ -231,7 +234,15 @@ function App() {
           path="/reviewer/review"
           element={
             <ProtectedRoute allowRoles={["reviewer"]}>
-              <ReviewerDashboard />
+              <ReviewInbox />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reviewer/task/:taskId"
+          element={
+            <ProtectedRoute allowRoles={["reviewer"]}>
+              <ReviewerTask />
             </ProtectedRoute>
           }
         />

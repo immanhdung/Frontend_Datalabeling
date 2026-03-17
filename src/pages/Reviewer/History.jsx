@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/common/Header';
 import useReviewHistory from '../../hooks/useReviewHistory';
+import { mockReviewerHistory } from '../../mock/taskInbox';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -27,6 +28,7 @@ import {
 const ReviewHistory = () => {
   const navigate = useNavigate();
   const { reviewHistory } = useReviewHistory();
+  const historySource = useMemo(() => (reviewHistory.length > 0 ? reviewHistory : mockReviewerHistory), [reviewHistory]);
 
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -34,20 +36,21 @@ const ReviewHistory = () => {
 
   // Calculate statistics
   const stats = {
-    total: reviewHistory.length,
-    approved: reviewHistory.filter(r => r.decision === 'approved').length,
-    rejected: reviewHistory.filter(r => r.decision === 'rejected').length,
-    avgReviewTime: reviewHistory.length > 0
-      ? (reviewHistory.reduce((sum, r) => sum + r.reviewTime, 0) / reviewHistory.length).toFixed(1)
+    total: historySource.length,
+    approved: historySource.filter(r => r.decision === 'approved').length,
+    rejected: historySource.filter(r => r.decision === 'rejected').length,
+    avgReviewTime: historySource.length > 0
+      ? (historySource.reduce((sum, r) => sum + r.reviewTime, 0) / historySource.length).toFixed(1)
       : '0',
-    approvalRate: reviewHistory.length > 0
-      ? ((reviewHistory.filter(r => r.decision === 'approved').length / reviewHistory.length) * 100).toFixed(1)
+    approvalRate: historySource.length > 0
+      ? ((historySource.filter(r => r.decision === 'approved').length / historySource.length) * 100).toFixed(1)
       : '0',
+    expired: historySource.filter(r => r.taskStatus === 'expired').length,
   };
 
   // Filter history
-  const filteredHistory = reviewHistory.filter((review) => {
-    const matchesDecision = filter === 'all' || review.decision === filter;
+  const filteredHistory = historySource.filter((review) => {
+    const matchesDecision = filter === 'all' || (filter === 'expired' ? review.taskStatus === 'expired' : review.decision === filter);
     const matchesSearch =
       (review.taskTitle || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (review.annotatorName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -169,9 +172,10 @@ const ReviewHistory = () => {
           {/* Decision Filter Tabs */}
           <div className="flex gap-2 overflow-x-auto bg-slate-50 p-1.5 rounded-2xl w-fit">
             {[
-              { key: 'all', label: 'Tất cả', count: reviewHistory.length },
-              { key: 'approved', label: 'Đã duyệt', count: reviewHistory.filter(r => r.decision === 'approved').length },
-              { key: 'rejected', label: 'Đã từ chối', count: reviewHistory.filter(r => r.decision === 'rejected').length },
+              { key: 'all', label: 'Tất cả', count: historySource.length },
+              { key: 'approved', label: 'Đã duyệt', count: historySource.filter(r => r.decision === 'approved').length },
+              { key: 'rejected', label: 'Đã từ chối', count: historySource.filter(r => r.decision === 'rejected').length },
+              { key: 'expired', label: 'Task quá hạn', count: historySource.filter(r => r.taskStatus === 'expired').length },
             ].map((tab) => {
               const isActive = filter === tab.key;
               return (
@@ -235,6 +239,11 @@ const ReviewHistory = () => {
                         </>
                       )}
                     </span>
+                    {review.taskStatus === 'expired' && (
+                      <span className="ml-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-100">
+                        Task quá hạn
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex-1 mb-4">
