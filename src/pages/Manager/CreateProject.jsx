@@ -1,6 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../../config/api";
+import api, { labelAPI } from "../../config/api";
 import {
   ArrowLeft,
   ArrowRight,
@@ -269,6 +269,50 @@ export default function CreateProjectPage() {
     return { attachedCount, failedCount };
   };
 
+  const createMissingCategoryLabels = async (categoryId) => {
+    const existingNameSet = new Set(
+      categoryLabels.map((item) => String(item?.name || "").trim().toLowerCase()).filter(Boolean)
+    );
+
+    const missingCustomLabels = allSelectedLabels.filter(
+      (name) => !existingNameSet.has(String(name).trim().toLowerCase())
+    );
+
+    if (missingCustomLabels.length === 0) {
+      return { createdCount: 0, failedCount: 0 };
+    }
+
+    const results = await Promise.allSettled(
+      missingCustomLabels.map((name) => labelAPI.create(categoryId, { name }))
+    );
+
+    const createdCount = results.filter((item) => item.status === "fulfilled").length;
+    const failedCount = results.length - createdCount;
+    return { createdCount, failedCount };
+  };
+
+  const syncProjectLabels = async (projectId, categoryId, guidelineText, labelNames) => {
+    if (!Array.isArray(labelNames) || labelNames.length === 0) return;
+
+    const updatePayload = {
+      name: projectName.trim(),
+      description: projectDescription.trim(),
+      categoryId: String(categoryId),
+      guideline: guidelineText,
+      templateId: FIXED_TEMPLATE_ID,
+      isActive: true,
+      labels: labelNames,
+      labelNames,
+    };
+
+    await requestSequential([
+      () => api.put(`/projects/${projectId}`, updatePayload),
+      () => api.put(`/Projects/${projectId}`, updatePayload),
+      () => api.patch(`/projects/${projectId}`, updatePayload),
+      () => api.patch(`/Projects/${projectId}`, updatePayload),
+    ]);
+  };
+
   const handleSubmit = async () => {
     if (!selectedCategoryId) {
       setError("Vui lòng chọn category");
@@ -282,12 +326,19 @@ export default function CreateProjectPage() {
       const normalizedCategoryId = String(selectedCategoryId);
       const normalizedGuideline = guidelines.trim();
 
+      const labelSyncResult = await createMissingCategoryLabels(normalizedCategoryId);
+      if (labelSyncResult.failedCount > 0) {
+        throw new Error(`Không thể tạo ${labelSyncResult.failedCount} label custom trong category`);
+      }
+
       const payload = {
         name: projectName.trim(),
         description: projectDescription.trim(),
         categoryId: normalizedCategoryId,
         guideline: normalizedGuideline,
         templateId: FIXED_TEMPLATE_ID,
+        labels: allSelectedLabels,
+        labelNames: allSelectedLabels,
       };
 
       const payloadPascalCase = {
@@ -296,6 +347,8 @@ export default function CreateProjectPage() {
         categoryId: normalizedCategoryId,
         guideline: normalizedGuideline,
         TemplateId: FIXED_TEMPLATE_ID,
+        labels: allSelectedLabels,
+        labelNames: allSelectedLabels,
       };
 
       const createRes = await requestSequential([
@@ -325,6 +378,8 @@ export default function CreateProjectPage() {
       if (!projectId) {
         throw new Error("Tạo dự án xong nhưng không lấy được projectId");
       }
+
+      await syncProjectLabels(projectId, normalizedCategoryId, normalizedGuideline, allSelectedLabels);
 
       const attachResult = await attachDatasets(projectId);
 
