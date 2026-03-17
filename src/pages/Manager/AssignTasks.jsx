@@ -192,12 +192,12 @@ export default function AssignTasks() {
       // 1. Tự động thêm toàn bộ người dùng (Annotator + Reviewers) vào dự án làm thành viên (Member)
       for (const userId of allSelectedUsers) {
         try {
-          // Gửi config validateStatus để axios nuốt trôi mọi HTTP Error code
-          await api.post(`/projects/${projectId}/members/${userId}`, {}, {
-            validateStatus: () => true
-          }).catch(() => { }); // Cản mọi Exception mạng
+          // Gửi trực tiếp không body, validateStatus để axios nuốt trôi mọi HTTP Error code (như 409 Conflict)
+          await api.post(`/projects/${projectId}/members/${userId}`, null, {
+            validateStatus: (status) => status < 500 // Cho phép 4xx (như đã tồn tại) nhưng log 5xx
+          }).catch(() => { });
         } catch (e) {
-          // Bỏ qua lỗi tĩnh hoàn toàn
+          console.warn(`Could not add user ${userId} to project:`, e);
         }
       }
 
@@ -208,11 +208,13 @@ export default function AssignTasks() {
       // Reviewers chỉ cần tham gia dự án với tư cách Member (được xử lý ở bước 1)
       for (const datasetId of selectedDatasetIds) {
         try {
-          await api.post('/tasks/assign', {
+          const assignRes = await api.post('/tasks/assign', {
             assignedTo: String(selectedAnnotatorId),
             projectId: String(projectId),
-            datasetId: String(datasetId)
+            datasetId: String(datasetId),
+            timeLimitMinutes: 60 // Bổ sung tham số bắt buộc theo Swagger
           });
+          console.log(`Assign result for dataset ${datasetId}:`, assignRes.data);
           successCount++;
         } catch (err) {
           const backendError = err.response?.data?.message || err.response?.data?.title || JSON.stringify(err.response?.data) || err.message;
@@ -441,7 +443,12 @@ export default function AssignTasks() {
                         </div>
                       </div>
                       <h4 className="font-black text-slate-900 text-lg mb-1">{ds.name}</h4>
-                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{ds.imagesCount || ds.numberOfItems || 0} Images / Items</p>
+                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                        {(ds.imagesCount ?? ds.numberOfItems ?? ds.itemCount ?? 0)} Images / Items
+                      </p>
+                      {(ds.imagesCount === 0 || ds.numberOfItems === 0 || ds.itemCount === 0) && (
+                        <p className="text-[10px] text-amber-600 font-bold mt-2">⚠️ Dataset trống, có thể bị lỗi khi gán</p>
+                      )}
                     </div>
                   );
                 })

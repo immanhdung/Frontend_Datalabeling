@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { taskAPI, annotationAPI } from '../../config/api';
+import { taskAPI, annotationAPI, projectAPI } from '../../config/api';
 import {
   fetchAssignedTasksForUser,
   getCurrentUserId,
@@ -49,6 +49,7 @@ const AnnotatorTask = () => {
   const canvasRef = useRef(null);
   const imageRef = useRef(null);
   const [imageScale, setImageScale] = useState(1);
+  const [imageNaturalSize, setImageNaturalSize] = useState({ width: 800, height: 600 });
   const [showSkipModal, setShowSkipModal] = useState(false);
   const [skipReason, setSkipReason] = useState("");
 
@@ -62,92 +63,184 @@ const AnnotatorTask = () => {
       setError(null);
 
       const currentUserId = getCurrentUserId();
-      const currentUserIdentifiers = getCurrentUserIdentifiers();
-
-      // 1. Try to fetch task lists (API + Local) to verify assignment
-      const myTasks = await fetchAssignedTasksForUser(taskAPI, currentUserIdentifiers);
-      const assignedTask = myTasks.find(
-        (taskItem) => String(taskItem.id ?? taskItem._id) === String(taskId)
-      );
-
-      if (!assignedTask) {
-        setError('Bạn không có quyền truy cập task này. Task chưa được assign cho bạn.');
-        return;
+      if (!currentUserId) {
+         setError("Vui lòng đăng nhập để thực hiện nhiệm vụ.");
+         return;
       }
 
-      let taskData = null;
-
-      // 2. Determine if it's a mock task or real task
-      if (String(taskId).startsWith('mock-')) {
-        // Use the one already found in merged list
-        taskData = normalizeTask(assignedTask);
-      } else {
-        // Try fetching full details from API for real tasks
-        try {
-          const response = await taskAPI.getById(taskId);
-          taskData = normalizeTask(resolveApiData(response));
-        } catch (apiErr) {
-          console.warn("Could not fetch task details from API, using list data", apiErr);
-          taskData = normalizeTask(assignedTask);
-        }
-      }
-
-      if (!taskData) {
+      // 1. Fetch task details
+      const taskResponse = await taskAPI.getById(taskId);
+      const rawTaskData = resolveApiData(taskResponse);
+      
+      if (!rawTaskData) {
         setError('Không thể tìm thấy chi tiết task.');
         return;
       }
 
-      // 3. Last check for assignee
-      const assigneeId = getTaskAssigneeId(taskData);
-      if (assigneeId && currentUserId && String(assigneeId) !== String(currentUserId)) {
-        // Double check identifiers
-        if (!currentUserIdentifiers.includes(String(assigneeId))) {
-          setError('Task này không được assign cho bạn.');
-          return;
-        }
+      // 2. Fetch task items
+      let items = [];
+      try {
+        const itemsResponse = await taskAPI.getItems(taskId);
+        items = resolveApiData(itemsResponse);
+      } catch (itemErr) {
+        console.warn("Could not fetch items for task", itemErr);
       }
 
-      if (!Array.isArray(taskData.items) || taskData.items.length === 0) {
-        setError('Task chưa có item để gán nhãn.');
+      const taskData = normalizeTask({
+         ...rawTaskData,
+         items: items || []
+      });
+
+      if (taskData.items.length === 0) {
+        setError('Nhiệm vụ này hiện chưa có dữ liệu để gán nhãn.');
         setTask(taskData);
         return;
       }
 
+      console.log('Task: Loading metadata for ID:', taskId);
       setTask(taskData);
-      // If we've started before, we might want to resume at the first non-completed item
-      const firstUnprocessedIndex = taskData.items.findIndex(item => !item.status || item.status === 'pending');
-      const resumeIndex = firstUnprocessedIndex !== -1 ? firstUnprocessedIndex : 0;
       
+      // Find first non-completed item to resume
+      const firstUnprocessedIndex = taskData.items.findIndex(
+        item => item.status !== 'Completed' && item.status !== 'CompletedWithReview'
+      );
+      
+      const resumeIndex = firstUnprocessedIndex !== -1 ? firstUnprocessedIndex : 0;
       setCurrentItemIndex(resumeIndex);
-      setAnnotations(taskData.items[resumeIndex]?.annotations || []);
+      
+      // Load existing annotations for the first item
+      if (taskData.items[resumeIndex]) {
+        console.log('Task: Current Item Detail:', taskData.items[resumeIndex]);
+        loadItemAnnotations(taskData.items[resumeIndex]?.id);
+      }
       
     } catch (err) {
-      console.error('Error loading task:', err);
-      setError(err.message || 'Không thể tải task. Vui lòng thử lại.');
+      console.error('Task: Error loading task:', err);
+      const isUnauthorized = err.response?.status === 401;
+      const msg = isUnauthorized 
+        ? 'Phiên làm việc đã hết hạn. Vui lòng đăng xuất và đăng nhập lại.' 
+        : (err.response?.data?.message || err.message || 'Không thể tải nhiệm vụ. Vui lòng thử lại.');
+      setError(msg);
     } finally {
       setLoading(false);
     }
   };
 
-  const labels = task?.type === 'image' 
+  const loadItemAnnotations = async (itemId) => {
+    if (!itemId) return;
+    try {
+      const response = await annotationAPI.getByItem(itemId);
+      const data = resolveApiData(response);
+      // Giả sử backend trả về list annotations có payload chứa bboxes
+      // Ta cần map lại định dạng internal của app
+      if (data && data.length > 0) {
+         const latest = data[data.length - 1]; // Lấy cái mới nhất
+         const bboxes = latest.payload?.bboxes || [];
+         setAnnotations(bboxes.map((box, idx) => ({
+            id: box.id || idx,
+            label: box.label,
+            x: box.x,
+            y: box.y,
+            width: box.width,
+            height: box.height,
+            color: getLabelColor(box.label),
+            type: 'bbox'
+         })));
+      } else {
+         setAnnotations([]);
+      }
+    } catch (err) {
+      console.warn("Could not fetch annotations for item", err);
+      setAnnotations([]);
+    }
+  };
+
+  const resolveImageUrl = (item) => {
+    if (!item) return "";
+    
+    // Nếu item chứa datasetItem, ta ưu tiên lấy từ đó (cấu trúc Backend mới)
+    if (item.datasetItem) {
+       return resolveImageUrl(item.datasetItem);
+    }
+
+    // Bổ sung thêm nhiều candidate và variants
+    const candidate = item.storageUri || item.thumbnailUrl || item.previewUrl || item.imageUrl || 
+                      item.url || item.path || item.originalUrl || item.filePath || item.mediaUrl ||
+                      item.StorageUri || item.ImageUrl || item.Url || item.Path || item.FilePath || "";
+                      
+    if (!candidate) {
+      // Nếu không tìm thấy, thử tìm trong data object (nếu có)
+      if (item.data && typeof item.data === 'object') {
+        return resolveImageUrl(item.data);
+      }
+      return "";
+    }
+    
+    if (/^(https?:|data:|blob:)/i.test(candidate)) return candidate;
+
+    const base = import.meta.env.VITE_API_BASE_URL || "";
+    const apiBase = base.replace(/\/api$/i, "").replace(/\/$/, "");
+    return candidate.startsWith("/") ? `${apiBase}${candidate}` : `${apiBase}/${candidate}`;
+  };
+
+  const [projectLabels, setProjectLabels] = useState([]);
+
+  useEffect(() => {
+    if (task && task.projectId) {
+      fetchProjectLabels(task.projectId);
+    }
+  }, [task?.projectId]);
+
+  const fetchProjectLabels = async (projectId) => {
+    try {
+      const res = await projectAPI.getById(projectId);
+      const data = resolveApiData(res);
+      console.log("Task: Project Detail Response:", data);
+      
+      // Thử mọi đường dẫn lấy labels (PascalCase & camelCase)
+      const labelsSource = data?.category?.labels || data?.Category?.Labels || 
+                          data?.projectTemplate?.labels || data?.labels || data?.Labels || [];
+      
+      if (Array.isArray(labelsSource) && labelsSource.length > 0) {
+        setProjectLabels(labelsSource.map(l => l.name || l.Name || l));
+      }
+    } catch (err) {
+      console.warn("Task: Could not fetch project labels via API (403 or Error), checking task object itself");
+      // Thử lấy từ object project đính kèm trong task (nếu có)
+      const taskLabels = task?.project?.category?.labels || task?.Project?.Category?.Labels || [];
+      if (taskLabels.length > 0) {
+        setProjectLabels(taskLabels.map(l => l.name || l.Name || l));
+      }
+    }
+  };
+
+  const labels = projectLabels.length > 0 ? projectLabels : 
+    task?.type === 'image' 
     ? ['Car', 'Person', 'Bicycle', 'Truck', 'Motorcycle']
     : task?.type === 'text'
     ? ['PERSON', 'LOCATION', 'ORGANIZATION', 'DATE', 'PRODUCT']
-    : task?.type === 'audio'
-    ? ['Speech', 'Music', 'Noise', 'Silence']
     : ['Walking', 'Running', 'Standing', 'Sitting'];
 
-  const labelColors = {
-    'Car': '#3b82f6',
-    'Person': '#10b981',
-    'Bicycle': '#f59e0b',
-    'Truck': '#ef4444',
-    'Motorcycle': '#8b5cf6',
-    'PERSON': '#3b82f6',
-    'LOCATION': '#10b981',
-    'ORGANIZATION': '#f59e0b',
-    'DATE': '#ef4444',
-    'PRODUCT': '#8b5cf6',
+  const PREDEFINED_COLORS = [
+    '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+    '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'
+  ];
+
+  const getLabelColor = (label) => {
+    const predefined = {
+      'Car': '#3b82f6', 'Person': '#10b981', 'Bicycle': '#f59e0b',
+      'Truck': '#ef4444', 'Motorcycle': '#8b5cf6', 'PERSON': '#3b82f6',
+      'LOCATION': '#10b981', 'ORGANIZATION': '#f59e0b', 'DATE': '#ef4444',
+      'PRODUCT': '#8b5cf6',
+    };
+    if (predefined[label]) return predefined[label];
+    
+    // Generate from hash
+    let hash = 0;
+    for (let i = 0; i < label.length; i++) {
+      hash = label.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return PREDEFINED_COLORS[Math.abs(hash) % PREDEFINED_COLORS.length];
   };
 
   // Image annotation handlers
@@ -193,7 +286,7 @@ const AnnotatorTask = () => {
         label: selectedLabel,
         type: 'bbox',
         ...currentBox,
-        color: labelColors[selectedLabel] || '#3b82f6',
+        color: getLabelColor(selectedLabel),
       };
       setAnnotations([...annotations, newAnnotation]);
     }
@@ -214,7 +307,7 @@ const AnnotatorTask = () => {
         label: selectedLabel,
         type: 'entity',
         text: selectedText,
-        color: labelColors[selectedLabel] || '#3b82f6',
+        color: getLabelColor(selectedLabel),
       };
       setAnnotations([...annotations, newAnnotation]);
       selection.removeAllRanges();
@@ -227,35 +320,49 @@ const AnnotatorTask = () => {
 
   const handleSave = async () => {
     try {
-      // Save annotations to current item
-      if (task && task.items) {
-        const updatedItems = [...task.items];
-        updatedItems[currentItemIndex] = {
-          ...updatedItems[currentItemIndex],
-          annotations,
-          status: 'annotated',
-        };
+      if (!task || !task.items) return;
+      
+      const currentItem = task.items[currentItemIndex];
+      if (!currentItem) return;
 
-        await annotationAPI.create({
-          taskId: task.id,
-          itemIndex: currentItemIndex,
-          annotations: annotations,
-          status: 'annotated'
-        });
-
-        const updatedTask = {
-          ...task,
-          status: calculateProgress(updatedItems) >= 100 ? 'completed' : 'in_progress',
-          items: updatedItems,
-          progress: calculateProgress(updatedItems),
-          updatedAt: new Date().toISOString(),
-        };
-        setTask(updatedTask);
+      if (annotations.length === 0) {
+        alert("Vui lòng gán ít nhất một nhãn hoặc chọn Skip.");
+        return;
       }
-      alert('Đã lưu annotations!');
+
+      const payload = {
+        taskItemId: currentItem.id,
+        payload: {
+          bboxes: annotations.map(ann => ({
+            label: ann.label,
+            x: ann.x,
+            y: ann.y,
+            width: ann.width,
+            height: ann.height
+          }))
+        }
+      };
+
+      await annotationAPI.submit(payload);
+
+      // Update local task state to reflect completion of this item
+      const updatedItems = [...task.items];
+      updatedItems[currentItemIndex] = {
+        ...updatedItems[currentItemIndex],
+        status: 'Completed',
+        annotations: [...annotations]
+      };
+
+      setTask({
+        ...task,
+        items: updatedItems,
+        progress: calculateProgress(updatedItems)
+      });
+
+      alert('Đã lưu kết quả gán nhãn cho ảnh này!');
     } catch (err) {
       console.error('Error saving annotations:', err);
-      alert('Không thể lưu annotations');
+      alert(err.response?.data?.message || 'Không thể lưu kết quả. Vui lòng thử lại.');
     }
   };
 
@@ -270,56 +377,42 @@ const AnnotatorTask = () => {
     }
 
     try {
-      if (task && task.items) {
-        const updatedItems = [...task.items];
-        updatedItems[currentItemIndex] = {
-          ...updatedItems[currentItemIndex],
-          status: 'skipped',
-          skipReason: skipReason,
-          annotations: [] // Clear annotations if skipped? Or keep?
-        };
+      if (!task || !task.items) return;
+      const currentItem = task.items[currentItemIndex];
 
-        const updatedTask = {
-          ...task,
-          items: updatedItems,
-          progress: calculateProgress(updatedItems),
-          updatedAt: new Date().toISOString(),
-          status: calculateProgress(updatedItems) >= 100 ? 'completed' : 'in_progress',
-        };
+      await annotationAPI.skip({
+        taskItemId: currentItem.id,
+        note: skipReason
+      });
 
-        setTask(updatedTask);
-        
-        // Save to local/API
-        await annotationAPI.create({
-          taskId: task.id,
-          itemIndex: currentItemIndex,
-          status: 'skipped',
-          reason: skipReason
-        });
+      const updatedItems = [...task.items];
+      updatedItems[currentItemIndex] = {
+        ...updatedItems[currentItemIndex],
+        status: 'Skipped',
+        skipReason: skipReason,
+        annotations: []
+      };
 
-        // Update local storage if it's a mock/local task
-        const currentUserId = getCurrentUserId();
-        const taskMap = JSON.parse(localStorage.getItem('assignedTasksByUser') || '{}');
-        const key = String(currentUserId);
-        if (taskMap[key]) {
-          taskMap[key] = taskMap[key].map(t => 
-            String(t.id) === String(task.id) ? updatedTask : t
-          );
-          localStorage.setItem('assignedTasksByUser', JSON.stringify(taskMap));
-        }
+      const updatedTask = {
+        ...task,
+        items: updatedItems,
+        progress: calculateProgress(updatedItems),
+        status: calculateProgress(updatedItems) >= 100 ? 'completed' : 'in_progress',
+      };
 
-        setShowSkipModal(false);
-        setSkipReason("");
+      setTask(updatedTask);
+      setShowSkipModal(false);
+      setSkipReason("");
 
-        // Move to next if available
-        if (currentItemIndex < task.items.length - 1) {
-          setCurrentItemIndex(currentItemIndex + 1);
-          setAnnotations(task.items[currentItemIndex + 1]?.annotations || []);
-        }
+      // Move to next if available
+      if (currentItemIndex < task.items.length - 1) {
+        const nextIndex = currentItemIndex + 1;
+        setCurrentItemIndex(nextIndex);
+        loadItemAnnotations(task.items[nextIndex]?.id);
       }
     } catch (err) {
       console.error('Error skipping item:', err);
-      alert('Không thể bỏ qua item này');
+      alert(err.response?.data?.message || 'Không thể bỏ qua item này');
     }
   };
 
@@ -331,13 +424,18 @@ const AnnotatorTask = () => {
 
   const handleSubmit = async () => {
     try {
-      const isAllProcessed = task.items.every(item => item.status === 'annotated' || item.status === 'skipped');
+      if (!task || !task.items) return;
+
+      const isAllProcessed = task.items.every(item => 
+        item.status === 'Completed' || item.status === 'Skipped' || item.status === 'CompletedWithReview'
+      );
       
       if (!isAllProcessed) {
-        // Find first unfinished item
-        const firstUnfinished = task.items.findIndex(item => item.status === 'pending' || !item.status);
+        const firstUnfinished = task.items.findIndex(item => 
+          item.status !== 'Completed' && item.status !== 'Skipped' && item.status !== 'CompletedWithReview'
+        );
         setCurrentItemIndex(firstUnfinished);
-        setAnnotations(task.items[firstUnfinished]?.annotations || []);
+        loadItemAnnotations(task.items[firstUnfinished]?.id);
         alert('Bạn phải hoàn thành hoặc bỏ qua (có lý do) tất cả các ảnh mới được nộp!');
         return;
       }
@@ -346,68 +444,42 @@ const AnnotatorTask = () => {
       if (!confirmSubmit) return;
 
       setLoading(true);
-      await taskAPI.submit(taskId, {
-        status: 'completed',
-        completedAt: new Date().toISOString(),
-        items: task.items
-      });
-
-      // Update local storage
-      const currentUserId = getCurrentUserId();
-      const taskMap = JSON.parse(localStorage.getItem('assignedTasksByUser') || '{}');
-      const key = String(currentUserId);
-      if (taskMap[key]) {
-        taskMap[key] = taskMap[key].map(t => 
-          String(t.id) === String(taskId) ? { ...t, status: 'completed' } : t
-        );
-        localStorage.setItem('assignedTasksByUser', JSON.stringify(taskMap));
-      }
+      await taskAPI.submit(taskId);
 
       alert('Đã nộp dự án thành công!');
       navigate('/annotator/dashboard');
     } catch (err) {
       console.error('Error submitting task:', err);
-      alert('Không thể nộp dự án. Vui lòng thử lại.');
+      alert(err.response?.data?.message || 'Không thể nộp dự án. Vui lòng thử lại.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleNext = async () => {
-    // Save current annotations for current item
-    if (annotations.length === 0 && task.items[currentItemIndex].status !== 'skipped') {
-      alert('Vui lòng gán nhãn hoặc chọn Skip trước khi sang hình tiếp theo!');
-      return;
-    }
+    if (!task || !task.items) return;
 
-    const updatedItems = [...task.items];
-    updatedItems[currentItemIndex] = {
-      ...updatedItems[currentItemIndex],
-      annotations,
-      status: updatedItems[currentItemIndex].status === 'skipped' ? 'skipped' : 'annotated',
-    };
-
-    const updatedTask = {
-      ...task,
-      items: updatedItems,
-      progress: calculateProgress(updatedItems),
-    };
-    setTask(updatedTask);
-
-    // Save progress to local storage (for persistence)
-    const currentUserId = getCurrentUserId();
-    const taskMap = JSON.parse(localStorage.getItem('assignedTasksByUser') || '{}');
-    const key = String(currentUserId);
-    if (taskMap[key]) {
-      taskMap[key] = taskMap[key].map(t => 
-        String(t.id) === String(task.id) ? updatedTask : t
-      );
-      localStorage.setItem('assignedTasksByUser', JSON.stringify(taskMap));
+    const currentItem = task.items[currentItemIndex];
+    if (currentItem.status !== 'Completed' && currentItem.status !== 'Skipped' && currentItem.status !== 'CompletedWithReview') {
+      if (annotations.length > 0) {
+        // Tự động lưu nếu có annotation mà chưa bấm Save? 
+        // Thường thì nên bắt bấm Save hoặc Skip.
+        const confirmSave = window.confirm("Bạn chưa lưu kết quả cho ảnh này. Bạn có muốn lưu trước khi sang ảnh tiếp theo không?");
+        if (confirmSave) {
+          await handleSave();
+        } else {
+          return;
+        }
+      } else {
+        alert('Vui lòng gán nhãn hoặc chọn Skip trước khi sang hình tiếp theo!');
+        return;
+      }
     }
 
     if (currentItemIndex < task.items.length - 1) {
-      setCurrentItemIndex(currentItemIndex + 1);
-      setAnnotations(task.items[currentItemIndex + 1]?.annotations || []);
+      const nextIndex = currentItemIndex + 1;
+      setCurrentItemIndex(nextIndex);
+      loadItemAnnotations(task.items[nextIndex]?.id);
     } else {
       alert('Đây là hình cuối cùng. Nhấn Submit để nộp dự án.');
     }
@@ -415,8 +487,9 @@ const AnnotatorTask = () => {
 
   const handlePrev = () => {
     if (currentItemIndex > 0) {
-      setCurrentItemIndex(currentItemIndex - 1);
-      setAnnotations(task.items[currentItemIndex - 1]?.annotations || []);
+      const prevIndex = currentItemIndex - 1;
+      setCurrentItemIndex(prevIndex);
+      loadItemAnnotations(task.items[prevIndex]?.id);
     }
   };
 
@@ -430,23 +503,37 @@ const AnnotatorTask = () => {
       case 'image':
         return (
           <div className="space-y-4">
-            <div className="relative border-2 border-gray-300 rounded-lg overflow-hidden bg-gray-100">
+            <div className="relative border-2 border-gray-300 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center min-h-[400px]">
               <img 
                 ref={imageRef}
-                src={currentItem.data.url}
+                src={resolveImageUrl(currentItem)}
                 alt="Annotation"
-                className="w-full h-auto"
-                style={{ transform: `scale(${imageScale})`, transformOrigin: 'top left' }}
+                className="max-w-full h-auto"
+                onLoad={(e) => {
+                  const img = e.target;
+                  // If width/height not in item, we use natural size
+                  if (!currentItem.width || !currentItem.height) {
+                    // Cập nhật natural size để canvas khớp
+                    setImageNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
+                  }
+                }}
+                style={{ transform: `scale(${imageScale})`, transformOrigin: 'center' }}
               />
               <canvas
                 ref={canvasRef}
-                width={currentItem.data.width}
-                height={currentItem.data.height}
+                width={currentItem.width || currentItem.imageWidth || imageNaturalSize.width || 800}
+                height={currentItem.height || currentItem.imageHeight || imageNaturalSize.height || 600}
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 className="absolute inset-0 cursor-crosshair"
-                style={{ transform: `scale(${imageScale})`, transformOrigin: 'top left' }}
+                style={{ 
+                  transform: `scale(${imageScale})`, 
+                  transformOrigin: 'center',
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain'
+                }}
               />
               {/* Draw existing annotations */}
               {annotations.map(ann => (
@@ -478,7 +565,7 @@ const AnnotatorTask = () => {
                     top: currentBox.y * imageScale,
                     width: currentBox.width * imageScale,
                     height: currentBox.height * imageScale,
-                    borderColor: labelColors[selectedLabel] || '#3b82f6',
+                    borderColor: getLabelColor(selectedLabel),
                   }}
                 />
               )}
@@ -627,7 +714,11 @@ const AnnotatorTask = () => {
             </button>
             <div>
               <h1 className="text-xl font-bold text-gray-900">{task.title}</h1>
-              <p className="text-sm text-gray-600">{task.projectName}</p>
+              <p className="text-sm text-gray-600 flex items-center gap-2">
+                <span>{task.projectName}</span>
+                <span className="text-slate-300">•</span>
+                <span className="text-indigo-600 font-medium">{task.datasetName}</span>
+              </p>
             </div>
           </div>
           

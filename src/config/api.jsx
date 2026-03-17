@@ -20,8 +20,32 @@ api.interceptors.request.use((config) => {
     config.headers.Authorization = `Bearer ${token}`;
   }
 
+  // Log for debugging
+  if (import.meta.env.DEV) {
+    console.log(`API Request: ${config.method?.toUpperCase()} ${config.url}`, config.headers.Authorization ? "With Token" : "No Token");
+  }
+
   return config;
 });
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      console.error("Unauthorized! Logging out...");
+      // If we get 401 on something other than login, probably token is dead
+      if (!error.config.url.toLowerCase().includes("/auth/login")) {
+         localStorage.removeItem("accessToken");
+         localStorage.removeItem("user");
+         // Notify app (if we had a dispatcher)
+         if (window.location.pathname !== "/login") {
+            window.location.href = "/login?expired=true";
+         }
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 const trySequential = async (requestFactories) => {
   let lastError;
@@ -45,31 +69,35 @@ export const reviewAPI = {
   reject: (annotationId, payload) =>
     api.post(`/reviews/${annotationId}/reject`, payload),
 };
+ 
+export const projectAPI = {
+  getById: (id) => api.get(`/projects/${id}`),
+};
 
 export const taskAPI = {
   getAll: () => api.get("/tasks"),
-  assign: (taskId, userId, projectId) =>
+  assign: (datasetId, userId, projectId) =>
     api.post("/tasks/assign", {
-      taskId: String(taskId),
+      datasetId: String(datasetId),
       projectId: String(projectId || ""),
       assignedTo: String(userId),
+      timeLimitMinutes: 60, // Bổ sung tham số bắt buộc
     }),
   getMyTasks: () =>
     trySequential([
-      () => api.get("/tasks/annotator"),
-      () => api.get("/tasks/my-tasks"),
       () => api.get("/tasks"),
+      () => api.get("/tasks/assigned"),
+      () => api.get("/tasks?status=opened"),
     ]),
   getById: (taskId) => api.get(`/tasks/${taskId}`),
-  submit: (taskId, payload) => api.post(`/tasks/${taskId}/submit`, payload),
+  getItems: (taskId) => api.get(`/tasks/${taskId}/items`),
+  submit: (taskId) => api.post(`/tasks/${taskId}/submit`), // Nếu backend có endpoint submit task riêng
 };
 
 export const annotationAPI = {
-  create: (payload) =>
-    trySequential([
-      () => api.post("/annotations", payload),
-      () => api.post("/annotation", payload),
-    ]),
+  submit: (payload) => api.post("/annotations/submit", payload),
+  skip: (payload) => api.post("/annotations/skip", payload),
+  getByItem: (itemId) => api.get(`/tasks/items/${itemId}/annotations`),
 };
 
 export const userAPI = {

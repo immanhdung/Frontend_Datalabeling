@@ -58,107 +58,17 @@ const AnnotatorDashboard = () => {
         let apiTasks = [];
         try {
           apiTasks = await fetchAssignedTasksForUser(taskAPI, currentUserIdentifiers);
+          console.log("AnnotatorDashboard: Raw API Tasks:", apiTasks);
         } catch (apiErr) {
-          console.warn("API task fetch failed, relying on local storage fallback", apiErr);
+          console.warn("API task fetch failed", apiErr);
+          setError("Không thể tải danh sách nhiệm vụ từ server. Vui lòng kiểm tra kết nối.");
         }
 
-        // 2. Load from Local Storage fallback/cache
-        const localAssignedTasks = getLocalAssignedTasksForUser(currentUserIdentifiers);
-        const normalizedLocalTasks = normalizeTasks(localAssignedTasks, currentUserId);
-
-        // 3. Define Mock Projects (Always available for testing)
-        const MOCK_PROJECTS = [
-          {
-            id: "mock-1",
-            title: "Phân loại phương tiện giao thông TP.HCM",
-            projectName: "HCMC Traffic AI",
-            description: "Gán nhãn các loại xe (ô tô, xe máy, xe buýt) trong ảnh chụp từ camera giao thông để huấn luyện mô hình giám sát.",
-            type: "image",
-            status: "pending",
-            priority: "high",
-            progress: 0,
-            totalItems: 5,
-            dueDate: new Date(Date.now() + 86400000 * 3).toISOString(),
-            updatedAt: new Date().toISOString(),
-            items: [
-              { id: "i1", data: { url: "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=1200", width: 1200, height: 800 }, annotations: [], status: "pending" },
-              { id: "i2", data: { url: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=1200", width: 1200, height: 800 }, annotations: [], status: "pending" },
-              { id: "i3", data: { url: "https://images.unsplash.com/photo-1449034446853-66c86144b0ad?w=1200", width: 1200, height: 800 }, annotations: [], status: "pending" },
-              { id: "i4", data: { url: "https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=1200", width: 1200, height: 800 }, annotations: [], status: "pending" },
-              { id: "i5", data: { url: "https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?w=1200", width: 1200, height: 800 }, annotations: [], status: "pending" },
-            ]
-          },
-          {
-            id: "mock-2",
-            title: "Nhận diện văn bản y tế",
-            projectName: "Medical OCR",
-            description: "Trích xuất thông tin từ các đơn thuốc và bệnh án viết tay.",
-            type: "text",
-            status: "in_progress",
-            priority: "medium",
-            progress: 40,
-            totalItems: 10,
-            dueDate: new Date(Date.now() + 86400000 * 7).toISOString(),
-            updatedAt: new Date().toISOString(),
-            items: Array(10).fill(0).map((_, i) => ({ 
-              id: `t${i}`, 
-              data: { content: `Mẫu văn bản y tế số ${i+1}: Bệnh nhân có triệu chứng đau đầu, chóng mặt. Chỉ định chụp CT và xét nghiệm máu bổ sung để xác định nguyên nhân.` }, 
-              status: i < 4 ? "annotated" : "pending",
-              annotations: i < 4 ? [{ id: Date.now() + i, label: "PERSON", text: "Bệnh nhân", type: 'entity', color: '#3b82f6' }] : []
-            }))
-          }
-        ];
-
-        // 4. Merge them (Dedupe by ID)
-        const mergedMap = new Map();
-
-        // Always add Mock projects first
-        MOCK_PROJECTS.forEach(task => {
-          mergedMap.set(String(task.id), { ...task, isMock: true });
-        });
-
-        // Add local ones (they might have more recent local progress)
-        normalizedLocalTasks.forEach(task => {
-          if (task.id) {
-            const existing = mergedMap.get(String(task.id));
-            mergedMap.set(String(task.id), { ...existing, ...task });
-          }
-        });
-
-        // Add API ones (if any)
-        apiTasks.forEach(task => {
-          if (task.id) {
-            const existing = mergedMap.get(String(task.id));
-            mergedMap.set(String(task.id), {
-              ...existing,
-              ...task,
-              items: task.items?.length > 0 ? task.items : (existing?.items || task.items)
-            });
-          }
-        });
-
-        const finalTasks = Array.from(mergedMap.values());
-        
-        // Sync mock projects to local storage for persistent testing
-        const taskMap = JSON.parse(localStorage.getItem('assignedTasksByUser') || '{}');
-        const key = String(currentUserId);
-        if (!taskMap[key]) taskMap[key] = [];
-        
-        MOCK_PROJECTS.forEach(mock => {
-           if (!taskMap[key].some(t => String(t.id) === String(mock.id))) {
-             taskMap[key].push(mock);
-           }
-        });
-        localStorage.setItem('assignedTasksByUser', JSON.stringify(taskMap));
-
-        setTasks(finalTasks);
+        console.log("AnnotatorDashboard: Final tasks set:", apiTasks);
+        setTasks(apiTasks);
       } catch (loadError) {
         console.error("Failed to load assigned tasks:", loadError);
         setError("Không thể đồng bộ danh sách nhiệm vụ. Vui lòng kiểm tra kết nối.");
-
-        // Final fallback to only local if everything exploded
-        const localTasks = getLocalAssignedTasksForUser(currentUserIdentifiers);
-        setTasks(normalizeTasks(localTasks, currentUserId));
       } finally {
         setLoading(false);
       }
@@ -342,13 +252,13 @@ const AnnotatorDashboard = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredTasks.map((task) => {
+            {filteredTasks.map((task, index) => {
               const daysUntilDue = getDaysUntilDue(task.dueDate);
               const urgencyColor = daysUntilDue <= 3 ? "text-red-500" : "text-amber-500";
 
               return (
                 <div
-                  key={task.id}
+                  key={task.id || `task-${index}`}
                   className="group bg-white rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 p-6 flex flex-col h-full"
                 >
                   <div className="flex items-start justify-between mb-4">
@@ -381,9 +291,15 @@ const AnnotatorDashboard = () => {
 
                   <div className="flex-1">
                     <h3 className="font-bold text-slate-900 text-xl mb-2 line-clamp-1 group-hover:text-blue-600 transition-colors">{task.title}</h3>
-                    <div className="flex items-center gap-2 mb-3">
-                      <Folder className="w-4 h-4 text-slate-400" />
-                      <span className="text-sm text-slate-500 font-semibold">{task.projectName}</span>
+                    <div className="flex flex-col gap-1.5 mb-3">
+                      <div className="flex items-center gap-2">
+                        <Folder className="w-4 h-4 text-slate-400" />
+                        <span className="text-sm text-slate-500 font-semibold">{task.projectName}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <ImageIcon className="w-4 h-4 text-slate-400" />
+                        <span className="text-xs text-slate-400 font-medium">{task.datasetName}</span>
+                      </div>
                     </div>
                     <p className="text-sm text-slate-500 line-clamp-2 leading-relaxed mb-6">{task.description}</p>
                   </div>

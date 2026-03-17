@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../../config/api";
 import {
@@ -286,24 +286,34 @@ export default function CreateProjectPage() {
         name: projectName.trim(),
         description: projectDescription.trim(),
         categoryId: normalizedCategoryId,
-        guideline: normalizedGuideline,
         templateId: FIXED_TEMPLATE_ID,
       };
 
-      const payloadPascalCase = {
+      const payloadNoTemplate = {
         name: projectName.trim(),
         description: projectDescription.trim(),
         categoryId: normalizedCategoryId,
-        guideline: normalizedGuideline,
-        TemplateId: FIXED_TEMPLATE_ID,
       };
 
-      const createRes = await requestSequential([
-        () => api.post("/projects", payload),
-        () => api.post("/Projects", payload),
-        () => api.post("/projects", payloadPascalCase),
-        () => api.post("/Projects", payloadPascalCase),
-      ]);
+      let createRes;
+      try {
+        console.log("Attempting project creation with templateId:", payload);
+        createRes = await requestSequential([
+            () => api.post("/projects", payload),
+            () => api.post("/Projects", payload),
+        ]);
+      } catch (firstErr) {
+        console.warn("Project creation with templateId failed, trying without templateId...", firstErr);
+        try {
+          createRes = await requestSequential([
+            () => api.post("/projects", payloadNoTemplate),
+            () => api.post("/Projects", payloadNoTemplate),
+          ]);
+        } catch (secondErr) {
+          console.error("Project creation failed completely", secondErr);
+          throw secondErr;
+        }
+      }
 
       let projectId = extractProjectIdFromResponse(createRes?.data);
 
@@ -311,7 +321,6 @@ export default function CreateProjectPage() {
         const refreshProjects = await requestSequential([
           () => api.get(`/projects?Name=${encodeURIComponent(projectName.trim())}`),
           () => api.get("/Projects"),
-          () => api.get("/projects"),
         ]);
 
         const projectList = toArray(refreshProjects?.data);
@@ -326,6 +335,62 @@ export default function CreateProjectPage() {
         throw new Error("Tạo dự án xong nhưng không lấy được projectId");
       }
 
+      // 2. Tao Guideline neu co
+      if (normalizedGuideline) {
+        try {
+          await requestSequential([
+            () => api.post("/guidelines", {
+              content: normalizedGuideline,
+              projectId: projectId
+            }),
+            () => api.post("/Guidelines", {
+              content: normalizedGuideline,
+              projectId: projectId
+            }),
+          ]);
+        } catch (gErr) {
+          console.error("Failed to create guideline:", gErr);
+        }
+      }
+
+      // 2.5 Attaching Labels
+      if (allSelectedLabels.length > 0) {
+        try {
+          for (const labelName of allSelectedLabels) {
+            // Find if label exists in categoryLabels
+            let labelId = categoryLabels.find(l => l.name.toLowerCase() === labelName.toLowerCase())?.id;
+            
+            // If not exists, try to create it
+            if (!labelId || String(labelId).startsWith('api-label-')) {
+              try {
+                const newLabelRes = await requestSequential([
+                  () => api.post("/labels", { name: labelName, categoryId: normalizedCategoryId }),
+                  () => api.post("/Labels", { name: labelName, categoryId: normalizedCategoryId }),
+                ]);
+                labelId = newLabelRes?.data?.id || newLabelRes?.data?.labelId;
+              } catch (createLErr) {
+                console.warn(`Could not create label ${labelName}, it might already exist or API failed`, createLErr);
+                // Try to find it again by getting all labels?
+              }
+            }
+
+            if (labelId) {
+              try {
+                await requestSequential([
+                  () => api.post(`/labels/add/${projectId}`, { labelId: String(labelId) }),
+                  () => api.post(`/Labels/add/${projectId}`, { labelId: String(labelId) }),
+                ]);
+              } catch (attachLErr) {
+                console.error(`Failed to attach label ${labelName} (${labelId})`, attachLErr);
+              }
+            }
+          }
+        } catch (labelTotalErr) {
+          console.error("Error in labels processing:", labelTotalErr);
+        }
+      }
+
+      // 3. Attach datasets
       const attachResult = await attachDatasets(projectId);
 
       if (attachResult.failedCount > 0) {
