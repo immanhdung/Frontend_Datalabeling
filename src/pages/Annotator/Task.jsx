@@ -598,8 +598,10 @@ export default function AnnotatorTask() {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div className="min-w-0">
-              <h1 className="text-base font-bold text-gray-900 truncate">{task.title}</h1>
-              <p className="text-xs text-gray-500 truncate">{task.projectName} · {task.datasetName}</p>
+              <h1 className="text-base font-bold text-gray-900 truncate">{task.projectName || 'Dự án'}</h1>
+              <p className="text-xs text-gray-500 truncate">
+                {task.title && !task.title.startsWith('Task #') ? task.title : `Nhiệm vụ #${task.id?.slice(0, 8)}`} · {task.datasetName}
+              </p>
             </div>
           </div>
 

@@ -26,34 +26,7 @@ import {
   FolderOpen
 } from 'lucide-react';
 
-const MOCK_PROJECTS = [
-  {
-    id: 'mock-1',
-    title: 'Phân loại phương tiện giao thông TP.HCM',
-    projectName: 'HCMC Traffic AI',
-    description: 'Gán nhãn các loại xe trong ảnh camera giao thông.',
-    type: 'image',
-    status: 'pending',
-    priority: 'high',
-    progress: 0,
-    totalItems: 5,
-    dueDate: new Date(Date.now() + 86400000 * 3).toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'mock-2',
-    title: 'Nhận diện văn bản y tế',
-    projectName: 'Medical OCR',
-    description: 'Trích xuất thông tin từ đơn thuốc và bệnh án.',
-    type: 'text',
-    status: 'in_progress',
-    priority: 'medium',
-    progress: 40,
-    totalItems: 10,
-    dueDate: new Date(Date.now() + 86400000 * 7).toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
+// No mock projects needed
 
 const getDaysUntilDue = (dueDate) =>
   Math.ceil((new Date(dueDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
@@ -77,18 +50,15 @@ export default function AnnotatorDashboard() {
         setError('');
 
         if (!currentUserId) {
-          setTasks([]);
-          setError('Không tìm thấy thông tin người dùng hiện tại. Vui lòng đăng nhập lại.');
+          setError('Không tìm thấy thông tin người dùng hiện tại.');
           return;
         }
 
         let apiTasks = [];
         try {
           apiTasks = await fetchAssignedTasksForUser(taskAPI, currentUserIdentifiers);
-          console.log("AnnotatorDashboard: Raw API Tasks:", apiTasks);
         } catch (apiErr) {
-
-          console.warn('API task fetch failed, fallback local/mock', apiErr);
+          console.warn('API task fetch failed', apiErr);
         }
 
         const localAssignedTasks = getLocalAssignedTasksForUser(currentUserIdentifiers);
@@ -96,36 +66,28 @@ export default function AnnotatorDashboard() {
 
         const mergedMap = new Map();
 
-        MOCK_PROJECTS.forEach((task) => {
-          mergedMap.set(String(task.id), { ...task, isMock: true });
-        });
-
+        // 1. Local tasks first
         normalizedLocalTasks.forEach((task) => {
-          if (task.id) {
-            const existing = mergedMap.get(String(task.id));
-            mergedMap.set(String(task.id), { ...existing, ...task });
-          }
+          if (task.id) mergedMap.set(String(task.id), task);
         });
 
+        // 2. API tasks overlay (API is source of truth)
         apiTasks.forEach((task) => {
           if (task.id) {
             const existing = mergedMap.get(String(task.id));
             mergedMap.set(String(task.id), {
               ...existing,
               ...task,
-              items: task.items?.length > 0 ? task.items : existing?.items || task.items,
+              items: task.items?.length > 0 ? task.items : (existing?.items || []),
             });
           }
         });
 
-        setTasks(Array.from(mergedMap.values()));
+        const finalTasks = Array.from(mergedMap.values());
+        setTasks(finalTasks);
       } catch (loadError) {
-        console.error('Failed to load assigned tasks:', loadError);
-        setError('Không thể đồng bộ danh sách nhiệm vụ. Vui lòng kiểm tra kết nối.');
-
-        const localTasks = getLocalAssignedTasksForUser(currentUserIdentifiers);
-        const fallbackLocal = normalizeTasks(localTasks, currentUserId);
-        setTasks(fallbackLocal.length > 0 ? fallbackLocal : MOCK_PROJECTS);
+        console.error('Failed to load tasks:', loadError);
+        setError('Không thể tải danh sách nhiệm vụ.');
       } finally {
         setLoading(false);
       }
@@ -276,11 +238,15 @@ export default function AnnotatorDashboard() {
                   </div>
 
                   <div className="flex-1">
-                    <h3 className="font-bold text-slate-900 text-xl mb-2 line-clamp-1 group-hover:text-blue-600 transition-colors">{task.title}</h3>
+                    <h3 className="font-bold text-slate-900 text-xl mb-2 line-clamp-1 group-hover:text-blue-600 transition-colors">
+                      {task.projectName || task.title}
+                    </h3>
                     <div className="flex flex-col gap-1.5 mb-3">
                       <div className="flex items-center gap-2">
                         <Folder className="w-4 h-4 text-slate-400" />
-                        <span className="text-sm text-slate-500 font-semibold">{task.projectName}</span>
+                        <span className="text-sm text-slate-500 font-semibold truncate">
+                          {task.title && !task.title.startsWith('Task #') ? task.title : `Nhiệm vụ #${task.id?.slice(0, 8)}`}
+                        </span>
                       </div>
                       <div className="flex items-center gap-2">
                         <ImageIcon className="w-4 h-4 text-slate-400" />
@@ -355,7 +321,7 @@ export default function AnnotatorDashboard() {
                           </button>
                         )}
                         <button
-                          onClick={() => handleStartTask(task.id)}
+                          onClick={() => navigate(`/annotator/tasks/${task.id}/details`)}
                           className="p-3 bg-slate-50 text-slate-400 rounded-2xl hover:bg-slate-100 hover:text-slate-600 transition-all border border-slate-100"
                           title="Chi tiết"
                         >
@@ -427,8 +393,10 @@ export default function AnnotatorDashboard() {
                 return (
                   <div key={task.id} className="flex items-center justify-between border border-slate-100 rounded-xl p-3">
                     <div>
-                      <p className="font-semibold text-slate-900">{task.title}</p>
-                      <p className="text-xs text-slate-500">{task.projectName}</p>
+                      <p className="font-semibold text-slate-900">{task.projectName || task.title}</p>
+                      <p className="text-xs text-slate-500 font-medium">
+                        {task.title && !task.title.startsWith('Task #') ? task.title : `Nhiệm vụ #${task.id?.slice(0, 8)}`}
+                      </p>
                     </div>
                     <div className="text-right">
                       <p className={`text-xs font-bold ${days < 0 ? 'text-rose-600' : days <= 2 ? 'text-amber-600' : 'text-slate-500'}`}>

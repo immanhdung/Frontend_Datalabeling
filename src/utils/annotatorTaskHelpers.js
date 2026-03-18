@@ -108,7 +108,10 @@ export const normalizeTask = (task, assignedUserId = undefined) => {
       task?.Title ||
       task?.name ||
       task?.Name ||
-      (taskId ? `Task #${taskId.slice(0, 8)}` : 'Nhiệm vụ'),
+      task?.projectName ||
+      task?.ProjectName ||
+      task?.project?.name ||
+      (taskId ? `Nhiệm vụ #${taskId.slice(0, 8)}` : 'Nhiệm vụ'),
     description: task?.description ?? task?.Description ?? '',
     type: task?.type ?? task?.MediaType ?? task?.mediaType ?? 'image',
     status: normalizedStatus,

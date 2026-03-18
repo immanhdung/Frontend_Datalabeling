@@ -11,7 +11,7 @@ import {
 import {
   CheckCircle2, Clock, Zap, ThumbsUp,
   Image as ImageIcon, FileText, Volume2, Video,
-  AlertCircle, Search, Folder, Calendar,
+  AlertCircle, Search, Folder, Calendar, Tag,
   Play, FolderOpen, RefreshCw, Database,
 } from 'lucide-react';
 
@@ -240,12 +240,16 @@ export default function AnnotatorTasks() {
                   </div>
 
                   <div className="flex-1">
-                    <h3 className="font-bold text-slate-900 text-xl mb-2 line-clamp-1 group-hover:text-blue-600 transition-colors">{task.title}</h3>
+                    {/* ✅ Ưu tiên hiển thị tên Project làm tiêu đề chính */}
+                    <h3 className="font-bold text-slate-900 text-xl mb-2 line-clamp-1 group-hover:text-blue-600 transition-colors">
+                      {displayName}
+                    </h3>
                     <div className="space-y-1.5 mb-3">
                       <div className="flex items-center gap-2">
-                        <Folder className="w-4 h-4 text-slate-400 shrink-0" />
-                        {/* ✅ Tên dự án thực tế */}
-                        <span className="text-sm text-slate-500 font-semibold truncate">{displayName}</span>
+                        <Tag className="w-4 h-4 text-slate-400 shrink-0" />
+                        <span className="text-sm text-slate-500 font-semibold truncate">
+                          {task.title && !task.title.startsWith('Task #') ? task.title : `Nhiệm vụ #${task.id?.slice(0, 8)}`}
+                        </span>
                       </div>
                       {task.datasetName && task.datasetName !== 'Bộ dữ liệu' && (
                         <div className="flex items-center gap-2">
@@ -305,7 +309,11 @@ export default function AnnotatorTasks() {
                           <CheckCircle2 className="w-4 h-4" /> {task.reviewStatus === 'rejected' ? 'Sửa lại' : 'Xem chi tiết'}
                         </button>
                       )}
-                      <button onClick={() => handleStart(task)} className="p-3 bg-slate-50 text-slate-400 rounded-2xl hover:bg-slate-100 border border-slate-100">
+                      <button 
+                        onClick={() => navigate(`/annotator/tasks/${task.id}/details`)}
+                        className="p-3 bg-slate-50 text-slate-400 rounded-2xl hover:bg-slate-100 border border-slate-100"
+                        title="Xem chi tiết"
+                      >
                         <FolderOpen className="w-5 h-5" />
                       </button>
                     </div>
