@@ -1,4 +1,4 @@
-﻿import {
+import {
   ArrowLeft,
   Download,
   Loader2,
@@ -29,8 +29,12 @@ const toObject = (value) => {
 };
 
 const normalizeLabelNames = (project, labelSets) => {
-  const fromProject = toArray(project?.labels).map((item) => (typeof item === "string" ? item : item?.name)).filter(Boolean);
-  const fromLabelSets = labelSets.flatMap((set) => toArray(set?.labels).map((item) => item?.name)).filter(Boolean);
+  const fromProject = toArray(project?.labels || project?.labelNames || project?.labelList || project?.ProjectLabels)
+    .map((item) => (typeof item === "string" ? item : item?.name ?? item?.labelName ?? item?.title))
+    .filter(Boolean);
+  const fromLabelSets = labelSets.flatMap((set) => 
+    toArray(set?.labels).map((item) => item?.name ?? item?.labelName ?? item?.title)
+  ).filter(Boolean);
   return Array.from(new Set([...fromProject, ...fromLabelSets].map((item) => String(item).trim()).filter(Boolean)));
 };
 
@@ -201,7 +205,7 @@ export default function ManagerProjectDetail() {
         api.get("/datasets").catch(() => ({ data: [] })),
         api.get(`/datasets?ProjectId=${id}`).catch(() => ({ data: [] })),
         api.get("/tasks").catch(() => ({ data: [] })),
-        api.get(`/labels?ProjectId=${id}`).catch(() => ({ data: [] })),
+        api.get(`/labels?ProjectId=${id}`).catch(() => api.get(`/projects/${id}/labels`)).catch(() => ({ data: [] })),
         api.get("/users").catch(() => ({ data: [] })),
       ]);
 
@@ -310,6 +314,80 @@ export default function ManagerProjectDetail() {
       alert(err?.response?.data?.message || "Xóa thành viên thất bại");
     } finally {
       setRemovingMemberId("");
+    }
+  };
+
+  const handleExportJson = async () => {
+    if (projectTasks.length === 0) {
+      alert("Dự án này chưa có nhiệm vụ nào để xuất dữ liệu.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const exportData = {
+        projectName: project.name,
+        projectId: id,
+        exportDate: new Date().toISOString(),
+        tasks: [],
+      };
+
+      // Duyệt qua từng task để thu thập dữ liệu
+      for (const task of projectTasks) {
+        const taskId = task.id || task.taskId;
+        if (!taskId) continue;
+
+        try {
+          // Lấy danh sách item và annotation của task đó
+          const [itemsRes, annotationsRes] = await Promise.all([
+            taskAPI.getItems(taskId),
+            annotationAPI.getByTask(taskId).catch(() => ({ data: [] })),
+          ]);
+
+          const taskItems = toArray(itemsRes?.data);
+          const taskAnnotations = toArray(annotationsRes?.data);
+
+          // Map annotations vào từng item tương ứng
+          const itemsWithAnnotations = taskItems.map(item => {
+            const itemId = item.id || item.itemId;
+            const itemAnnos = taskAnnotations.filter(anno => 
+              String(anno.itemId || anno.item_id) === String(itemId)
+            );
+            return {
+              ...item,
+              annotations: itemAnnos
+            };
+          });
+
+          exportData.tasks.push({
+            id: taskId,
+            title: task.title || task.name,
+            status: task.status,
+            assignee: task.assignedTo || task.annotatorId,
+            items: itemsWithAnnotations
+          });
+        } catch (taskErr) {
+          console.warn(`Lỗi khi lấy dữ liệu cho task ${taskId}:`, taskErr);
+        }
+      }
+
+      // Tạo file JSON và tải về
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Export_${project.name.replace(/\s+/g, '_')}_${new Date().getTime()}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      alert("Xuất dữ liệu thành công!");
+    } catch (err) {
+      console.error("Export failed:", err);
+      alert("Có lỗi xảy ra khi xuất dữ liệu.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -515,8 +593,13 @@ export default function ManagerProjectDetail() {
           <p className="text-gray-500 mt-1">{project.description || "Chưa có mô tả cho dự án này."}</p>
         </div>
         <div className="flex gap-3">
-          <button className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50">
-            <Download className="w-4 h-4" /> Xuất dữ liệu
+          <button 
+            disabled={saving}
+            onClick={handleExportJson}
+            className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {saving ? "Đang xuất..." : "Xuất dữ liệu"}
           </button>
           <button onClick={() => setIsEditMode((prev) => !prev)} className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-black">
             {isEditMode ? <X className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
