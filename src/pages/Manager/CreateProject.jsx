@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../../config/api";
 import {
@@ -11,6 +11,7 @@ import {
   Database,
   Plus,
   X,
+  Calendar,
 } from "lucide-react";
 
 const FIXED_TEMPLATE_ID = "e841b523-8215-4952-b3dc-8c9bc60f8a7d";
@@ -22,7 +23,6 @@ const toArray = (value) => {
   return [];
 };
 
-
 const extractProjectIdFromResponse = (responseData) => {
   const candidates = [
     responseData?.id,
@@ -32,7 +32,6 @@ const extractProjectIdFromResponse = (responseData) => {
     responseData?.item?.id,
     responseData?.item?.projectId,
   ];
-
   const found = candidates.find((item) => item !== undefined && item !== null && String(item).trim() !== "");
   return found ? String(found) : "";
 };
@@ -43,10 +42,6 @@ const getApiErrorMessage = (error) =>
   error?.response?.data?.error ||
   error?.message ||
   "Tạo dự án thất bại";
-
-const extractCreatedId = (resData) => {
-  return resData?.id || resData?.labelId || resData?.data?.id || resData?.data?.labelId || "";
-};
 
 const normalizeCategoryLabels = (category) => {
   const candidates = [
@@ -75,6 +70,7 @@ export default function CreateProjectPage() {
   const [projectName, setProjectName] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
   const [guidelines, setGuidelines] = useState("");
+  const [deadline, setDeadline] = useState(""); // ✅ Thêm deadline
 
   const [categories, setCategories] = useState([]);
   const [datasets, setDatasets] = useState([]);
@@ -112,18 +108,12 @@ export default function CreateProjectPage() {
       try {
         setLoadingCategories(true);
         const response = await api.get("/categories");
-
         const normalized = toArray(response?.data).map((category, idx) => ({
           ...category,
           id: category?.id ?? category?.categoryId ?? `category-${idx}`,
           categoryId: category?.categoryId ?? category?.id ?? `category-${idx}`,
         }));
-
-        if (normalized.length > 0) {
-          setCategories(normalized);
-          return;
-        }
-        setCategories([]);
+        setCategories(normalized.length > 0 ? normalized : []);
       } catch {
         setError("Không tải được danh sách category");
       } finally {
@@ -157,7 +147,6 @@ export default function CreateProjectPage() {
 
       try {
         setLoadingLabels(true);
-
         const localCategory = categories.find(
           (c) => String(c.id || c.categoryId) === String(selectedCategoryId)
         );
@@ -165,7 +154,7 @@ export default function CreateProjectPage() {
 
         let fromApi = [];
         try {
-          const labelsRes = await api.get(`/labels?CategoryId=${selectedCategoryId}`).catch(() => 
+          const labelsRes = await api.get(`/labels?CategoryId=${selectedCategoryId}`).catch(() =>
             api.get(`/categories/${selectedCategoryId}/labels`)
           );
           fromApi = toArray(labelsRes?.data).map((item, idx) => ({
@@ -206,15 +195,8 @@ export default function CreateProjectPage() {
   const handleAddCustomLabel = () => {
     const normalized = customLabelInput.trim();
     if (!normalized) return;
-
-    const exists = allSelectedLabels.some(
-      (item) => item.toLowerCase() === normalized.toLowerCase()
-    );
-
-    if (!exists) {
-      setSelectedLabelNames((prev) => [...prev, normalized]);
-    }
-
+    const exists = allSelectedLabels.some((item) => item.toLowerCase() === normalized.toLowerCase());
+    if (!exists) setSelectedLabelNames((prev) => [...prev, normalized]);
     setCustomLabelInput("");
   };
 
@@ -226,28 +208,63 @@ export default function CreateProjectPage() {
   };
 
   const canProceed = () => {
-    if (step === 1) {
-      return projectName.trim() && projectDescription.trim();
-    }
-    if (step === 2) {
-      return selectedCategoryId !== "";
-    }
+    if (step === 1) return projectName.trim() && projectDescription.trim();
+    if (step === 2) return selectedCategoryId !== "";
     return true;
   };
 
   const attachDatasets = async (projectId) => {
-    const datasetIds = selectedDatasetIds.map((item) => String(item));
-    if (datasetIds.length === 0) return { attachedCount: 0, failedCount: 0 };
-
+    if (selectedDatasetIds.length === 0) return { attachedCount: 0, failedCount: 0 };
     const results = await Promise.allSettled(
-      datasetIds.map((datasetId) =>
-        api.post(`/datasets/add/${projectId}`, { datasetId })
+      selectedDatasetIds.map((datasetId) =>
+        api.post(`/datasets/add/${projectId}`, { datasetId: String(datasetId) }, { validateStatus: () => true })
       )
     );
+    const attachedCount = results.filter((r) => {
+      const status = r.value?.status;
+      return r.status === "fulfilled" && (status === 200 || status === 201 || status === 204);
+    }).length;
+    return { attachedCount, failedCount: results.length - attachedCount };
+  };
 
-    const attachedCount = results.filter((item) => item.status === "fulfilled").length;
-    const failedCount = results.length - attachedCount;
-    return { attachedCount, failedCount };
+  // ✅ Fix label: lấy labelId từ API thay vì tạo mới nếu đã tồn tại
+  const resolveOrCreateLabel = async (labelName, categoryId) => {
+    // Kiểm tra trong categoryLabels đã load
+    const existing = categoryLabels.find(
+      (l) => l.name.toLowerCase() === labelName.toLowerCase()
+    );
+    if (existing?.id && !String(existing.id).startsWith('label-') && !String(existing.id).startsWith('api-label-')) {
+      return String(existing.id);
+    }
+
+    // Thử tìm từ API
+    try {
+      const searchRes = await api.get(`/labels?CategoryId=${categoryId}`, { validateStatus: () => true });
+      const allLabels = toArray(searchRes?.data);
+      const found = allLabels.find((l) => String(l.name || '').toLowerCase() === labelName.toLowerCase());
+      if (found?.id) return String(found.id);
+    } catch { /* ignore */ }
+
+    // Tạo mới
+    try {
+      const createRes = await api.post("/labels", { name: labelName, categoryId });
+      const newId = createRes.data?.id || createRes.data?.labelId || createRes.data?.data?.id;
+      if (newId) return String(newId);
+    } catch (e) {
+      const msg = String(e?.response?.data?.message || '');
+      // Nếu đã tồn tại → thử lấy lại
+      if (msg.toLowerCase().includes('already') || msg.toLowerCase().includes('exist')) {
+        try {
+          const retryRes = await api.get(`/labels?CategoryId=${categoryId}`, { validateStatus: () => true });
+          const retryLabels = toArray(retryRes?.data);
+          const retryFound = retryLabels.find((l) => String(l.name || '').toLowerCase() === labelName.toLowerCase());
+          if (retryFound?.id) return String(retryFound.id);
+        } catch { /* ignore */ }
+      }
+      console.warn(`Could not resolve label "${labelName}":`, msg);
+    }
+
+    return null;
   };
 
   const handleSubmit = async () => {
@@ -261,99 +278,70 @@ export default function CreateProjectPage() {
 
     try {
       const normalizedCategoryId = String(selectedCategoryId);
-      const normalizedGuideline = guidelines.trim();
 
       const payload = {
         name: projectName.trim(),
         description: projectDescription.trim(),
         categoryId: normalizedCategoryId,
         templateId: FIXED_TEMPLATE_ID,
-      };
-
-      const payloadNoTemplate = {
-        name: projectName.trim(),
-        description: projectDescription.trim(),
-        categoryId: normalizedCategoryId,
+        guideline: guidelines.trim() || undefined,         // ✅ Gửi guideline khi tạo project
+        deadline: deadline ? new Date(deadline).toISOString() : undefined, // ✅ Gửi deadline
       };
 
       let createRes;
       try {
-        console.log("Attempting project creation with templateId:", payload);
         createRes = await api.post("/projects", payload);
-      } catch (firstErr) {
-        console.warn("Project creation with templateId failed, trying without templateId...", firstErr);
-        try {
-          createRes = await api.post("/projects", payloadNoTemplate);
-        } catch (secondErr) {
-          console.error("Project creation failed completely", secondErr);
-          throw secondErr;
-        }
+      } catch {
+        // Thử không có templateId
+        const { templateId, ...payloadNoTemplate } = payload;
+        createRes = await api.post("/projects", payloadNoTemplate);
       }
 
       let projectId = extractProjectIdFromResponse(createRes?.data);
 
       if (!projectId) {
         const refreshProjects = await api.get(`/projects?Name=${encodeURIComponent(projectName.trim())}`);
-
         const projectList = toArray(refreshProjects?.data);
         const latestMatch = projectList
           .filter((item) => String(item?.name || "").trim() === projectName.trim())
           .sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0))[0];
-
         projectId = latestMatch?.id || latestMatch?.projectId;
       }
 
-      if (!projectId) {
-        throw new Error("Tạo dự án xong nhưng không lấy được projectId");
+      if (!projectId) throw new Error("Tạo dự án xong nhưng không lấy được projectId");
+
+      // Cập nhật guideline + deadline nếu API tạo project chưa nhận
+      try {
+        await api.put(`/projects/${projectId}`, {
+          name: projectName.trim(),
+          description: projectDescription.trim(),
+          guideline: guidelines.trim() || "",
+          deadline: deadline ? new Date(deadline).toISOString() : null,
+          isActive: true,
+        });
+      } catch (e) {
+        console.warn("Could not update guideline/deadline via PUT:", e?.message);
       }
 
-      // 2. Tao Guideline neu co
-      if (normalizedGuideline) {
-        try {
-          await api.post("/guidelines", {
-            content: normalizedGuideline,
-            projectId: projectId
-          });
-        } catch (gErr) {
-          console.error("Failed to create guideline:", gErr);
-        }
-      }
-
-      // 2.5 Attaching Labels
+      // ✅ Attach labels - fix: resolve ID trước, không tạo mới nếu đã tồn tại
       if (allSelectedLabels.length > 0) {
-        try {
-          for (const labelName of allSelectedLabels) {
-            // Find if label exists in categoryLabels
-            let labelId = categoryLabels.find(l => l.name.toLowerCase() === labelName.toLowerCase())?.id;
-            
-            // If not exists, try to create it
-            if (!labelId || String(labelId).startsWith('api-label-')) {
-              try {
-                const newLabelRes = await api.post("/labels", { name: labelName, categoryId: normalizedCategoryId });
-                labelId = extractCreatedId(newLabelRes?.data);
-              } catch (createLErr) {
-                console.warn(`Could not create label ${labelName}, it might already exist or API failed`, createLErr);
-              }
-            }
-
-            if (labelId && !String(labelId).startsWith('api-label-')) {
-              try {
-                await api.post(`/labels/add/${projectId}`, { labelId: String(labelId) });
-              } catch (attachLErr) {
-                console.error(`Failed to attach label ${labelName} (${labelId})`, attachLErr);
-              }
+        for (const labelName of allSelectedLabels) {
+          const labelId = await resolveOrCreateLabel(labelName, normalizedCategoryId);
+          if (labelId) {
+            try {
+              await api.post(`/labels/add/${projectId}`, { labelId });
+            } catch (e) {
+              console.warn(`Could not attach label "${labelName}":`, e?.response?.data?.message);
             }
           }
-        } catch (labelTotalErr) {
-          console.error("Error in labels processing:", labelTotalErr);
         }
       }
 
-      // 3. Attach datasets
+      // Attach datasets
       const attachResult = await attachDatasets(projectId);
 
       if (attachResult.failedCount > 0) {
-        alert(`Tạo dự án thành công. Đã gán ${attachResult.attachedCount}/${selectedDatasetIds.length} dataset.`);
+        alert(`Tạo dự án thành công! Đã gán ${attachResult.attachedCount}/${selectedDatasetIds.length} dataset.`);
       } else {
         alert("Tạo dự án thành công!");
       }
@@ -367,7 +355,7 @@ export default function CreateProjectPage() {
   };
 
   const steps = [
-    { number: 1, title: "Thong tin", icon: FileText },
+    { number: 1, title: "Thông tin", icon: FileText },
     { number: 2, title: "Category + Labels", icon: FolderOpen },
     { number: 3, title: "Datasets", icon: Database },
     { number: 4, title: "Xác nhận", icon: Check },
@@ -391,14 +379,7 @@ export default function CreateProjectPage() {
         {steps.map((s, index) => (
           <div key={s.number} className="flex items-center">
             <div className={`flex items-center gap-2 ${step >= s.number ? "text-indigo-600" : "text-gray-400"}`}>
-              <div
-                className={`w-10 h-10 rounded-full flex items-center justify-center ${step > s.number
-                    ? "bg-indigo-600 text-white"
-                    : step === s.number
-                      ? "border-2 border-indigo-600"
-                      : "bg-gray-200"
-                  }`}
-              >
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${step > s.number ? "bg-indigo-600 text-white" : step === s.number ? "border-2 border-indigo-600" : "bg-gray-200"}`}>
                 {step > s.number ? <Check /> : <s.icon className="w-4 h-4" />}
               </div>
               <span className="hidden sm:block text-sm font-medium">{s.title}</span>
@@ -411,35 +392,80 @@ export default function CreateProjectPage() {
       </div>
 
       <div className="bg-white border rounded-xl p-6">
+        {/* STEP 1: Thông tin */}
         {step === 1 && (
           <div className="space-y-4">
             <h2 className="text-xl font-semibold">Thông tin dự án</h2>
 
             <div>
-              <label className="block text-sm font-medium">Tên dự án *</label>
-              <input className="w-full border rounded px-3 py-2" value={projectName} onChange={(e) => setProjectName(e.target.value)} />
+              <label className="block text-sm font-medium mb-1">Tên dự án *</label>
+              <input
+                className="w-full border rounded px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+                placeholder="Nhập tên dự án..."
+              />
             </div>
 
             <div>
-              <label className="block text-sm font-medium">Mo ta *</label>
-              <textarea className="w-full border rounded px-3 py-2" rows={3} value={projectDescription} onChange={(e) => setProjectDescription(e.target.value)} />
+              <label className="block text-sm font-medium mb-1">Mô tả *</label>
+              <textarea
+                className="w-full border rounded px-3 py-2 focus:ring-2 focus:ring-indigo-500"
+                rows={3}
+                value={projectDescription}
+                onChange={(e) => setProjectDescription(e.target.value)}
+                placeholder="Mô tả ngắn về dự án..."
+              />
             </div>
 
+            {/* ✅ Deadline */}
             <div>
-              <label className="block text-sm font-medium">Huong dan</label>
-              <textarea className="w-full border rounded px-3 py-2" rows={4} value={guidelines} onChange={(e) => setGuidelines(e.target.value)} />
+              <label className="block text-sm font-medium mb-1 flex items-center gap-1">
+                <Calendar className="w-4 h-4 text-indigo-500" />
+                Thời hạn kết thúc (Deadline)
+              </label>
+              <input
+                type="date"
+                className="w-full border rounded px-3 py-2 focus:ring-2 focus:ring-indigo-500"
+                value={deadline}
+                min={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => setDeadline(e.target.value)}
+              />
+            </div>
+
+            {/* ✅ Hướng dẫn cho annotator */}
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Hướng dẫn gán nhãn
+                <span className="ml-2 text-xs text-gray-400 font-normal">(Annotator sẽ thấy khi làm việc)</span>
+              </label>
+              <textarea
+                className="w-full border rounded px-3 py-2 focus:ring-2 focus:ring-indigo-500"
+                rows={5}
+                value={guidelines}
+                onChange={(e) => setGuidelines(e.target.value)}
+                placeholder="Ví dụ: Vẽ bounding box bao quanh toàn bộ đối tượng. Không vẽ quá nhỏ hơn 10px..."
+              />
+              {guidelines.trim() && (
+                <p className="text-xs text-emerald-600 mt-1">✓ Annotator sẽ thấy hướng dẫn này khi làm task</p>
+              )}
             </div>
           </div>
         )}
 
+        {/* STEP 2: Category + Labels */}
         {step === 2 && (
           <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Category va Labels</h2>
+            <h2 className="text-xl font-semibold">Category và Labels</h2>
 
             {loadingCategories ? (
               <p>Đang tải category...</p>
             ) : (
-              <select className="w-full border rounded px-3 py-2" value={selectedCategoryId} onChange={(e) => setSelectedCategoryId(e.target.value)}>
+              <select
+                className="w-full border rounded px-3 py-2"
+                value={selectedCategoryId}
+                onChange={(e) => setSelectedCategoryId(e.target.value)}
+              >
                 <option value="">-- Chọn category --</option>
                 {categories.map((category, index) => {
                   const catId = category.categoryId || category.id || `cat-${index}`;
@@ -472,8 +498,7 @@ export default function CreateProjectPage() {
                             key={label.id}
                             onClick={() => toggleLabel(label.name)}
                             type="button"
-                            className={`px-3 py-1 rounded-full text-sm border ${selected ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-700 border-gray-300"
-                              }`}
+                            className={`px-3 py-1 rounded-full text-sm border ${selected ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-700 border-gray-300"}`}
                           >
                             {label.name}
                           </button>
@@ -484,19 +509,14 @@ export default function CreateProjectPage() {
                 </div>
 
                 <div className="pt-2">
-                  <p className="text-sm font-semibold mb-2">Them label custom</p>
+                  <p className="text-sm font-semibold mb-2">Thêm label tùy chỉnh</p>
                   <div className="flex gap-2">
                     <input
                       value={customLabelInput}
                       onChange={(e) => setCustomLabelInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          handleAddCustomLabel();
-                        }
-                      }}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddCustomLabel(); } }}
                       className="flex-1 border rounded px-3 py-2"
-                      placeholder="Nhap label ban muon them..."
+                      placeholder="Nhập label muốn thêm..."
                     />
                     <button type="button" onClick={handleAddCustomLabel} className="px-3 py-2 bg-gray-900 text-white rounded">
                       <Plus className="w-4 h-4" />
@@ -514,9 +534,7 @@ export default function CreateProjectPage() {
                         <span key={name} className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 text-sm">
                           <Tag className="w-3 h-3" />
                           {name}
-                          <button type="button" onClick={() => toggleLabel(name)}>
-                            <X className="w-3 h-3" />
-                          </button>
+                          <button type="button" onClick={() => toggleLabel(name)}><X className="w-3 h-3" /></button>
                         </span>
                       ))}
                     </div>
@@ -527,9 +545,10 @@ export default function CreateProjectPage() {
           </div>
         )}
 
+        {/* STEP 3: Datasets */}
         {step === 3 && (
           <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Gan datasets (1 hoac nhieu)</h2>
+            <h2 className="text-xl font-semibold">Gán datasets (1 hoặc nhiều)</h2>
             {loadingDatasets ? (
               <p>Đang tải datasets...</p>
             ) : datasets.length === 0 ? (
@@ -545,7 +564,7 @@ export default function CreateProjectPage() {
                         <input type="checkbox" checked={checked} onChange={() => toggleDataset(dsId)} />
                         <div className="min-w-0">
                           <p className="font-semibold truncate">{dataset.name || `Dataset ${index + 1}`}</p>
-                          <p className="text-xs text-gray-500">{dataset.itemsCount || dataset.totalItems || 0} files</p>
+                          <p className="text-xs text-gray-500">{dataset.sampleCount || dataset.itemsCount || dataset.totalItems || 0} files</p>
                         </div>
                       </div>
                     </label>
@@ -556,33 +575,73 @@ export default function CreateProjectPage() {
           </div>
         )}
 
+        {/* STEP 4: Xác nhận */}
         {step === 4 && (
           <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Xác nhận</h2>
-            <div className="bg-gray-50 border rounded p-4 space-y-2 text-sm">
-              <p><b>Ten:</b> {projectName}</p>
-              <p><b>Category:</b> {selectedCategory?.name || "--"}</p>
-              <p><b>Mo ta:</b> {projectDescription}</p>
-              <p><b>Labels:</b> {allSelectedLabels.length > 0 ? allSelectedLabels.join(", ") : "Không có"}</p>
-              <p><b>Datasets đã chọn:</b> {selectedDatasetIds.length}</p>
+            <h2 className="text-xl font-semibold">Xác nhận thông tin</h2>
+            <div className="bg-gray-50 border rounded-lg p-5 space-y-3 text-sm">
+              <div className="flex gap-2">
+                <span className="font-bold w-32 shrink-0">Tên dự án:</span>
+                <span>{projectName}</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="font-bold w-32 shrink-0">Category:</span>
+                <span>{selectedCategory?.name || "--"}</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="font-bold w-32 shrink-0">Mô tả:</span>
+                <span>{projectDescription}</span>
+              </div>
+              {deadline && (
+                <div className="flex gap-2">
+                  <span className="font-bold w-32 shrink-0">Deadline:</span>
+                  <span className="text-indigo-600 font-medium">{new Date(deadline).toLocaleDateString('vi-VN')}</span>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <span className="font-bold w-32 shrink-0">Labels:</span>
+                <span>{allSelectedLabels.length > 0 ? allSelectedLabels.join(", ") : "Không có"}</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="font-bold w-32 shrink-0">Datasets:</span>
+                <span>{selectedDatasetIds.length} dataset đã chọn</span>
+              </div>
+              {guidelines.trim() && (
+                <div className="flex gap-2">
+                  <span className="font-bold w-32 shrink-0">Hướng dẫn:</span>
+                  <span className="text-gray-600 line-clamp-3">{guidelines}</span>
+                </div>
+              )}
             </div>
           </div>
         )}
       </div>
 
       <div className="flex justify-between">
-        <button className="border px-4 py-2 rounded" onClick={() => setStep(step - 1)} disabled={step === 1}>
+        <button
+          className="border px-4 py-2 rounded hover:bg-gray-50"
+          onClick={() => setStep(step - 1)}
+          disabled={step === 1}
+        >
           <ArrowLeft className="inline w-4 h-4 mr-1" />
           Quay lại
         </button>
 
         {step < 4 ? (
-          <button className="bg-indigo-600 text-white px-4 py-2 rounded disabled:opacity-50" onClick={() => setStep(step + 1)} disabled={!canProceed()}>
-            Tiep theo
+          <button
+            className="bg-indigo-600 text-white px-4 py-2 rounded disabled:opacity-50 hover:bg-indigo-700"
+            onClick={() => setStep(step + 1)}
+            disabled={!canProceed()}
+          >
+            Tiếp theo
             <ArrowRight className="inline w-4 h-4 ml-1" />
           </button>
         ) : (
-          <button className="bg-green-600 text-white px-4 py-2 rounded" onClick={handleSubmit} disabled={submitting}>
+          <button
+            className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 disabled:opacity-50"
+            onClick={handleSubmit}
+            disabled={submitting}
+          >
             <Check className="inline w-4 h-4 mr-1" />
             {submitting ? "Đang tạo..." : "Tạo dự án"}
           </button>
@@ -591,7 +650,3 @@ export default function CreateProjectPage() {
     </div>
   );
 }
-
-
-
-

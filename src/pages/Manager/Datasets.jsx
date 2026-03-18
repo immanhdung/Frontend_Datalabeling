@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+﻿import { useEffect, useMemo, useState, useRef } from "react";
 import {
     Plus,
     Search,
@@ -857,13 +857,100 @@ export default function Datasets() {
         try {
             setLoading(true);
             const dsId = selectedDataset.id || selectedDataset.datasetId;
-            await api.post(`/datasets/add/${projectId}`, { datasetId: dsId });
-            alert("Gán vào project thành công!");
-            setShowAssignModal(false);
-            fetchData();
+
+            // Thử attach trực tiếp
+            const attachRes = await api.post(`/datasets/add/${projectId}`, { datasetId: String(dsId) }, {
+                validateStatus: () => true,
+            });
+
+            if (attachRes.status === 200 || attachRes.status === 201 || attachRes.status === 204) {
+                alert("Gán vào project thành công!");
+                setShowAssignModal(false);
+                fetchData();
+                return;
+            }
+
+            const attachMsg = String(attachRes.data?.message || '');
+
+            if (!attachMsg.toLowerCase().includes('already')) {
+                alert("Gán thất bại: " + (attachMsg || 'Lỗi không xác định'));
+                return;
+            }
+
+            // Dataset đang thuộc project khác → brute-force remove rồi add lại
+            let removed = false;
+            try {
+                const projRes = await api.get('/projects', { validateStatus: () => true });
+                const allProjects = projRes.data?.items || projRes.data?.data || projRes.data || [];
+                for (const proj of Array.isArray(allProjects) ? allProjects : []) {
+                    const pid = proj.projectId || proj.id;
+                    if (!pid || String(pid) === String(projectId)) continue;
+                    const removeRes = await api.post(`/datasets/remove/${pid}`, { datasetId: String(dsId) }, {
+                        validateStatus: () => true,
+                    });
+                    if (removeRes.status === 200 || removeRes.status === 201 || removeRes.status === 204) {
+                        removed = true;
+                        break;
+                    }
+                }
+            } catch (e) {
+                console.warn('Error during remove:', e?.message);
+            }
+
+            if (removed) {
+                await new Promise(r => setTimeout(r, 500));
+                const retryRes = await api.post(`/datasets/add/${projectId}`, { datasetId: String(dsId) }, {
+                    validateStatus: () => true,
+                });
+                if (retryRes.status === 200 || retryRes.status === 201 || retryRes.status === 204) {
+                    alert("Gán vào project thành công!");
+                    setShowAssignModal(false);
+                    fetchData();
+                    return;
+                }
+            }
+
+            // Dataset bị orphan - hỏi user có muốn xóa và tạo lại không
+            const confirmed = window.confirm(
+                `Dataset "${selectedDataset?.name}" đang bị lỗi trạng thái trong hệ thống (không thể gán vào project nào).\n\n` +
+                `Bấm OK để XÓA dataset này và tạo lại dataset mới cùng tên (các file ảnh sẽ bị mất, cần upload lại).\n\n` +
+                `Bấm Hủy để bỏ qua.`
+            );
+
+            if (!confirmed) return;
+
+            // Xóa dataset cũ
+            const deleteRes = await api.delete(`/datasets/${dsId}`, { validateStatus: () => true });
+            if (deleteRes.status !== 200 && deleteRes.status !== 204) {
+                alert("Không thể xóa dataset: " + (deleteRes.data?.message || 'Lỗi không xác định'));
+                return;
+            }
+
+            // Tạo dataset mới cùng tên
+            const createRes = await api.post('/datasets', { name: selectedDataset?.name || 'Dataset mới' });
+            const newDsId = createRes.data?.id || createRes.data?.datasetId || createRes.data?.data?.id;
+            if (!newDsId) {
+                alert("Tạo dataset mới thất bại.");
+                return;
+            }
+
+            // Gán dataset mới vào project
+            const assignNewRes = await api.post(`/datasets/add/${projectId}`, { datasetId: String(newDsId) }, {
+                validateStatus: () => true,
+            });
+
+            if (assignNewRes.status === 200 || assignNewRes.status === 201 || assignNewRes.status === 204) {
+                alert(`Đã tạo lại dataset "${selectedDataset?.name}" và gán vào project thành công!\n\nVui lòng upload lại ảnh vào dataset mới.`);
+                setShowAssignModal(false);
+                fetchData();
+            } else {
+                alert("Tạo lại dataset thành công nhưng gán vào project thất bại. Vui lòng gán thủ công.");
+                setShowAssignModal(false);
+                fetchData();
+            }
         } catch (err) {
             console.error(err);
-            alert("Gán thất bại");
+            alert("Lỗi: " + (err.response?.data?.message || err.message));
         } finally {
             setLoading(false);
         }
@@ -1634,13 +1721,12 @@ export default function Datasets() {
                                                         <div className="col-span-2 text-gray-600">{formatBytes(sizeBytes)}</div>
                                                         <div className="col-span-2 text-gray-600">{dims ? `${dims.width}x${dims.height}` : "N/A"}</div>
                                                         <div className="col-span-1">
-                                                            <span className={`text-[11px] font-bold px-2 py-1 rounded-full ${
-                                                                quality.status === "low"
-                                                                    ? "bg-amber-100 text-amber-700"
-                                                                    : quality.status === "ok"
-                                                                        ? "bg-emerald-100 text-emerald-700"
-                                                                        : "bg-gray-100 text-gray-600"
-                                                            }`}>
+                                                            <span className={`text-[11px] font-bold px-2 py-1 rounded-full ${quality.status === "low"
+                                                                ? "bg-amber-100 text-amber-700"
+                                                                : quality.status === "ok"
+                                                                    ? "bg-emerald-100 text-emerald-700"
+                                                                    : "bg-gray-100 text-gray-600"
+                                                                }`}>
                                                                 {quality.text}
                                                             </span>
                                                         </div>

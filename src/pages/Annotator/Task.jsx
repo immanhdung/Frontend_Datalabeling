@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { taskAPI, annotationAPI, projectAPI } from '../../config/api';
+import api, { taskAPI, annotationAPI, projectAPI } from '../../config/api';
 import {
   normalizeTask,
   resolveApiData,
@@ -100,7 +100,10 @@ export default function AnnotatorTask() {
   const [task, setTask] = useState(null);
   const [items, setItems] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [labels, setLabels] = useState([]); // Loaded from project API on mount
+  const [labels, setLabels] = useState([
+    'Cat', 'Dog', 'Bird', 'Car', 'Person',
+    'Bicycle', 'Truck', 'Motorcycle', 'Animal', 'Other'
+  ]);
   const [selectedLabel, setSelectedLabel] = useState('');
 
   // Per-item state: Map of itemId -> { annotations[], status, skipReason }
@@ -204,51 +207,42 @@ export default function AnnotatorTask() {
       let projectLabels = [];
       if (taskData.projectId) {
         try {
+          // Step 1: Get project to find categoryId
           const projRes = await projectAPI.getById(taskData.projectId);
+          const proj = projRes?.data;
+          const categoryId = proj?.category?.categoryId || proj?.category?.CategoryId;
 
-          // Log raw response để debug — sẽ xóa sau khi fix xong
-          console.log('[Task] RAW projRes:', JSON.stringify(projRes).slice(0, 1200));
+          if (!categoryId) {
+            console.warn('[Task] No categoryId in project response', proj);
+          } else {
+            // Step 2: Fetch labels by categoryId
+            // Try /labels?categoryId=... then /categories/{id} as fallback
+            let labelsRaw = [];
 
-          // resolveApiData có thể unwrap data/result/items — thử tất cả các tầng
-          const tryExtractLabels = (obj) => {
-            if (!obj || typeof obj !== 'object') return [];
-            const raw =
-              obj?.category?.labels ||
-              obj?.category?.selectedLabels ||
-              obj?.Category?.Labels ||
-              obj?.Category?.SelectedLabels ||
-              obj?.selectedLabels ||
-              obj?.SelectedLabels ||
-              obj?.labels ||
-              obj?.Labels ||
-              obj?.labelNames ||
-              obj?.LabelNames ||
-              null;
-            if (raw && Array.isArray(raw) && raw.length > 0) {
-              return raw
-                .map((l) => typeof l === 'string' ? l : (l?.name || l?.Name || l?.value || l?.label || ''))
-                .filter(Boolean);
+            try {
+              const labelsRes = await api.get(`/labels?categoryId=${categoryId}`);
+              const data = labelsRes?.data;
+              labelsRaw = Array.isArray(data) ? data : (data?.items || data?.data || data?.labels || []);
+              console.log('[Task] Labels from /labels?categoryId:', labelsRaw);
+            } catch (e1) {
+              console.warn('[Task] /labels?categoryId failed:', e1?.message);
             }
-            return [];
-          };
 
-          // Thử nhiều tầng của response
-          const candidates = [
-            projRes,
-            projRes?.data,
-            projRes?.data?.data,
-            projRes?.data?.result,
-            projRes?.result,
-          ];
-
-          for (const candidate of candidates) {
-            const obj = Array.isArray(candidate) ? candidate[0] : candidate;
-            const found = tryExtractLabels(obj);
-            if (found.length > 0) {
-              projectLabels = found;
-              console.log('[Task] Labels found at candidate:', JSON.stringify(candidate).slice(0, 200));
-              break;
+            // Fallback: GET /categories/{categoryId}
+            if (labelsRaw.length === 0) {
+              try {
+                const catRes = await api.get(`/categories/${categoryId}`);
+                const catData = catRes?.data;
+                labelsRaw = catData?.labels || catData?.Labels || [];
+                console.log('[Task] Labels from /categories/{id}:', labelsRaw);
+              } catch (e2) {
+                console.warn('[Task] /categories/{id} failed:', e2?.message);
+              }
             }
+
+            projectLabels = labelsRaw
+              .map((l) => typeof l === 'string' ? l : (l?.name || l?.Name || l?.value || ''))
+              .filter(Boolean);
           }
 
           console.log('[Task] Final labels:', projectLabels);

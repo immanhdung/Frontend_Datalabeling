@@ -25,7 +25,7 @@ export default function AssignTasks() {
   const [message, setMessage] = useState({ type: '', text: '' });
   const [assigning, setAssigning] = useState(false);
 
-  // Workflow steps: 1: Project, 2: Datasets, 3: Annotator, 4: Reviewers
+  // Workflow steps: 1: Project, 2: Datasets, 3: Annotator (1), 4: Reviewers (3)
   const [step, setStep] = useState(1);
 
   // Selections
@@ -36,8 +36,8 @@ export default function AssignTasks() {
 
   const [users, setUsers] = useState([]);
   const [rolesMap, setRolesMap] = useState({});
-  const [selectedAnnotatorId, setSelectedAnnotatorId] = useState(null);
-  const [selectedReviewerIds, setSelectedReviewerIds] = useState([]);
+  const [selectedAnnotatorId, setSelectedAnnotatorId] = useState(null);   // 1 annotator
+  const [selectedReviewerIds, setSelectedReviewerIds] = useState([]);     // 3 reviewers
 
   // Searching
   const [searchProject, setSearchProject] = useState('');
@@ -90,40 +90,28 @@ export default function AssignTasks() {
       const projectId = project.id || project.projectId;
       let foundDatasets = [];
 
-      // Try 1: GET /projects/{id} - check if datasets array is in project detail
       try {
         const res = await api.get(`/projects/${projectId}`);
         const projectDetail = res.data?.data || res.data || {};
-        console.log('[Datasets] Project detail response:', JSON.stringify(projectDetail).slice(0, 500));
         if (Array.isArray(projectDetail?.datasets) && projectDetail.datasets.length > 0) {
           foundDatasets = projectDetail.datasets;
-          console.log('[Datasets] Found via project detail:', foundDatasets.length);
         }
       } catch (e) {
         console.warn('[Datasets] Could not fetch project detail:', e?.message);
       }
 
-      // Try 2: GET /datasets?ProjectId=...
       if (foundDatasets.length === 0) {
         try {
           const dsRes = await api.get(`/datasets?ProjectId=${projectId}`);
-          console.log('[Datasets] /datasets?ProjectId response:', JSON.stringify(dsRes.data).slice(0, 500));
-          // API trả về { items: [...] } với field datasetId
           const dsData = dsRes.data?.items || dsRes.data?.data || dsRes.data;
           if (Array.isArray(dsData) && dsData.length > 0) {
-            // Normalize: đảm bảo mỗi dataset có field `id`
-            foundDatasets = dsData.map(ds => ({
-              ...ds,
-              id: ds.id || ds.datasetId, // normalize id field
-            }));
-            console.log('[Datasets] Found via ?ProjectId filter:', foundDatasets.length);
+            foundDatasets = dsData.map(ds => ({ ...ds, id: ds.id || ds.datasetId }));
           }
         } catch (e) {
           console.warn('[Datasets] Could not fetch datasets by projectId:', e?.message);
         }
       }
 
-      console.log('[Datasets] Final datasets to show:', foundDatasets.length, foundDatasets.map(d => d.name || d.id));
       setDatasets(foundDatasets);
     } catch (err) {
       console.error('[Datasets] Error fetching datasets:', err);
@@ -133,8 +121,17 @@ export default function AssignTasks() {
     }
   };
 
-  const handleProjectSelect = (project) => {
-    setSelectedProject(project);
+  const handleProjectSelect = async (project) => {
+    const projectId = project.id || project.projectId;
+    // Fetch project detail để lấy deadline và các thông tin đầy đủ
+    let fullProject = project;
+    try {
+      const res = await api.get(`/projects/${projectId}`, { validateStatus: () => true });
+      if (res.status === 200 || res.status === 201) {
+        fullProject = { ...project, ...(res.data?.data || res.data || {}) };
+      }
+    } catch { /* use basic project info */ }
+    setSelectedProject(fullProject);
     fetchDatasetsForProject(project);
     setStep(2);
     setSelectedDatasetIds([]);
@@ -179,29 +176,47 @@ export default function AssignTasks() {
     setTimeout(() => setMessage({ type: '', text: '' }), 5000);
   };
 
-  // ── Save task to annotator's local storage so they see it immediately ──
-  const saveTaskToAnnotatorLocalStorage = (annotatorId, projectData, datasetId, datasetData) => {
-    const taskToSave = {
-      id: datasetId, // Use datasetId as task ID (it maps to a task created by assign)
-      title: projectData?.name || 'Nhiệm vụ mới',
-      description: projectData?.description || '',
-      type: 'image',
-      status: 'pending',
-      priority: 'medium',
-      projectName: projectData?.name || 'Dự án',
-      projectId: projectData?.id || projectData?.projectId,
-      datasetName: datasetData?.name || 'Bộ dữ liệu',
-      datasetId: datasetId,
-      assignedTo: annotatorId,
-      assignedAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      progress: 0,
-      totalItems: datasetData?.imagesCount || datasetData?.itemsCount || 0,
-      items: [],
-    };
-    assignLocalTaskToUser(taskToSave, annotatorId);
+  // Attach dataset vào project, tự động move nếu đang ở project khác
+  const attachDatasetToProject = async (datasetId, projectId) => {
+    const attachRes = await api.post(`/datasets/add/${projectId}`, { datasetId: String(datasetId) }, {
+      validateStatus: () => true,
+    });
+
+    if (attachRes.status === 200 || attachRes.status === 201 || attachRes.status === 204) {
+      return true;
+    }
+
+    const attachMsg = String(attachRes.data?.message || '');
+    if (!attachMsg.toLowerCase().includes('already')) {
+      // Không phải lỗi "already associated" → bỏ qua, để assign tự xử lý
+      return false;
+    }
+
+    // Dataset đang ở project khác → brute-force remove rồi add lại (silent)
+    let removed = false;
+    try {
+      const projRes = await api.get('/projects', { validateStatus: () => true });
+      const projectList = projRes.data?.items || projRes.data?.data || projRes.data || [];
+      for (const proj of Array.isArray(projectList) ? projectList : []) {
+        const pid = proj.projectId || proj.id;
+        if (!pid || String(pid) === String(projectId)) continue;
+        // validateStatus: () => true → không throw, không log lỗi đỏ
+        const removeRes = await api.post(`/datasets/remove/${pid}`, { datasetId: String(datasetId) }, {
+          validateStatus: () => true,
+        });
+        if (removeRes.status === 200 || removeRes.status === 201 || removeRes.status === 204) {
+          removed = true;
+          break;
+        }
+      }
+    } catch { /* ignore */ }
+
+    if (removed) await new Promise(r => setTimeout(r, 500));
+
+    const retryRes = await api.post(`/datasets/add/${projectId}`, { datasetId: String(datasetId) }, {
+      validateStatus: () => true,
+    });
+    return retryRes.status === 200 || retryRes.status === 201 || retryRes.status === 204;
   };
 
   const handleAssignSubmit = async () => {
@@ -222,102 +237,46 @@ export default function AssignTasks() {
     setAssigning(true);
     try {
       const projectId = selectedProject.id || selectedProject.projectId;
+
+      // ✅ Fetch project detail để lấy deadline thực tế (manager có quyền GET)
+      let projectDetail = selectedProject;
+      try {
+        const projRes = await api.get(`/projects/${projectId}`, { validateStatus: () => true });
+        if (projRes.status === 200) {
+          projectDetail = projRes.data?.data || projRes.data || selectedProject;
+        }
+      } catch { /* fallback to selectedProject */ }
+
       const allSelectedUsers = [selectedAnnotatorId, ...selectedReviewerIds];
 
-      // 1. Add all users to project as members (ignore errors - they may already be members)
+      // 1. Add all users to project as members (ignore errors)
       for (const userId of allSelectedUsers) {
         try {
-          await api.post(`/projects/${projectId}/members/${userId}`, null, {
-            validateStatus: () => true, // accept any status, never throw
-          });
-        } catch (e) {
-          console.warn(`Could not add user ${userId} to project (ignored):`, e?.message);
-        }
-      }
-
-      // 2. Attach each dataset to the project (remove from old project first if needed)
-      for (const datasetId of selectedDatasetIds) {
-        try {
-          // First try to attach directly
-          const attachRes = await api.post(`/datasets/add/${projectId}`, { datasetId: String(datasetId) }, {
+          const memberRes = await api.post(`/projects/${projectId}/members/${userId}`, null, {
             validateStatus: () => true,
           });
-
-          if (attachRes.status === 200 || attachRes.status === 201) {
-            console.log(`✅ Dataset ${datasetId} attached to project ${projectId}`);
+          if (memberRes.status === 200 || memberRes.status === 201 || memberRes.status === 204) {
+            console.log(`✅ Added user ${userId} to project`);
           } else {
-            const attachMsg = attachRes.data?.message || '';
-            const isAlreadyInAnotherProject = attachMsg.toLowerCase().includes('already');
-
-            if (isAlreadyInAnotherProject) {
-              console.log(`ℹ️ Dataset ${datasetId} in another project, brute-force removing...`);
-
-              // Backend doesn't expose which project owns the dataset.
-              // Strategy: try POST /datasets/remove/{pid} for every project until one succeeds.
-              let removed = false;
-              try {
-                const projRes = await api.get('/projects', { validateStatus: () => true });
-                const allProjects = projRes.data?.items || projRes.data?.data || projRes.data || [];
-                const projectList = Array.isArray(allProjects) ? allProjects : [];
-                console.log(`[Move] Will try remove from ${projectList.length} projects`);
-
-                for (const proj of projectList) {
-                  const pid = proj.projectId || proj.id;
-                  if (!pid) continue;
-                  // Skip the target project we want to ADD to
-                  if (String(pid) === String(projectId)) {
-                    console.log(`[Move] Skipping target project ${pid}`);
-                    continue;
-                  }
-                  const removeRes = await api.post(`/datasets/remove/${pid}`, { datasetId: String(datasetId) }, {
-                    validateStatus: () => true,
-                  });
-                  console.log(`[Move] remove/${pid}: ${removeRes.status} ${removeRes.data?.message || ''}`);
-                  if (removeRes.status === 200 || removeRes.status === 201 || removeRes.status === 204) {
-                    console.log(`✅ Removed dataset from project ${pid}`);
-                    removed = true;
-                    break;
-                  }
-                }
-              } catch (e) {
-                console.warn(`[Move] Error during brute-force remove:`, e?.message);
-              }
-
-              if (removed) {
-                await new Promise(r => setTimeout(r, 500));
-              } else {
-                console.warn(`[Move] Could not remove dataset from any project`);
-              }
-
-              // Try attach to target project
-              const retryRes = await api.post(`/datasets/add/${projectId}`, { datasetId: String(datasetId) }, {
-                validateStatus: () => true,
-              });
-              console.log(`[Move] Re-attach status ${retryRes.status}:`, retryRes.data?.message);
-              if (retryRes.status === 200 || retryRes.status === 201 || retryRes.status === 204) {
-                console.log(`✅ Dataset ${datasetId} successfully attached to project ${projectId}`);
-              } else {
-                console.warn(`⚠️ Still cannot attach:`, retryRes.data?.message);
-              }
-            } else {
-              console.warn(`⚠️ Attach failed for dataset ${datasetId}:`, attachMsg);
-            }
+            console.log(`[Member] status ${memberRes.status} for user ${userId}:`, memberRes.data?.message || memberRes.data);
           }
-          await new Promise(r => setTimeout(r, 200));
-        } catch (e) {
-          console.warn(`Attach dataset error (ignored):`, e?.message);
-        }
+        } catch (e) { /* ignore */ }
       }
 
       let successCount = 0;
       let failCount = 0;
 
-      // 3. Assign each dataset to annotator
+      // 2. Attach dataset + assign cho annotator
       for (const datasetId of selectedDatasetIds) {
         const datasetInfo = datasets.find(
           (d) => String(d.id || d.datasetId) === String(datasetId)
         );
 
+        // Attach dataset vào project (move nếu cần)
+        await attachDatasetToProject(datasetId, projectId);
+        await new Promise(r => setTimeout(r, 200));
+
+        // Assign cho annotator
         try {
           const assignPayload = {
             assignedTo: String(selectedAnnotatorId),
@@ -325,22 +284,20 @@ export default function AssignTasks() {
             datasetId: String(datasetId),
             timeLimitMinutes: 60,
           };
-          console.log(`[Assign] Sending POST /tasks/assign:`, assignPayload);
           const assignRes = await api.post('/tasks/assign', assignPayload);
-
           const resData = assignRes.data?.data || assignRes.data || {};
           const realTaskId = resData.taskId || resData.id || resData.Id;
-          console.log(`Assign OK for dataset ${datasetId}, taskId=${realTaskId}:`, resData);
 
           if (realTaskId) {
-            // Save with real taskId so annotator can open the task
-            const taskToSave = {
+            // ✅ Dùng projectDetail (có deadline thực) thay vì selectedProject
+            const projectDeadline = projectDetail?.deadline || projectDetail?.dueDate || projectDetail?.endDate;
+            assignLocalTaskToUser({
               id: realTaskId,
-              title: selectedProject?.name || 'Nhiệm vụ mới',
-              description: selectedProject?.description || '',
+              title: projectDetail?.name || selectedProject?.name || 'Nhiệm vụ mới',
+              description: projectDetail?.description || selectedProject?.description || '',
               type: 'image',
               status: 'pending',
-              projectName: selectedProject?.name || 'Dự án',
+              projectName: projectDetail?.name || selectedProject?.name || 'Dự án',
               projectId: String(projectId),
               datasetName: datasetInfo?.name || 'Bộ dữ liệu',
               datasetId: String(datasetId),
@@ -348,24 +305,19 @@ export default function AssignTasks() {
               assignedAt: new Date().toISOString(),
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
-              dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+              // ✅ deadline thực từ project, fallback 7 ngày
+              dueDate: projectDeadline || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
               progress: 0,
-              totalItems: datasetInfo?.imagesCount || datasetInfo?.itemsCount || 0,
+              totalItems: datasetInfo?.sampleCount || datasetInfo?.imagesCount || datasetInfo?.itemsCount || 0,
               items: [],
-              _source: 'api', // mark as from real API
-            };
-            assignLocalTaskToUser(taskToSave, selectedAnnotatorId);
+              _source: 'api',
+            }, selectedAnnotatorId);
           }
           successCount++;
         } catch (err) {
-          const backendError =
-            err.response?.data?.message ||
-            err.response?.data?.title ||
-            JSON.stringify(err.response?.data) ||
-            err.message;
-          console.warn(`Assign API failed for dataset ${datasetId}: ${backendError}`);
+          const backendError = err.response?.data?.message || err.response?.data?.title || err.message;
+          console.warn(`Assign failed for dataset ${datasetId}: ${backendError}`);
           failCount++;
-          // Do NOT save to localStorage if API failed - would create broken task with wrong ID
         }
       }
 
@@ -379,7 +331,7 @@ export default function AssignTasks() {
           setSelectedReviewerIds([]);
         }, 2500);
       } else {
-        showMessage('error', `Giao việc thất bại: Dataset chưa được gán vào dự án. Vui lòng gán dataset vào dự án trước.`);
+        showMessage('error', 'Giao việc thất bại. Vui lòng thử lại.');
       }
     } catch (err) {
       console.error('Assignment workflow error:', err);
@@ -398,8 +350,8 @@ export default function AssignTasks() {
         key={uid}
         onClick={onClick}
         className={`p-6 rounded-[2.5rem] border-2 transition-all cursor-pointer flex flex-col items-center text-center ${isSelected
-            ? `border-${themeColor}-500 bg-${themeColor}-50/50 shadow-lg`
-            : `border-slate-100 bg-white hover:border-${themeColor}-200 hover:bg-${themeColor}-50/20`
+          ? `border-${themeColor}-500 bg-${themeColor}-50/50 shadow-lg`
+          : `border-slate-100 bg-white hover:border-${themeColor}-200 hover:bg-${themeColor}-50/20`
           }`}
       >
         <div className="relative mb-4">
@@ -471,10 +423,10 @@ export default function AssignTasks() {
         {message.text && (
           <div
             className={`mb-8 p-4 rounded-2xl border font-bold flex items-center shadow-lg animate-in slide-in-from-top-4 ${message.type === 'success'
-                ? 'bg-emerald-500 text-white border-emerald-400'
-                : message.type === 'error'
-                  ? 'bg-red-500 text-white border-red-400'
-                  : 'bg-amber-500 text-white border-amber-400'
+              ? 'bg-emerald-500 text-white border-emerald-400'
+              : message.type === 'error'
+                ? 'bg-red-500 text-white border-red-400'
+                : 'bg-amber-500 text-white border-amber-400'
               }`}
           >
             <Info className="w-5 h-5 mr-3 shrink-0" />
@@ -544,17 +496,12 @@ export default function AssignTasks() {
           <div className="space-y-8 animate-in slide-in-from-right-10 duration-500">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-6">
-                <button
-                  onClick={() => setStep(1)}
-                  className="w-12 h-12 flex items-center justify-center bg-white border border-slate-200 rounded-2xl hover:bg-slate-50 text-slate-400"
-                >
+                <button onClick={() => setStep(1)} className="w-12 h-12 flex items-center justify-center bg-white border border-slate-200 rounded-2xl hover:bg-slate-50 text-slate-400">
                   <ArrowLeft className="w-5 h-5" />
                 </button>
                 <div>
                   <h2 className="text-2xl font-black text-slate-800">Chọn Datasets</h2>
-                  <p className="text-sm font-bold text-indigo-600 uppercase tracking-widest">
-                    {selectedProject?.name}
-                  </p>
+                  <p className="text-sm font-bold text-indigo-600 uppercase tracking-widest">{selectedProject?.name}</p>
                 </div>
               </div>
               <button
@@ -575,9 +522,7 @@ export default function AssignTasks() {
               ) : datasets.length === 0 ? (
                 <div className="col-span-full py-20 bg-white rounded-[3rem] border-2 border-dashed border-amber-200 text-center">
                   <Database className="w-16 h-16 text-amber-300 mx-auto mb-4" />
-                  <p className="text-slate-700 font-bold text-lg mb-2">
-                    Dự án này chưa có Dataset nào
-                  </p>
+                  <p className="text-slate-700 font-bold text-lg mb-2">Dự án này chưa có Dataset nào</p>
                   <p className="text-slate-400 font-medium text-sm max-w-sm mx-auto">
                     Vui lòng vào <strong>Quản lý Dataset</strong> → gán dataset vào dự án <strong>"{selectedProject?.name}"</strong> trước, rồi quay lại giao việc.
                   </p>
@@ -590,28 +535,19 @@ export default function AssignTasks() {
                     <div
                       key={dsId}
                       onClick={() => toggleDatasetSelection(dsId)}
-                      className={`p-8 rounded-[2.5rem] border-2 transition-all cursor-pointer relative overflow-hidden ${isSelected
-                          ? 'border-indigo-600 bg-indigo-50/50'
-                          : 'border-slate-100 bg-white hover:border-indigo-200 shadow-sm'
-                        }`}
+                      className={`p-8 rounded-[2.5rem] border-2 transition-all cursor-pointer relative overflow-hidden ${isSelected ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-100 bg-white hover:border-indigo-200 shadow-sm'}`}
                     >
                       <div className="flex justify-between items-start mb-6">
-                        <div
-                          className={`w-14 h-14 rounded-2xl flex items-center justify-center ${isSelected ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'
-                            }`}
-                        >
+                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${isSelected ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}>
                           <Database className="w-7 h-7" />
                         </div>
-                        <div
-                          className={`w-7 h-7 rounded-xl border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-200'
-                            }`}
-                        >
+                        <div className={`w-7 h-7 rounded-xl border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-200'}`}>
                           {isSelected && <CheckSquare className="w-5 h-5 text-white" />}
                         </div>
                       </div>
                       <h4 className="font-black text-slate-900 text-lg mb-1">{ds.name}</h4>
                       <p className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                        {ds.imagesCount ?? ds.numberOfItems ?? ds.itemCount ?? 0} ảnh / items
+                        {ds.sampleCount ?? ds.imagesCount ?? ds.numberOfItems ?? ds.itemCount ?? 0} ảnh / items
                       </p>
                     </div>
                   );
@@ -621,22 +557,17 @@ export default function AssignTasks() {
           </div>
         )}
 
-        {/* STEP 3: ANNOTATOR */}
+        {/* STEP 3: ANNOTATOR - chọn 1 người */}
         {step === 3 && (
           <div className="space-y-8 animate-in slide-in-from-right-10 duration-500">
             <div className="flex items-center justify-between bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
               <div className="flex items-center gap-6">
-                <button
-                  onClick={() => setStep(2)}
-                  className="w-12 h-12 flex items-center justify-center bg-slate-50 border border-slate-100 rounded-2xl hover:bg-slate-100 text-slate-400"
-                >
+                <button onClick={() => setStep(2)} className="w-12 h-12 flex items-center justify-center bg-slate-50 border border-slate-100 rounded-2xl hover:bg-slate-100 text-slate-400">
                   <ArrowLeft className="w-5 h-5" />
                 </button>
                 <div>
                   <h2 className="text-2xl font-black text-slate-800">Chọn Annotator</h2>
-                  <p className="text-sm font-bold text-emerald-600 uppercase tracking-widest">
-                    Dự án: {selectedProject?.name}
-                  </p>
+                  <p className="text-sm font-bold text-emerald-600 uppercase tracking-widest">Dự án: {selectedProject?.name}</p>
                 </div>
               </div>
               <button
@@ -652,14 +583,9 @@ export default function AssignTasks() {
               <div className="p-8 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between">
                 <div>
                   <h3 className="text-xl font-black text-slate-900 mb-1">Danh sách Annotator</h3>
-                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
-                    Chọn duy nhất 1 người để gán nhãn
-                  </p>
+                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Chọn duy nhất 1 người để gán nhãn</p>
                 </div>
-                <div
-                  className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${selectedAnnotatorId ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white text-slate-300'
-                    }`}
-                >
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${selectedAnnotatorId ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white text-slate-300'}`}>
                   <Users className="w-7 h-7" />
                 </div>
               </div>
@@ -670,36 +596,33 @@ export default function AssignTasks() {
                     Không tìm thấy nhân sự phù hợp (cần user có role annotator)
                   </p>
                 ) : (
-                  annotators.map((u) =>
-                    renderUserCard(
+                  annotators.map((u) => {
+                    const uid = u.id || u.userId;
+                    return renderUserCard(
                       u,
-                      selectedAnnotatorId === (u.id || u.userId),
-                      () => setSelectedAnnotatorId(u.id || u.userId),
+                      selectedAnnotatorId === uid,
+                      // Single select: click lại để bỏ chọn
+                      () => setSelectedAnnotatorId(selectedAnnotatorId === uid ? null : uid),
                       'annotator'
-                    )
-                  )
+                    );
+                  })
                 )}
               </div>
             </div>
           </div>
         )}
 
-        {/* STEP 4: REVIEWERS */}
+        {/* STEP 4: REVIEWERS - chọn 3 người */}
         {step === 4 && (
           <div className="space-y-8 animate-in slide-in-from-right-10 duration-500">
             <div className="flex items-center justify-between bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
               <div className="flex items-center gap-6">
-                <button
-                  onClick={() => setStep(3)}
-                  className="w-12 h-12 flex items-center justify-center bg-slate-50 border border-slate-100 rounded-2xl hover:bg-slate-100 text-slate-400"
-                >
+                <button onClick={() => setStep(3)} className="w-12 h-12 flex items-center justify-center bg-slate-50 border border-slate-100 rounded-2xl hover:bg-slate-100 text-slate-400">
                   <ArrowLeft className="w-5 h-5" />
                 </button>
                 <div>
                   <h2 className="text-2xl font-black text-slate-800">Chọn Reviewers</h2>
-                  <p className="text-sm font-bold text-indigo-600 uppercase tracking-widest">
-                    Dự án: {selectedProject?.name}
-                  </p>
+                  <p className="text-sm font-bold text-indigo-600 uppercase tracking-widest">Dự án: {selectedProject?.name}</p>
                 </div>
               </div>
               <button
@@ -717,13 +640,10 @@ export default function AssignTasks() {
                 <div>
                   <h3 className="text-xl font-black text-slate-900 mb-1">Danh sách Reviewers</h3>
                   <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">
-                    Chọn đúng 3 người
+                    Chọn đúng 3 người ({selectedReviewerIds.length}/3)
                   </p>
                 </div>
-                <div
-                  className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${selectedReviewerIds.length === 3 ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-300'
-                    }`}
-                >
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${selectedReviewerIds.length === 3 ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-300'}`}>
                   <ShieldCheck className="w-7 h-7" />
                 </div>
               </div>
@@ -754,17 +674,12 @@ export default function AssignTasks() {
               </div>
 
               <div className="px-8 py-6 bg-slate-50/30 border-t border-slate-50 flex justify-between items-center">
-                <span className="text-xs font-black uppercase text-slate-400 tracking-tighter">
-                  Tiến độ lựa chọn:
-                </span>
+                <span className="text-xs font-black uppercase text-slate-400 tracking-tighter">Tiến độ lựa chọn:</span>
                 <div className="flex gap-2">
                   {[1, 2, 3].map((i) => (
                     <div
                       key={i}
-                      className={`w-10 h-2 rounded-full transition-all duration-500 ${selectedReviewerIds.length >= i
-                          ? 'bg-indigo-600 shadow-[0_0_8px_rgba(79,70,229,0.5)]'
-                          : 'bg-slate-200'
-                        }`}
+                      className={`w-10 h-2 rounded-full transition-all duration-500 ${selectedReviewerIds.length >= i ? 'bg-indigo-600 shadow-[0_0_8px_rgba(79,70,229,0.5)]' : 'bg-slate-200'}`}
                     />
                   ))}
                 </div>
