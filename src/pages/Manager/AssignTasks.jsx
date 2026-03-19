@@ -36,7 +36,7 @@ export default function AssignTasks() {
 
   const [users, setUsers] = useState([]);
   const [rolesMap, setRolesMap] = useState({});
-  const [selectedAnnotatorIds, setSelectedAnnotatorIds] = useState([]);   // 3 annotators
+  const [selectedAnnotatorId, setSelectedAnnotatorId] = useState(null); // Changed from 3 to 1
   const [selectedReviewerId, setSelectedReviewerId] = useState(null);     // 1 reviewer
 
   // Searching
@@ -182,7 +182,7 @@ export default function AssignTasks() {
     }
 
     const errorMsg = String(addRes.data?.message || addRes.data?.title || '').toLowerCase();
-    
+
     // If already in this project, we are good
     if (errorMsg.includes('already associated') || errorMsg.includes('exists')) {
       return true;
@@ -197,7 +197,7 @@ export default function AssignTasks() {
         for (const proj of projectList) {
           const pid = proj.projectId || proj.id;
           if (!pid || String(pid) === String(projectId)) continue;
-          
+
           // Silently try to remove
           await api.post(`/datasets/remove/${pid}`, { datasetId: String(datasetId) }, {
             validateStatus: () => true,
@@ -215,8 +215,8 @@ export default function AssignTasks() {
 
   const handleAssignSubmit = async () => {
     if (!selectedProject || !selectedDatasetId) return;
-    if (selectedAnnotatorIds.length !== 3) {
-      showMessage('warning', 'Vui lòng chọn đúng 3 Annotators.');
+    if (!selectedAnnotatorId) {
+      showMessage('warning', 'Vui lòng chọn 1 Annotator.');
       return;
     }
     if (!selectedReviewerId) {
@@ -239,8 +239,8 @@ export default function AssignTasks() {
         }
       } catch { /* fallback to selectedProject */ }
 
-      const allSelectedUsers = [...selectedAnnotatorIds, selectedReviewerId];
-
+      const allSelectedUsers = [selectedAnnotatorId, selectedReviewerId].filter(Boolean);
+      
       // 1. Add all users to project as members (ignore errors)
       for (const userId of allSelectedUsers) {
         try {
@@ -263,70 +263,60 @@ export default function AssignTasks() {
 
       let successCount = 0;
 
-      // 3. Assign cho TỪNG annotator
-      for (const annotatorId of selectedAnnotatorIds) {
-        try {
-          const assignPayload = {
-            assignedTo: String(annotatorId),
-            projectId: String(projectId),
-            datasetId: String(selectedDatasetId),
-            timeLimitMinutes: 60,
-          };
-          
-          console.log(`[Flow] Assigning to ${annotatorId}...`);
-          const assignRes = await api.post('/tasks/assign', assignPayload);
-          const resData = assignRes.data?.data || assignRes.data || {};
-          const realTaskId = resData.taskId || resData.id || resData.Id;
+      // 3. Assign cho annotator duy nhất
+      try {
+        const assignPayload = {
+          assignedTo: String(selectedAnnotatorId),
+          projectId: String(projectId),
+          datasetId: String(selectedDatasetId),
+          timeLimitMinutes: 60,
+        };
 
-          if (realTaskId) {
-            const projectDeadline = projectDetail?.deadline || projectDetail?.dueDate || projectDetail?.endDate;
-            assignLocalTaskToUser({
-              id: realTaskId,
-              title: projectDetail?.name || selectedProject?.name || 'Nhiệm vụ mới',
-              description: projectDetail?.description || selectedProject?.description || '',
-              type: 'image',
-              status: 'pending',
-              projectName: projectDetail?.name || selectedProject?.name || 'Dự án',
-              projectId: String(projectId),
-              datasetName: datasetInfo?.name || 'Bộ dữ liệu',
-              datasetId: String(selectedDatasetId),
-              assignedTo: String(annotatorId),
-              assignedAt: new Date().toISOString(),
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              dueDate: projectDeadline || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-              progress: 0,
-              totalItems: datasetInfo?.sampleCount || datasetInfo?.imagesCount || datasetInfo?.itemsCount || 0,
-              items: [],
-              _source: 'api',
-            }, annotatorId);
-          }
-          successCount++;
-          // Give server a small break
-          await new Promise(r => setTimeout(r, 600));
-        } catch (err) {
-          const errMsg = err.response?.data?.message || err.response?.data?.title || err.message;
-          console.error(`Assign failed for user ${annotatorId}:`, errMsg, err.response?.data);
-          errorDetails.push(`User ${annotatorId}: ${errMsg}`);
+        console.log(`[Flow] Assigning to ${selectedAnnotatorId}...`);
+        const assignRes = await api.post('/tasks/assign', assignPayload);
+        const resData = assignRes.data?.data || assignRes.data || {};
+        const realTaskId = resData.taskId || resData.id || resData.Id;
+
+        if (realTaskId) {
+          const projectDeadline = projectDetail?.deadline || projectDetail?.dueDate || projectDetail?.endDate;
+          assignLocalTaskToUser({
+            id: realTaskId,
+            title: projectDetail?.name || selectedProject?.name || 'Nhiệm vụ mới',
+            description: projectDetail?.description || selectedProject?.description || '',
+            type: 'image',
+            status: 'pending',
+            projectName: projectDetail?.name || selectedProject?.name || 'Dự án',
+            projectId: String(projectId),
+            datasetName: datasetInfo?.name || 'Bộ dữ liệu',
+            datasetId: String(selectedDatasetId),
+            assignedTo: String(selectedAnnotatorId),
+            assignedAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            dueDate: projectDeadline || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            progress: 0,
+            totalItems: datasetInfo?.sampleCount || datasetInfo?.imagesCount || datasetInfo?.itemsCount || 0,
+            items: [],
+            _source: 'api',
+          }, selectedAnnotatorId);
         }
+        successCount = 1;
+      } catch (err) {
+        const errMsg = err.response?.data?.message || err.response?.data?.title || err.message;
+        console.error(`Assign failed for user ${selectedAnnotatorId}:`, errMsg, err.response?.data);
+        errorDetails.push(`User ${selectedAnnotatorId}: ${errMsg}`);
       }
 
       if (successCount > 0) {
-        const resultMsg = successCount === 3 
-          ? 'Giao việc thành công cho cả 3 annotators!' 
-          : `Giao việc thành công cho ${successCount}/3 annotators. ${errorDetails.length} người thất bại.`;
-        
-        showMessage(successCount === 3 ? 'success' : 'warning', resultMsg);
-        
-        if (successCount === 3) {
-          setTimeout(() => {
-            setStep(1);
-            setSelectedProject(null);
-            setSelectedDatasetId(null);
-            setSelectedAnnotatorIds([]);
-            setSelectedReviewerId(null);
-          }, 3000);
-        }
+        showMessage('success', 'Giao việc thành công!');
+
+        setTimeout(() => {
+          setStep(1);
+          setSelectedProject(null);
+          setSelectedDatasetId(null);
+          setSelectedAnnotatorId(null);
+          setSelectedReviewerId(null);
+        }, 3000);
       } else {
         const finalError = errorDetails.length > 0 ? errorDetails.join(' | ') : 'Lỗi không xác định';
         showMessage('error', 'Giao việc thất bại hoàn toàn: ' + finalError);
@@ -533,7 +523,7 @@ export default function AssignTasks() {
               </div>
               <button
                 onClick={handleAssignSubmit}
-                disabled={assigning || selectedAnnotatorIds.length !== 3 || !selectedReviewerId}
+                disabled={assigning || !selectedAnnotatorId || !selectedReviewerId}
                 className="bg-slate-900 text-white px-12 py-5 rounded-3xl font-black shadow-2xl hover:bg-black transition-all disabled:opacity-20 flex items-center gap-4 border-2 border-slate-800"
               >
                 {assigning ? <Loader2 className="w-6 h-6 animate-spin" /> : <UserCheck className="w-6 h-6" />}
@@ -546,12 +536,12 @@ export default function AssignTasks() {
               <div className="bg-white rounded-[3rem] border-2 border-slate-50 shadow-sm flex flex-col h-[700px]">
                 <div className="p-8 border-b-2 border-slate-50 flex items-center justify-between bg-emerald-50/30 rounded-t-[3rem]">
                   <div>
-                    <h3 className="text-xl font-black text-slate-900">Annotators</h3>
-                    <p className={`text-[10px] font-black uppercase tracking-widest ${selectedAnnotatorIds.length === 3 ? 'text-emerald-600' : 'text-slate-400'}`}>
-                      Chọn đúng 3 người ({selectedAnnotatorIds.length}/3)
+                    <h3 className="text-xl font-black text-slate-900">Annotator</h3>
+                    <p className={`text-[10px] font-black uppercase tracking-widest ${selectedAnnotatorId ? 'text-emerald-600' : 'text-slate-400'}`}>
+                      {selectedAnnotatorId ? 'Đã lựa chọn 1 annotator' : 'Chọn duy nhất 1 người'}
                     </p>
                   </div>
-                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${selectedAnnotatorIds.length === 3 ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white text-slate-300'}`}>
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${selectedAnnotatorId ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white text-slate-300'}`}>
                     <Users className="w-7 h-7" />
                   </div>
                 </div>
@@ -561,10 +551,9 @@ export default function AssignTasks() {
                   ) : (
                     annotators.map(u => {
                       const uid = u.id || u.userId;
-                      const isSelected = selectedAnnotatorIds.includes(uid);
+                      const isSelected = selectedAnnotatorId === uid;
                       return renderSimpleUserCard(u, isSelected, () => {
-                        if (isSelected) setSelectedAnnotatorIds(prev => prev.filter(id => id !== uid));
-                        else if (selectedAnnotatorIds.length < 3) setSelectedAnnotatorIds(prev => [...prev, uid]);
+                        setSelectedAnnotatorId(isSelected ? null : uid);
                       }, 'annotator');
                     })
                   )}

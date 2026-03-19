@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../../config/api";
 import {
@@ -11,7 +11,6 @@ import {
   Database,
   Plus,
   X,
-  Calendar,
 } from "lucide-react";
 
 const FIXED_TEMPLATE_ID = "e841b523-8215-4952-b3dc-8c9bc60f8a7d";
@@ -70,7 +69,6 @@ export default function CreateProjectPage() {
   const [projectName, setProjectName] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
   const [guidelines, setGuidelines] = useState("");
-  const [deadline, setDeadline] = useState(""); // ✅ Thêm deadline
 
   const [categories, setCategories] = useState([]);
   const [datasets, setDatasets] = useState([]);
@@ -285,7 +283,7 @@ export default function CreateProjectPage() {
         categoryId: normalizedCategoryId,
         templateId: FIXED_TEMPLATE_ID,
         guideline: guidelines.trim() || undefined,         // ✅ Gửi guideline khi tạo project
-        deadline: deadline ? new Date(deadline).toISOString() : undefined, // ✅ Gửi deadline
+        deadline: undefined, // Removed deadline
       };
 
       let createRes;
@@ -316,7 +314,7 @@ export default function CreateProjectPage() {
           name: projectName.trim(),
           description: projectDescription.trim(),
           guideline: guidelines.trim() || "",
-          deadline: deadline ? new Date(deadline).toISOString() : null,
+          deadline: null,
           isActive: true,
         });
       } catch (e) {
@@ -418,20 +416,6 @@ export default function CreateProjectPage() {
               />
             </div>
 
-            {/* ✅ Deadline */}
-            <div>
-              <label className="block text-sm font-medium mb-1 flex items-center gap-1">
-                <Calendar className="w-4 h-4 text-indigo-500" />
-                Thời hạn kết thúc (Deadline)
-              </label>
-              <input
-                type="date"
-                className="w-full border rounded px-3 py-2 focus:ring-2 focus:ring-indigo-500"
-                value={deadline}
-                min={new Date().toISOString().slice(0, 10)}
-                onChange={(e) => setDeadline(e.target.value)}
-              />
-            </div>
 
             {/* ✅ Hướng dẫn cho annotator */}
             <div>
@@ -592,12 +576,6 @@ export default function CreateProjectPage() {
                 <span className="font-bold w-32 shrink-0">Mô tả:</span>
                 <span>{projectDescription}</span>
               </div>
-              {deadline && (
-                <div className="flex gap-2">
-                  <span className="font-bold w-32 shrink-0">Deadline:</span>
-                  <span className="text-indigo-600 font-medium">{new Date(deadline).toLocaleDateString('vi-VN')}</span>
-                </div>
-              )}
               <div className="flex gap-2">
                 <span className="font-bold w-32 shrink-0">Labels:</span>
                 <span>{allSelectedLabels.length > 0 ? allSelectedLabels.join(", ") : "Không có"}</span>

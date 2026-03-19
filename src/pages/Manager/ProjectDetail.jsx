@@ -101,7 +101,6 @@ export default function ManagerProjectDetail() {
     categoryId: "",
     status: "",
     type: "",
-    deadline: "",
     labels: [],
     datasetIds: [],
   });
@@ -270,7 +269,6 @@ export default function ManagerProjectDetail() {
         categoryId: String(fetchedProject?.categoryId || fetchedProject?.category?.id || ""),
         status: fetchedProject?.status || "",
         type: fetchedProject?.type || "",
-        deadline: fetchedProject?.deadline ? String(fetchedProject.deadline).slice(0, 10) : "",
         labels: initialLabels,
         datasetIds: initialDatasetIds,
       });
@@ -539,7 +537,7 @@ export default function ManagerProjectDetail() {
         categoryId: editForm.categoryId || null,
         status: editForm.status,
         type: editForm.type,
-        deadline: editForm.deadline || null,
+        deadline: null,
         labels: editForm.labels,
         labelNames: editForm.labels,
       });
@@ -637,10 +635,6 @@ export default function ManagerProjectDetail() {
             <div>
               <label className="block text-sm font-medium mb-1">Trạng thái</label>
               <input className="w-full border rounded px-3 py-2" value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Deadline</label>
-              <input type="date" className="w-full border rounded px-3 py-2" value={editForm.deadline} onChange={(e) => setEditForm((prev) => ({ ...prev, deadline: e.target.value }))} />
             </div>
           </div>
           <div>
