@@ -240,7 +240,7 @@ export default function AssignTasks() {
       } catch { /* fallback to selectedProject */ }
 
       const allSelectedUsers = [selectedAnnotatorId, selectedReviewerId].filter(Boolean);
-      
+
       // 1. Add all users to project as members (ignore errors)
       for (const userId of allSelectedUsers) {
         try {

@@ -178,19 +178,36 @@ export default function AnnotatorTask() {
           status: itemStatus === 'completed' || itemStatus === 'done' ? 'done' : itemStatus === 'skipped' ? 'skipped' : 'pending',
           skipReason: '',
         };
-        if (itemId && (itemStatus === 'completed' || itemStatus === 'done')) {
+        // Try to load any existing annotations for this item (don't strictly wait for status === 'done')
+        if (itemId) {
           try {
             const annRes = await annotationAPI.getByItem(itemId);
-            const anns = Array.isArray(resolveApiData(annRes)) ? resolveApiData(annRes) : [];
+            const data = resolveApiData(annRes);
+            const anns = Array.isArray(data) ? data : [];
+
             if (anns.length > 0) {
-              const bboxes = anns[anns.length - 1]?.payload?.bboxes || [];
+              const latestAnn = anns[anns.length - 1];
+              const bboxes = latestAnn?.payload?.bboxes || [];
+
+              // Store the ID of the annotation object for future PUT updates
+              initialStates[itemId].annotationId = latestAnn.id;
+
               initialStates[itemId].annotations = bboxes.map((b, idx) => ({
-                id: b.id || `ann-${idx}`, label: b.label,
-                x: b.x, y: b.y, width: b.width, height: b.height,
+                id: b.id || `ann-${idx}`,
+                label: b.label,
+                x: b.x,
+                y: b.y,
+                width: b.width,
+                height: b.height,
                 color: getLabelColor(b.label, idx),
               }));
+
+              // If we found server annotations, ensure status is 'done'
+              initialStates[itemId].status = 'done';
             }
-          } catch { /* ignore */ }
+          } catch (e) {
+            console.warn(`[Task] Failed to fetch annotations for item ${itemId}:`, e?.message);
+          }
         }
       }
       setItemStates(initialStates);
@@ -270,18 +287,29 @@ export default function AnnotatorTask() {
     if (annotations.length === 0) { alert('Vui lòng gán ít nhất một nhãn hoặc chọn Skip.'); return false; }
     setSaving(true);
     try {
-      await annotationAPI.submit([{
-        taskItemId: currentItemId,
-        payload: { 
-          bboxes: annotations.map((a) => ({ 
-            label: a.label, 
-            x: Math.round(a.x), 
-            y: Math.round(a.y), 
-            width: Math.round(a.width), 
-            height: Math.round(a.height) 
-          })) 
-        },
-      }]);
+      const bboxes = annotations.map((a) => ({
+        label: a.label,
+        x: Math.round(a.x),
+        y: Math.round(a.y),
+        width: Math.round(a.width),
+        height: Math.round(a.height)
+      }));
+
+      const existingAnnId = itemStates[currentItemId]?.annotationId;
+
+      if (existingAnnId) {
+        // Cập nhật gán nhãn đã tồn tại (PUT)
+        await annotationAPI.update(existingAnnId, {
+          payload: { bboxes }
+        });
+      } else {
+        // Tạo gán nhãn mới (POST)
+        await annotationAPI.submit([{
+          taskItemId: currentItemId,
+          payload: { bboxes }
+        }]);
+      }
+
       updateItemState(currentItemId, { status: 'done' });
       return true;
     } catch (err) {

@@ -18,7 +18,7 @@ import {
 const STATUS_TABS = [
   { key: 'pending', label: 'Chờ làm', icon: Clock },
   { key: 'in_progress', label: 'Đang làm', icon: Zap },
-  { key: 'completed', label: 'Hoàn thành', icon: CheckCircle2 },
+  { key: 'completed', label: 'Chờ duyệt', icon: CheckCircle2 },
   { key: 'all', label: 'Tất cả', icon: Folder },
 ];
 const TYPE_ICONS = { image: ImageIcon, text: FileText, audio: Volume2, video: Video };
@@ -114,12 +114,15 @@ export default function AnnotatorTasks() {
     total: tasks.length,
     pending: tasks.filter(t => t.status === 'pending').length,
     inProgress: tasks.filter(t => t.status === 'in_progress').length,
-    completed: tasks.filter(t => t.status === 'completed').length,
+    completed: tasks.filter(t => t.status === 'completed' || t.status === 'pending_review').length,
   }), [tasks]);
 
   const filteredTasks = useMemo(() => tasks
     .filter(t => {
-      const matchTab = activeTab === 'all' || t.status === activeTab;
+      let matchTab = activeTab === 'all' || t.status === activeTab;
+      if (activeTab === 'completed') {
+        matchTab = t.status === 'completed' || t.status === 'pending_review';
+      }
       const kw = searchTerm.toLowerCase();
       const matchSearch = !kw || [t.title, t.projectName, t.datasetName].some(s => String(s || '').toLowerCase().includes(kw));
       return matchTab && matchSearch;
@@ -168,7 +171,7 @@ export default function AnnotatorTasks() {
                 </div>
               ))}
               <div className="bg-emerald-400/20 backdrop-blur-md px-6 py-4 rounded-3xl border border-emerald-400/30">
-                <p className="text-emerald-100 text-sm mb-1">Hoàn thành</p>
+                <p className="text-emerald-100 text-sm mb-1">Chờ duyệt</p>
                 <p className="text-3xl font-bold text-emerald-300">{stats.completed}</p>
               </div>
             </div>
