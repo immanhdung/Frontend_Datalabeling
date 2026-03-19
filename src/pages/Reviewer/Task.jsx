@@ -10,11 +10,8 @@ import {
   Video,
   User,
   Calendar,
-  CheckCircle2,
-  XCircle,
   AlertCircle,
   MessageSquare,
-  Save,
   ThumbsUp,
   ThumbsDown,
   Tag,
@@ -98,9 +95,9 @@ const ReviewerTask = () => {
         createdAt: '2026-01-28T10:00:00Z',
         timeSpent: 420,
         history: [
-          { action: 'created', timestamp: '2026-01-28T09:30:00Z', user: 'Nguyễn Văn A', description: 'T?o annotation' },
+          { action: 'created', timestamp: '2026-01-28T09:30:00Z', user: 'Nguyễn Văn A', description: 'Tạo annotation' },
           { action: 'updated', timestamp: '2026-01-28T09:45:00Z', user: 'Nguyễn Văn A', description: 'Thêm bounding box cho Person' },
-          { action: 'submitted', timestamp: '2026-01-28T10:00:00Z', user: 'Nguyễn Văn A', description: 'Submit d? review' }
+          { action: 'submitted', timestamp: '2026-01-28T10:00:00Z', user: 'Nguyễn Văn A', description: 'Submit để review' }
         ]
       },
       '2': { // Text annotation
@@ -111,7 +108,7 @@ const ReviewerTask = () => {
           text: 'Apple Inc. công bố sẽ mở rộng hoạt động tại Việt Nam vào tháng 6/2026. CEO Tim Cook cho biết đây là bước đi chiến lược quan trọng của công ty.',
           entities: [
             { id: 1, text: 'Apple Inc.', label: 'ORGANIZATION', start: 0, end: 10, color: '#ef4444' },
-            { id: 2, text: 'Vi?t Nam', label: 'LOCATION', start: 46, end: 54, color: '#3b82f6' },
+            { id: 2, text: 'Việt Nam', label: 'LOCATION', start: 46, end: 54, color: '#3b82f6' },
             { id: 3, text: 'tháng 6/2026', label: 'DATE', start: 59, end: 71, color: '#10b981' },
             { id: 4, text: 'Tim Cook', label: 'PERSON', start: 77, end: 85, color: '#f59e0b' }
           ],
@@ -123,9 +120,9 @@ const ReviewerTask = () => {
         createdAt: '2026-01-28T09:30:00Z',
         timeSpent: 300,
         history: [
-          { action: 'created', timestamp: '2026-01-28T09:00:00Z', user: 'Trần Thị B', description: 'T?o annotation' },
+          { action: 'created', timestamp: '2026-01-28T09:00:00Z', user: 'Trần Thị B', description: 'Tạo annotation' },
           { action: 'updated', timestamp: '2026-01-28T09:20:00Z', user: 'Trần Thị B', description: 'Thêm entities' },
-          { action: 'submitted', timestamp: '2026-01-28T09:30:00Z', user: 'Trần Thị B', description: 'Submit d? review' }
+          { action: 'submitted', timestamp: '2026-01-28T09:30:00Z', user: 'Trần Thị B', description: 'Submit để review' }
         ]
       },
       '3': { // Video annotation
@@ -147,9 +144,9 @@ const ReviewerTask = () => {
         createdAt: '2026-01-27T14:20:00Z',
         timeSpent: 720,
         history: [
-          { action: 'created', timestamp: '2026-01-27T13:00:00Z', user: 'Nguyễn Văn A', description: 'T?o annotation' },
+          { action: 'created', timestamp: '2026-01-27T13:00:00Z', user: 'Nguyễn Văn A', description: 'Tạo annotation' },
           { action: 'updated', timestamp: '2026-01-27T14:00:00Z', user: 'Nguyễn Văn A', description: 'Gán nhãn các frames' },
-          { action: 'submitted', timestamp: '2026-01-27T14:20:00Z', user: 'Nguyễn Văn A', description: 'Submit d? review' }
+          { action: 'submitted', timestamp: '2026-01-27T14:20:00Z', user: 'Nguyễn Văn A', description: 'Submit để review' }
         ]
       },
       '4': { // Audio annotation
@@ -172,9 +169,9 @@ const ReviewerTask = () => {
         createdAt: '2026-01-27T11:00:00Z',
         timeSpent: 360,
         history: [
-          { action: 'created', timestamp: '2026-01-27T10:30:00Z', user: 'Lê Văn C', description: 'T?o annotation' },
+          { action: 'created', timestamp: '2026-01-27T10:30:00Z', user: 'Lê Văn C', description: 'Tạo annotation' },
           { action: 'updated', timestamp: '2026-01-27T10:50:00Z', user: 'Lê Văn C', description: 'Gán nhãn các segments' },
-          { action: 'submitted', timestamp: '2026-01-27T11:00:00Z', user: 'Lê Văn C', description: 'Submit d? review' }
+          { action: 'submitted', timestamp: '2026-01-27T11:00:00Z', user: 'Lê Văn C', description: 'Submit để review' }
         ]
       }
     };
@@ -196,15 +193,6 @@ const ReviewerTask = () => {
     }
   };
 
-  const [reviewData, setReviewData] = useState({
-    status: 'pending',
-    feedback: '',
-    issues: [],
-  });
-
-  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
-  const [actionType, setActionType] = useState(''); // 'approve' or 'reject'
-  
   // Image viewer states
   const [zoom, setZoom] = useState(1);
   const [showLabels, setShowLabels] = useState(true);
@@ -216,45 +204,27 @@ const ReviewerTask = () => {
     return import.meta.env.DEV && (status === 404 || status === 405 || status === 501);
   };
 
-  // Mock issues that can be selected
-  const commonIssues = [
-    'Nhãn không chính xác',
-    'Thiếu một số đối tượng',
-    'Vùng bounding box không chính xác',
-    'Phân loại sai',
-    'Chất lượng annotation kém',
-    'Không tuân thủ hướng dẫn'
-  ];
-
-  const handleIssueToggle = (issue) => {
-    setReviewData({
-      ...reviewData,
-      issues: reviewData.issues.includes(issue)
-        ? reviewData.issues.filter(i => i !== issue)
-        : [...reviewData.issues, issue]
-    });
-  };
-
-  const handleOpenFeedbackModal = (type) => {
-    setActionType(type);
-    setShowFeedbackModal(true);
-  };
-
-  const handleSubmitReview = async () => {
+  const handleSubmitReview = async (decision) => {
     try {
-      if (actionType === 'reject' && reviewData.feedback.trim() === '' && reviewData.issues.length === 0) {
-        alert('Vui lòng cung c?p feedback ho?c ch?n v?n d? tru?c khi từ chối');
+      const isApprove = decision === 'approve';
+      const confirmed = window.confirm(
+        isApprove
+          ? 'Bạn có chắc muốn duyệt annotation này?'
+          : 'Bạn có chắc muốn từ chối annotation này?'
+      );
+
+      if (!confirmed) {
         return;
       }
 
       const reviewPayload = {
-        feedback: reviewData.feedback,
-        issues: reviewData.issues,
+        feedback: '',
+        issues: [],
         reviewedAt: new Date().toISOString()
       };
 
       // Call API to approve or reject
-      if (actionType === 'approve') {
+      if (isApprove) {
         await reviewAPI.approve(annotation.id, reviewPayload);
       } else {
         await reviewAPI.reject(annotation.id, reviewPayload);
@@ -262,18 +232,12 @@ const ReviewerTask = () => {
 
       console.log('Review submitted successfully');
       
-      alert(`Annotation đã được ${actionType === 'approve' ? 'duyệt' : 'từ chối'} thành công!`);
-      navigate('/reviewer/dashboard');
+      alert(`Annotation đã được ${isApprove ? 'duyệt' : 'từ chối'} thành công!`);
+      navigate('/reviewer/review');
     } catch (err) {
       console.error('Error submitting review:', err);
-      alert(err.response?.data?.message || 'Không th? submit review');
+      alert(err.response?.data?.message || 'Không thể submit review');
     }
-  };
-
-  const handleCancel = () => {
-    setShowFeedbackModal(false);
-    setActionType('');
-    setReviewData({ status: 'pending', feedback: '', issues: [] });
   };
 
   const getTypeIcon = (type) => {
@@ -479,7 +443,7 @@ const ReviewerTask = () => {
                     annotation.status === 'approved' ? 'bg-green-100 text-green-800' :
                     'bg-red-100 text-red-800'
                   }`}>
-                    {annotation.status === 'pending_review' ? 'Ch? review' :
+                    {annotation.status === 'pending_review' ? 'Chờ review' :
                      annotation.status === 'approved' ? 'Đã duyệt' : 'Đã từ chối'}
                   </span>
                 </div>
@@ -493,15 +457,15 @@ const ReviewerTask = () => {
                 
                 <div className="space-y-3">
                   <button
-                    onClick={() => handleOpenFeedbackModal('approve')}
+                    onClick={() => handleSubmitReview('approve')}
                     className="w-full px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all flex items-center justify-center gap-2 font-semibold"
                   >
                     <ThumbsUp className="w-5 h-5" />
-                    Duy?t Annotation
+                    Duyệt Annotation
                   </button>
-                  
+
                   <button
-                    onClick={() => handleOpenFeedbackModal('reject')}
+                    onClick={() => handleSubmitReview('reject')}
                     className="w-full px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all flex items-center justify-center gap-2 font-semibold"
                   >
                     <ThumbsDown className="w-5 h-5" />
@@ -529,7 +493,7 @@ const ReviewerTask = () => {
                           ? 'bg-blue-100 text-blue-600' 
                           : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                       }`}
-                      title={showLabels ? 'Ẩn nhãn' : 'HiẨn nhãn'}
+                      title={showLabels ? 'Ẩn nhãn' : 'Hiện nhãn'}
                     >
                       {showLabels ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                     </button>
@@ -537,7 +501,7 @@ const ReviewerTask = () => {
                       onClick={handleZoomOut}
                       disabled={zoom <= 0.5}
                       className="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="Thu nh?"
+                      title="Thu nhỏ"
                     >
                       <ZoomOut className="w-4 h-4" />
                     </button>
@@ -634,7 +598,7 @@ const ReviewerTask = () => {
                             <div>
                               <p className="font-medium text-gray-900">{label.name}</p>
                               <p className="text-xs text-gray-600">
-                                Position: ({label.x}, {label.y}) | Size: {label.width}x{label.height}
+                                Vị trí: ({label.x}, {label.y}) | Kích thước: {label.width}x{label.height}
                               </p>
                             </div>
                           </div>
@@ -642,7 +606,7 @@ const ReviewerTask = () => {
                             <p className="text-sm font-semibold text-gray-900">
                               {(label.confidence * 100).toFixed(1)}%
                             </p>
-                            <p className="text-xs text-gray-500">Confidence</p>
+                            <p className="text-xs text-gray-500">Độ tin cậy</p>
                           </div>
                         </div>
                       ))}
@@ -690,7 +654,7 @@ const ReviewerTask = () => {
                     <div>
                       <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
                         <Tag className="w-5 h-5" />
-                        Entities đã gán nhãn ({annotation.data.entities.length})
+                        Thực thể đã gán nhãn ({annotation.data.entities.length})
                       </h3>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {annotation.data.entities.map((entity, idx) => (
@@ -702,7 +666,7 @@ const ReviewerTask = () => {
                               ></div>
                               <div>
                                 <p className="font-medium text-gray-900">{entity.text}</p>
-                                <p className="text-xs text-gray-500">Position: {entity.start}-{entity.end}</p>
+                                <p className="text-xs text-gray-500">Vị trí: {entity.start}-{entity.end}</p>
                               </div>
                             </div>
                             <span 
@@ -729,12 +693,12 @@ const ReviewerTask = () => {
                           annotation.data.sentiment === 'negative' ? 'bg-red-100 text-red-800' :
                           'bg-gray-100 text-gray-800'
                         }`}>
-                          {annotation.data.sentiment === 'positive' ? '?? Tích cực' :
-                           annotation.data.sentiment === 'negative' ? '?? Tiêu cực' : '?? Trung lập'}
+                          {annotation.data.sentiment === 'positive' ? 'Tích cực' :
+                          annotation.data.sentiment === 'negative' ? 'Tiêu cực' : 'Trung lập'}
                         </span>
                         {annotation.data.confidence && (
                           <span className="text-sm text-gray-600">
-                            Confidence: {(annotation.data.confidence * 100).toFixed(1)}%
+                            Độ tin cậy: {(annotation.data.confidence * 100).toFixed(1)}%
                           </span>
                         )}
                       </div>
@@ -775,23 +739,23 @@ const ReviewerTask = () => {
                   <div className="flex items-center gap-4 text-sm text-gray-600">
                     <div className="flex items-center gap-2">
                       <Clock className="w-4 h-4" />
-                      <span>Duration: {annotation.data.duration}s</span>
+                      <span>Thời lượng: {annotation.data.duration}s</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Tag className="w-4 h-4" />
-                      <span>{annotation.data.frames?.length || 0} frames labeled</span>
+                      <span>{annotation.data.frames?.length || 0} khung hình đã gán nhãn</span>
                     </div>
                   </div>
 
                   {annotation.data.frames && annotation.data.frames.length > 0 && (
                     <div>
-                      <h3 className="font-semibold text-gray-900 mb-3">Frames đã gán nhãn</h3>
+                      <h3 className="font-semibold text-gray-900 mb-3">Khung hình đã gán nhãn</h3>
                       <div className="space-y-2">
                         {annotation.data.frames.map((frame, idx) => (
                           <div key={idx} className="p-3 bg-gray-50 rounded-lg border border-gray-200">
                             <div className="flex items-center justify-between mb-2">
-                              <span className="font-medium text-gray-900">Frame tải {frame.time}s</span>
-                              <span className="text-sm text-gray-600">{frame.labels.length} objects</span>
+                              <span className="font-medium text-gray-900">Mốc thời gian {frame.time}s</span>
+                              <span className="text-sm text-gray-600">{frame.labels.length} đối tượng</span>
                             </div>
                             <div className="flex flex-wrap gap-2">
                               {frame.labels.map((label, lidx) => (
@@ -849,11 +813,11 @@ const ReviewerTask = () => {
                   <div className="flex items-center gap-4 text-sm text-gray-600">
                     <div className="flex items-center gap-2">
                       <Clock className="w-4 h-4" />
-                      <span>Duration: {annotation.data.duration}s</span>
+                      <span>Thời lượng: {annotation.data.duration}s</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Tag className="w-4 h-4" />
-                      <span>{annotation.data.segments?.length || 0} segments labeled</span>
+                      <span>{annotation.data.segments?.length || 0} đoạn đã gán nhãn</span>
                     </div>
                   </div>
 
@@ -861,7 +825,7 @@ const ReviewerTask = () => {
                     <div>
                       <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
                         <Volume2 className="w-5 h-5" />
-                        Segments đã gán nhãn ({annotation.data.segments.length})
+                        Đoạn đã gán nhãn ({annotation.data.segments.length})
                       </h3>
                       
                       {/* Timeline visualization */}
@@ -897,7 +861,7 @@ const ReviewerTask = () => {
                               </span>
                             </div>
                             <div className="text-xs text-gray-600">
-                              Confidence: {(segment.confidence * 100).toFixed(1)}%
+                              Độ tin cậy: {(segment.confidence * 100).toFixed(1)}%
                             </div>
                           </div>
                         ))}
@@ -955,8 +919,8 @@ const ReviewerTask = () => {
                   </p>
                   <p className="text-sm text-gray-600 mt-1">
                     {task.type === 'image' ? 'Số nhãn' :
-                     task.type === 'text' ? 'Entities' :
-                     task.type === 'video' ? 'Frames' : 'Segments'}
+                    task.type === 'text' ? 'Thực thể' :
+                     task.type === 'video' ? 'Khung hình' : 'Đoạn'}
                   </p>
                 </div>
                 <div className="text-center p-4 bg-orange-50 rounded-lg">
@@ -980,7 +944,7 @@ const ReviewerTask = () => {
                     onClick={() => setShowHistory(!showHistory)}
                     className="text-sm text-blue-600 hover:text-blue-800 font-semibold"
                   >
-                    {showHistory ? '?n' : 'Xem t?t c?'}
+                    {showHistory ? 'Ẩn' : 'Xem tất cả'}
                   </button>
                 </div>
                 
@@ -1022,97 +986,6 @@ const ReviewerTask = () => {
           </div>
         </div>
 
-        {/* Feedback Modal */}
-        {showFeedbackModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-              <div className="p-6 border-b border-gray-200">
-                <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                  {actionType === 'approve' ? (
-                    <>
-                      <CheckCircle2 className="w-6 h-6 text-green-600" />
-                      Duy?t Annotation
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="w-6 h-6 text-red-600" />
-                      Từ chối Annotation
-                    </>
-                  )}
-                </h3>
-              </div>
-
-              <div className="p-6 space-y-6">
-                {actionType === 'reject' && (
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-900 mb-2">
-                      V?n d? thu?ng g?p (ch?n nhi?u)
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {commonIssues.map((issue, idx) => (
-                        <label key={idx} className="flex items-center gap-2 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={reviewData.issues.includes(issue)}
-                            onChange={() => handleIssueToggle(issue)}
-                            className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-                          />
-                          <span className="text-sm text-gray-700">{issue}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-900 mb-2">
-                    Feedback {actionType === 'reject' ? '(bắt buộc nếu không chọn vấn đề)' : '(tùy chọn)'}
-                  </label>
-                  <textarea
-                    value={reviewData.feedback}
-                    onChange={(e) => setReviewData({ ...reviewData, feedback: e.target.value })}
-                    rows={6}
-                    placeholder={actionType === 'approve' 
-                      ? 'Nhập nhận xét hoặc ghi chú (tùy chọn)...'
-                      : 'Giải thích lý do từ chối và hướng dẫn cải thiện...'}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                  />
-                </div>
-
-                {reviewData.issues.length > 0 && (
-                  <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                    <p className="text-sm font-semibold text-red-900 mb-2">Vấn đề đã chọn:</p>
-                    <ul className="list-disc list-inside space-y-1">
-                      {reviewData.issues.map((issue, idx) => (
-                        <li key={idx} className="text-sm text-red-800">{issue}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-
-              <div className="p-6 border-t border-gray-200 flex gap-3 justify-end">
-                <button
-                  onClick={handleCancel}
-                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-all font-semibold"
-                >
-                  H?y
-                </button>
-                <button
-                  onClick={handleSubmitReview}
-                  className={`px-6 py-2 rounded-lg text-white transition-all font-semibold flex items-center gap-2 ${
-                    actionType === 'approve'
-                      ? 'bg-green-600 hover:bg-green-700'
-                      : 'bg-red-600 hover:bg-red-700'
-                  }`}
-                >
-                  <Save className="w-4 h-4" />
-                  Xác nhận {actionType === 'approve' ? 'Duy?t' : 'Từ chối'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </main>
     </div>
   );

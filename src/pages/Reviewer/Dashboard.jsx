@@ -5,7 +5,6 @@ import { reviewAPI } from '../../config/api';
 import Header from '../../components/common/Header';
 import StatsCard from '../../components/common/StatsCard';
 import useReviewHistory from '../../hooks/useReviewHistory';
-import { mockReviewerInboxAnnotations } from '../../mock/taskInbox';
 import {
   FileText,
   Clock,
@@ -64,15 +63,14 @@ const ReviewerDashboard = () => {
       // Load pending reviews from API
       const response = await reviewAPI.getPendingReviews();
       const data = response.data.data || response.data || [];
-      const safeData = Array.isArray(data) ? data : [];
-
-      setAnnotations(safeData.length > 0 ? safeData : mockReviewerInboxAnnotations);
+      
+      setAnnotations(data);
       
       // Also save to localStorage as backup
-      localStorage.setItem('reviewerAnnotations', JSON.stringify(safeData));
+      localStorage.setItem('reviewerAnnotations', JSON.stringify(data));
     } catch (err) {
       console.error('Error loading annotations from API:', err);
-      setAnnotations(mockReviewerInboxAnnotations);
+      setAnnotations([]);
       if (isEndpointMissing(err)) {
         setError('Endpoint review ch\u01b0a s\u1eb5n s\u00e0ng tr\u00ean backend. Vui l\u00f2ng ki\u1ec3m tra API.');
       } else {
@@ -96,11 +94,7 @@ const ReviewerDashboard = () => {
     dateFrom: '',
     dateTo: '',
   });
-
-  // Reject modal
-  const [showRejectModal, setShowRejectModal] = useState(false);
-  const [rejectingAnnotationId, setRejectingAnnotationId] = useState(null);
-  const [rejectFeedback, setRejectFeedback] = useState('');
+  const [actionLoadingById, setActionLoadingById] = useState({});
 
   // Get unique values for filter dropdowns
   const uniqueAnnotators = [...new Set(annotations.map(a => a.annotatorName))];
@@ -129,19 +123,6 @@ const ReviewerDashboard = () => {
     return matchesFilter && matchesSearch && matchesAnnotator && 
            matchesProject && matchesType && matchesPriority && 
            matchesDateFrom && matchesDateTo;
-  }).sort((a, b) => {
-    const statusWeight = (item) => {
-      if (item.status === 'expired') return 0;
-      if (item.status === 'pending_review') return 1;
-      return 2;
-    };
-
-    const statusDiff = statusWeight(a) - statusWeight(b);
-    if (statusDiff !== 0) {
-      return statusDiff;
-    }
-
-    return new Date(a.dueDate || a.createdAt).getTime() - new Date(b.dueDate || b.createdAt).getTime();
   });
 
   const handleRefresh = () => {
@@ -167,7 +148,6 @@ const ReviewerDashboard = () => {
     pending: annotations.filter(a => a.status === 'pending_review').length,
     approved: annotations.filter(a => a.status === 'approved').length,
     rejected: annotations.filter(a => a.status === 'rejected').length,
-    expired: annotations.filter(a => a.status === 'expired').length,
     completed: annotations.filter(a => a.status === 'approved' || a.status === 'rejected').length,
     todayReviews: reviewHistory.filter(r => {
       const reviewDate = new Date(r.reviewedAt);
@@ -183,7 +163,10 @@ const ReviewerDashboard = () => {
   };
 
   const handleApprove = async (id) => {
+    if (actionLoadingById[id]) return;
+
     try {
+      setActionLoadingById((prev) => ({ ...prev, [id]: 'approve' }));
       const annotation = annotations.find(ann => ann.id === id);
       const now = new Date().toISOString();
       
@@ -217,23 +200,32 @@ const ReviewerDashboard = () => {
     } catch (err) {
       console.error('Error approving annotation:', err);
       alert(err.response?.data?.message || 'Không thể duyệt annotation');
+    } finally {
+      setActionLoadingById((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
     }
   };
 
-  const handleReject = async (id, feedback) => {
+  const handleReject = async (id) => {
+    if (actionLoadingById[id]) return;
+
     try {
+      setActionLoadingById((prev) => ({ ...prev, [id]: 'reject' }));
       const annotation = annotations.find(ann => ann.id === id);
       const now = new Date().toISOString();
       
       // Call API to reject
       await reviewAPI.reject(id, {
-        feedback: feedback,
+        feedback: '',
         reviewedAt: now
       });
       
       // Update local state
       setAnnotations(annotations.map(ann => 
-        ann.id === id ? { ...ann, status: 'rejected', feedback, reviewedAt: now } : ann
+        ann.id === id ? { ...ann, status: 'rejected', feedback: '', reviewedAt: now } : ann
       ));
       
       // Add to review history
@@ -245,7 +237,7 @@ const ReviewerDashboard = () => {
         annotatorName: annotation.annotatorName,
         projectName: annotation.projectName,
         decision: 'rejected',
-        feedback: feedback,
+        feedback: '',
         reviewedAt: now,
         reviewTime: Math.floor(Math.random() * 10) + 3, // Mock review time
         type: annotation.type,
@@ -255,35 +247,17 @@ const ReviewerDashboard = () => {
     } catch (err) {
       console.error('Error rejecting annotation:', err);
       alert(err.response?.data?.message || 'Không thể từ chối annotation');
-    }
-  };
-
-  const openRejectModal = (id) => {
-    setRejectingAnnotationId(id);
-    setRejectFeedback('');
-    setShowRejectModal(true);
-  };
-
-  const closeRejectModal = () => {
-    setShowRejectModal(false);
-    setRejectingAnnotationId(null);
-    setRejectFeedback('');
-  };
-
-  const submitReject = () => {
-    if (rejectFeedback.trim()) {
-      handleReject(rejectingAnnotationId, rejectFeedback);
-      closeRejectModal();
+    } finally {
+      setActionLoadingById((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
     }
   };
 
   const handleViewDetails = (annotationId) => {
     navigate(`/reviewer/task/${annotationId}`);
-  };
-
-  const getDaysUntilDue = (dueDate) => {
-    if (!dueDate) return null;
-    return Math.ceil((new Date(dueDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
   };
   
   if (loading) {
@@ -335,14 +309,14 @@ const ReviewerDashboard = () => {
         {/* Statistics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <StatsCard
-            title="Tổng Annotations"
+            title="Tổng annotation"
             value={stats.total}
             icon={<FileText className="w-6 h-6" />}
             iconBgColor="bg-blue-100"
             iconColor="text-blue-600"
           />
           <StatsCard
-            title="Ch? Review"
+            title="Chờ Review"
             value={stats.pending}
             icon={<Clock className="w-6 h-6" />}
             iconBgColor="bg-yellow-100"
@@ -371,7 +345,7 @@ const ReviewerDashboard = () => {
               <div>
                 <p className="text-blue-100 text-sm font-medium mb-1">Hôm nay</p>
                 <p className="text-3xl font-bold">{stats.todayReviews}</p>
-                <p className="text-blue-100 text-sm mt-1">reviews hoàn thành</p>
+                <p className="text-blue-100 text-sm mt-1">mục đã xử lý</p>
               </div>
               <div className="bg-blue-400 bg-opacity-30 p-4 rounded-lg">
                 <TrendingUp className="w-8 h-8" />
@@ -384,7 +358,7 @@ const ReviewerDashboard = () => {
               <div>
                 <p className="text-green-100 text-sm font-medium mb-1">Tỷ lệ duyệt</p>
                 <p className="text-3xl font-bold">{stats.approvalRate}%</p>
-                <p className="text-green-100 text-sm mt-1">annotations được duyệt</p>
+                <p className="text-green-100 text-sm mt-1">mẫu được duyệt</p>
               </div>
               <div className="bg-green-400 bg-opacity-30 p-4 rounded-lg">
                 <CheckCircle2 className="w-8 h-8" />
@@ -397,7 +371,7 @@ const ReviewerDashboard = () => {
               <div>
                 <p className="text-purple-100 text-sm font-medium mb-1">TB thời gian</p>
                 <p className="text-3xl font-bold">{stats.avgReviewTime}m</p>
-                <p className="text-purple-100 text-sm mt-1">mỗi review</p>
+                <p className="text-purple-100 text-sm mt-1">mỗi lần duyệt</p>
               </div>
               <div className="bg-purple-400 bg-opacity-30 p-4 rounded-lg">
                 <Clock className="w-8 h-8" />
@@ -576,7 +550,7 @@ const ReviewerDashboard = () => {
             {/* Status Filter Tabs */}
             <div className="flex gap-3 overflow-x-auto">{[
               { key: 'all', label: 'Tất cả', count: annotations.length },
-              { key: 'pending_review', label: 'Ch? review', count: annotations.filter(a => a.status === 'pending_review').length },
+              { key: 'pending_review', label: 'Chờ review', count: annotations.filter(a => a.status === 'pending_review').length },
               { key: 'expired', label: 'Quá hạn', count: annotations.filter(a => a.status === 'expired').length },
               { key: 'approved', label: 'Đã duyệt', count: annotations.filter(a => a.status === 'approved').length },
               { key: 'rejected', label: 'Đã từ chối', count: annotations.filter(a => a.status === 'rejected').length },
@@ -610,14 +584,6 @@ const ReviewerDashboard = () => {
                 key={annotation.id}
                 className="bg-white rounded-lg shadow-sm hover:shadow-md transition-all p-6"
               >
-                {(() => {
-                  const dueDays = getDaysUntilDue(annotation.dueDate);
-                  return dueDays !== null && annotation.status !== 'approved' && annotation.status !== 'rejected' ? (
-                    <div className={`inline-flex mb-4 px-3 py-1 rounded-full text-xs font-bold ${dueDays < 0 ? 'bg-rose-100 text-rose-700' : dueDays <= 2 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
-                      {dueDays < 0 ? `Quá hạn ${Math.abs(dueDays)} ngày` : dueDays === 0 ? 'Hết hạn hôm nay' : `Còn ${dueDays} ngày đến hạn`}
-                    </div>
-                  ) : null;
-                })()}
                 <div className="flex flex-col lg:flex-row items-start justify-between gap-6">
                   <div className="flex-1 min-w-0 w-full">
                     <div className="flex items-start gap-4 mb-4">
@@ -633,7 +599,7 @@ const ReviewerDashboard = () => {
                       </div>
                       <div className="flex-1 min-w-0">
                         <h3 className="font-bold text-gray-900 text-xl mb-1">{annotation.taskTitle}</h3>
-                        <p className="text-sm text-gray-600">Task ID: {annotation.taskId}</p>
+                        <p className="text-sm text-gray-600">Mã task: {annotation.taskId}</p>
                       </div>
                     </div>
                     
@@ -655,7 +621,7 @@ const ReviewerDashboard = () => {
                         annotation.status === 'approved' ? 'bg-green-100 text-green-800' :
                         'bg-red-100 text-red-800'
                       }`}>
-                        {annotation.status === 'pending_review' ? 'Ch? review' :
+                        {annotation.status === 'pending_review' ? 'Chờ review' :
                          annotation.status === 'expired' ? 'Quá hạn' :
                          annotation.status === 'approved' ? 'Đã duyệt' : 'Đã từ chối'}
                       </span>
@@ -677,7 +643,7 @@ const ReviewerDashboard = () => {
                     {annotation.feedback && (
                       <div className="p-4 bg-red-50 border border-red-200 rounded-lg mb-3">
                         <p className="text-sm text-red-900">
-                          <span className="font-semibold">Feedback: </span>
+                          <span className="font-semibold">Phản hồi: </span>
                           {annotation.feedback}
                         </p>
                       </div>
@@ -685,7 +651,7 @@ const ReviewerDashboard = () => {
 
                     {annotation.reviewedAt && (
                       <p className="text-xs text-gray-500">
-                        Reviewed: {new Date(annotation.reviewedAt).toLocaleString('vi-VN')}
+                        Đã review: {new Date(annotation.reviewedAt).toLocaleString('vi-VN')}
                       </p>
                     )}
                   </div>
@@ -702,17 +668,19 @@ const ReviewerDashboard = () => {
                       <>
                         <button 
                           onClick={() => handleApprove(annotation.id)}
-                          className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-semibold transition-all flex items-center justify-center gap-2"
+                          disabled={Boolean(actionLoadingById[annotation.id])}
+                          className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                         >
                           <ThumbsUp className="w-4 h-4" />
-                          Duyệt
+                          {actionLoadingById[annotation.id] === 'approve' ? 'Đang duyệt...' : 'Duyệt'}
                         </button>
                         <button 
-                          onClick={() => openRejectModal(annotation.id)}
-                          className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-semibold transition-all flex items-center justify-center gap-2"
+                          onClick={() => handleReject(annotation.id)}
+                          disabled={Boolean(actionLoadingById[annotation.id])}
+                          className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                         >
                           <ThumbsDown className="w-4 h-4" />
-                          T? ch?i
+                          {actionLoadingById[annotation.id] === 'reject' ? 'Đang từ chối...' : 'Từ chối'}
                         </button>
                       </>
                     )}
@@ -724,60 +692,6 @@ const ReviewerDashboard = () => {
         </div>
       </main>
 
-      {/* Reject Modal */}
-      {showRejectModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold text-gray-900">Từ chối gán nhãn</h3>
-                <button
-                  onClick={closeRejectModal}
-                  className="text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-            </div>
-            
-            <div className="p-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Lý do từ chối *
-              </label>
-              <textarea
-                value={rejectFeedback}
-                onChange={(e) => setRejectFeedback(e.target.value)}
-                placeholder="Nhập lý do từ chối gán nhãn này..."
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none"
-                rows="4"
-              />
-              
-              <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <p className="text-sm text-yellow-800">
-                  <AlertCircle className="w-4 h-4 inline mr-1" />
-                  Vui lòng cung cấp lý do rõ ràng để annotator có thể cải thiện.
-                </p>
-              </div>
-            </div>
-            
-            <div className="p-6 border-t border-gray-200 flex gap-3">
-              <button
-                onClick={closeRejectModal}
-                className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition-all"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={submitReject}
-                disabled={!rejectFeedback.trim()}
-                className="flex-1 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed font-medium transition-all"
-              >
-                Xác nhận từ chối
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
