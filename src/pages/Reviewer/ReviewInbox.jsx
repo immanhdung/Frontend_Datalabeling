@@ -48,7 +48,7 @@ export default function ReviewInbox() {
       try {
         setLoading(true);
         setError('');
-        
+
         let allFound = [];
 
         // 1. API
@@ -82,7 +82,7 @@ export default function ReviewInbox() {
               }
             });
           }
-        } catch (e) {}
+        } catch (e) { }
 
         setItems(allFound);
       } catch (err) {
@@ -132,85 +132,121 @@ export default function ReviewInbox() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-[#F8FAFC]">
       <Header title="Nhận task review" userName="Reviewer" userRole="reviewer" />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-xl p-4 border border-slate-100">
-            <p className="text-xs text-slate-500 font-semibold uppercase">Tổng task</p>
-            <p className="text-2xl font-black text-slate-900 mt-1">{stats.total}</p>
+      <main className="max-w-7xl mx-auto px-6 py-10">
+        {/* Welcome Hero */}
+        <div className="mb-12 relative overflow-hidden p-10 rounded-[3rem] bg-gradient-to-br from-blue-700 via-indigo-700 to-blue-800 text-white shadow-2xl shadow-blue-200">
+          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-8">
+            <div>
+              <h1 className="text-4xl font-black tracking-tight mb-2">Hộp thư Review</h1>
+              <p className="text-white/80 font-medium max-w-lg">
+                Các nhiệm vụ gán nhãn đã hoàn thành và đang chờ bạn phê duyệt. Hãy kiểm tra kỹ lưỡng để đảm bảo chất lượng dữ liệu.
+              </p>
+            </div>
+            <div className="flex gap-4">
+              <div className="bg-white/10 backdrop-blur-md px-6 py-4 rounded-3xl border border-white/20">
+                <p className="text-white/60 text-[10px] font-black uppercase tracking-widest mb-1">Đang chờ</p>
+                <div className="flex items-end gap-2">
+                  <span className="text-3xl font-black leading-none">{stats.pending}</span>
+                  <span className="text-xs font-bold text-white/40 pb-1">Task</span>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="bg-white rounded-xl p-4 border border-slate-100">
-            <p className="text-xs text-slate-500 font-semibold uppercase">Chờ review</p>
-            <p className="text-2xl font-black text-blue-700 mt-1">{stats.pending}</p>
-          </div>
-          <div className="bg-white rounded-xl p-4 border border-slate-100">
-            <p className="text-xs text-slate-500 font-semibold uppercase">Quá hạn</p>
-            <p className="text-2xl font-black text-rose-700 mt-1">{stats.expired}</p>
-          </div>
-          <div className="bg-white rounded-xl p-4 border border-slate-100">
-            <p className="text-xs text-slate-500 font-semibold uppercase">Đã xử lý</p>
-            <p className="text-2xl font-black text-emerald-700 mt-1">{stats.done}</p>
-          </div>
+          <div className="absolute top-[-50%] right-[-10%] w-[500px] h-[500px] bg-white/10 rounded-full blur-[120px] pointer-events-none" />
+          <div className="absolute bottom-[-30%] left-[-5%] w-64 h-64 bg-blue-400/20 rounded-full blur-[80px] pointer-events-none" />
         </div>
 
-        {error && (
-          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
-            {error}
-          </div>
-        )}
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
+          {[
+            { label: 'Tổng số task', val: stats.total, color: 'blue', icon: Eye },
+            { label: 'Chờ duyệt', val: stats.pending, color: 'indigo', icon: Clock },
+            { label: 'Quá hạn', val: stats.expired, color: 'rose', icon: AlertCircle },
+            { label: 'Đã hoàn thành', val: stats.done, color: 'emerald', icon: Eye },
+          ].map((s, i) => (
+            <div key={i} className="bg-white p-7 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-6 bg-${s.color}-50 text-${s.color}-600`}>
+                <s.icon className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{s.label}</p>
+                <p className="text-3xl font-black text-slate-900">{s.val}</p>
+              </div>
+            </div>
+          ))}
+        </div>
 
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 mb-6">
-          <div className="flex flex-col md:flex-row gap-3">
-            <div className="flex-1 relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        {/* Search & Filter Bar */}
+        <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm p-6 mb-10">
+          <div className="flex flex-col lg:flex-row gap-6">
+            <div className="flex-1 relative group">
+              <Search className="w-5 h-5 absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
               <input
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Tìm task, annotator, dự án..."
-                className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-14 pr-6 py-4 bg-slate-50 border border-slate-100 rounded-[1.5rem] focus:outline-none focus:ring-4 focus:ring-blue-100 focus:bg-white transition-all font-bold text-slate-700"
               />
             </div>
-            <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-slate-400" />
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-slate-50 text-slate-400 rounded-2xl">
+                <Filter className="w-5 h-5" />
+              </div>
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-3 py-2.5 border border-slate-200 rounded-xl bg-white text-sm"
+                className="px-6 py-4 border border-slate-100 rounded-[1.5rem] bg-slate-50 text-sm font-black text-slate-600 uppercase tracking-widest focus:outline-none focus:ring-4 focus:ring-slate-100 transition-all cursor-pointer"
               >
-                <option value="all">Tất cả</option>
-                <option value="pending_review">Chờ review</option>
-                <option value="expired">Quá hạn</option>
-                <option value="approved">Đã duyệt</option>
+                <option value="all">Tất cả trạng thái</option>
+                <option value="pending_review">Đang chờ Duyệt</option>
+                <option value="expired">Đã quá hạn</option>
+                <option value="approved">Đã phê duyệt</option>
                 <option value="rejected">Đã từ chối</option>
               </select>
             </div>
           </div>
         </div>
 
+        {error && (
+          <div className="mb-10 p-6 bg-rose-50 border border-rose-100 rounded-[2rem] text-rose-800 text-sm font-bold flex items-center gap-4 animate-in fade-in slide-in-from-top-4">
+            <div className="w-10 h-10 bg-rose-100 rounded-xl flex items-center justify-center shrink-0">
+              <AlertCircle className="w-5 h-5" />
+            </div>
+            {error}
+          </div>
+        )}
+
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {[1, 2, 3, 4].map((idx) => (
-              <div key={idx} className="h-40 bg-white rounded-2xl border border-slate-100 animate-pulse" />
+              <div key={idx} className="h-64 bg-white rounded-[3rem] border border-slate-100 animate-pulse" />
             ))}
           </div>
         ) : filteredItems.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-dashed border-slate-200 p-12 text-center text-slate-500">
-            Chưa có task review phù hợp bộ lọc hiện tại.
+          <div className="bg-white rounded-[3rem] border-4 border-dashed border-slate-100 p-24 text-center">
+            <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-8">
+              <Search className="w-10 h-10 text-slate-200" />
+            </div>
+            <h3 className="text-2xl font-black text-slate-300 uppercase tracking-tighter">Hộp thư trống</h3>
+            <p className="text-slate-400 font-medium mt-2">Chưa có nhiệm vụ nào phù hợp với tìm kiếm của bạn.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {filteredItems.map((item) => {
               const dueDays = getDaysUntilDue(item.dueDate);
+              const isExpired = item.status === 'expired' || (dueDays !== null && dueDays < 0);
+
               const dueBadgeClass =
                 dueDays === null
-                  ? 'bg-slate-100 text-slate-600'
-                  : dueDays < 0
-                    ? 'bg-rose-100 text-rose-700'
+                  ? 'bg-slate-50 text-slate-400'
+                  : isExpired
+                    ? 'bg-rose-50 text-rose-600 border border-rose-100'
                     : dueDays <= 2
-                      ? 'bg-amber-100 text-amber-700'
-                      : 'bg-blue-100 text-blue-700';
+                      ? 'bg-amber-50 text-amber-600 border border-amber-100'
+                      : 'bg-emerald-50 text-emerald-600 border border-emerald-100';
 
               const dueLabel =
                 dueDays === null
@@ -222,38 +258,69 @@ export default function ReviewInbox() {
                       : `Còn ${dueDays} ngày`;
 
               return (
-                <div key={item.id} className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-xl bg-slate-50 text-slate-700 flex items-center justify-center">
+                <div
+                  key={item.id}
+                  className="group bg-white border border-slate-50 rounded-[3rem] p-8 shadow-sm hover:shadow-2xl hover:border-blue-100 transition-all duration-500 relative overflow-hidden active:scale-[0.98]"
+                >
+                  <div className="flex items-start justify-between gap-6 mb-8">
+                    <div className="flex items-center gap-5 min-w-0">
+                      <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center shrink-0 shadow-inner ${item.type === 'image' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'
+                        }`}>
                         {getTypeIcon(item.type)}
                       </div>
                       <div className="min-w-0">
-                        <h3 className="text-base font-bold text-slate-900 truncate">{item.taskTitle}</h3>
-                        <p className="text-xs text-slate-500 truncate">{item.projectName}</p>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{item.projectName}</span>
+                          <div className="w-1 h-1 bg-slate-200 rounded-full" />
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">#{String(item.id).slice(-6)}</span>
+                        </div>
+                        <h3 className="text-xl font-black text-slate-900 group-hover:text-blue-600 transition-colors line-clamp-1">{item.taskTitle}</h3>
                       </div>
                     </div>
-                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${dueBadgeClass}`}>
-                      {dueLabel}
-                    </span>
                   </div>
 
-                  <div className="flex items-center justify-between text-sm text-slate-600 mb-4">
-                    <span>Annotator: {item.annotatorName || 'N/A'}</span>
-                    <span className={`px-2 py-1 rounded-full text-[10px] font-semibold uppercase ${item.status === 'expired' ? 'bg-rose-100 text-rose-700' : item.status === 'pending_review' ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-100 text-slate-700'}`}>
-                      {item.status === 'pending_review' ? 'Chờ review' : item.status === 'expired' ? 'Quá hạn' : item.status}
-                    </span>
+                  <div className="grid grid-cols-2 gap-4 mb-8">
+                    <div className="bg-slate-50/50 rounded-2xl p-4 border border-slate-50">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
+                        <Clock className="w-3 h-3" /> Trạng thái
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${isExpired ? 'bg-rose-500' : 'bg-blue-500'} animate-pulse`} />
+                        <span className="text-xs font-black text-slate-700 uppercase">
+                          {item.status === 'pending_review' ? 'Chờ review' : isExpired ? 'Đã quá hạn' : item.status}
+                        </span>
+                      </div>
+                    </div>
+                    <div className={`rounded-2xl p-4 border ${dueBadgeClass}`}>
+                      <p className="text-[9px] font-black opacity-60 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
+                        <AlertCircle className="w-3 h-3" /> Hạn chót
+                      </p>
+                      <span className="text-xs font-black uppercase">{dueLabel}</span>
+                    </div>
                   </div>
 
-                  <div className="flex justify-end">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 border-2 border-white shadow-sm">
+                        {item.annotatorName?.charAt(0) || 'A'}
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Người gán nhãn</span>
+                        <span className="text-xs font-bold text-slate-700">{item.annotatorName || 'Annotator'}</span>
+                      </div>
+                    </div>
+
                     <button
                       onClick={() => navigate(`/reviewer/task/${item.id}`)}
-                      className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 text-sm font-semibold"
+                      className="inline-flex items-center gap-3 px-8 py-4 bg-slate-900 text-white rounded-[1.5rem] hover:bg-blue-600 hover:shadow-xl hover:shadow-blue-200 transition-all text-xs font-black uppercase tracking-widest"
                     >
                       <Eye className="w-4 h-4" />
-                      Mở task
+                      Mở Task
                     </button>
                   </div>
+
+                  {/* Decorative element */}
+                  <div className="absolute top-0 right-0 w-24 h-24 bg-slate-50 rounded-full translate-x-12 -translate-y-12 -z-10 group-hover:scale-150 transition-transform duration-700" />
                 </div>
               );
             })}
