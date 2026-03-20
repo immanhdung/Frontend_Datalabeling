@@ -63,6 +63,8 @@ export const reviewAPI = {
     api.post(`/reviews/${annotationId}/approve`, payload),
   reject: (annotationId, payload) =>
     api.post(`/reviews/${annotationId}/reject`, payload),
+  reopen: (taskId, payload) => api.post(`/reviews/tasks/${taskId}/reopen`, payload),
+  discard: (taskId, payload) => api.post(`/reviews/tasks/${taskId}/discard`, payload),
   getAll: (params) => api.get("/reviews", { params }),
 };
 

@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react'; // Force reload at 20:30
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import api, { taskAPI, annotationAPI, projectAPI } from '../../config/api';
 import {
   normalizeTask,
   resolveApiData,
   getCurrentUserId,
+  getLocalAssignedTasksForUser,
   upsertLocalAssignedTask,
 } from '../../utils/annotatorTaskHelpers';
 import {
@@ -116,24 +117,54 @@ export default function AnnotatorTask() {
 
       // 1. Task
       let taskData = null;
+      const isMockTask = String(taskId).startsWith('MOCK-TASK') || String(taskId).startsWith('OFFLINE');
+      
       try {
-        const res = await taskAPI.getById(taskId);
-        const raw = resolveApiData(res);
-        taskData = normalizeTask(Array.isArray(raw) ? raw[0] : raw);
+        if (!isMockTask) {
+          const res = await taskAPI.getById(taskId);
+          const raw = resolveApiData(res);
+          taskData = normalizeTask(Array.isArray(raw) ? raw[0] : raw);
+        }
       } catch (e) {
-        console.warn('[Task] getById failed:', e?.message);
-        if (passedTask) taskData = normalizeTask(passedTask);
+        console.warn('[Task] getById failed, checking local fallback:', e?.message);
       }
+      
+      if (!taskData || isMockTask) {
+        // Fallback: Tìm trong local storage của người dùng hiện tại
+        const userId = getCurrentUserId();
+        const localTasks = getLocalAssignedTasksForUser(userId);
+        const match = localTasks.find(t => String(t.id) === String(taskId));
+        if (match) {
+          taskData = normalizeTask(match);
+          console.log('[Task] Loaded from local storage fallback');
+        }
+      }
+      
       if (!taskData) { setError('Không tìm thấy nhiệm vụ.'); return; }
 
       // 2. Items
       let taskItems = [];
       try {
-        const itemsRes = await taskAPI.getItems(taskId);
-        taskItems = Array.isArray(resolveApiData(itemsRes)) ? resolveApiData(itemsRes) : [];
+        if (!isMockTask) {
+          const itemsRes = await taskAPI.getItems(taskId);
+          taskItems = Array.isArray(resolveApiData(itemsRes)) ? resolveApiData(itemsRes) : [];
+        }
       } catch (e) {
         console.warn('[Task] getItems failed:', e?.message);
-        taskItems = taskData.items || [];
+      }
+      
+      if (taskItems.length === 0 && taskData.items) {
+        taskItems = taskData.items;
+      }
+
+      // If still no items, we might need to fetch samples from the dataset if it's a mock task
+      if (taskItems.length === 0 && taskData.datasetId) {
+          try {
+              const dsItemsRes = await api.get(`/datasets/${taskData.datasetId}/items`).catch(() => api.get(`/Datasets/${taskData.datasetId}`));
+              taskItems = resolveApiData(dsItemsRes);
+          } catch (e) {
+              console.warn('[Task] Fallback fetch dataset items failed');
+          }
       }
 
       // Normalize nested structure
