@@ -96,7 +96,12 @@ export const taskAPI = {
     }),
 
   // Submit completed task
-  submit: (taskId) => api.post(`/tasks/${taskId}/submit`),
+  submit: (taskId, payload = {}) =>
+    trySequential([
+      () => api.post("/annotations/submit", { ...payload, taskId }),
+      () => api.post(`/tasks/${taskId}/submit`),
+      () => api.post(`/tasks/${taskId}/complete`),
+    ]),
 };
 
 export const annotationAPI = {

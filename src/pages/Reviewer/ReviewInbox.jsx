@@ -48,10 +48,43 @@ export default function ReviewInbox() {
       try {
         setLoading(true);
         setError('');
-        const response = await reviewAPI.getPendingReviews();
-        const data = response?.data?.data || response?.data || [];
-        const normalized = Array.isArray(data) ? data : [];
-        setItems(normalized.length > 0 ? normalized : mockReviewerInboxAnnotations);
+        
+        let allFound = [];
+
+        // 1. API
+        try {
+          const response = await reviewAPI.getPendingReviews();
+          const data = response?.data?.data || response?.data || [];
+          if (Array.isArray(data)) allFound = [...data];
+        } catch (err) {
+          console.warn('[ReviewInbox] API failed');
+        }
+
+        // 2. Discover from Local storage
+        try {
+          const rawMap = localStorage.getItem('assignedTasksByUser');
+          if (rawMap) {
+            const map = JSON.parse(rawMap);
+            Object.values(map).forEach(userTasks => {
+              if (Array.isArray(userTasks)) {
+                userTasks.forEach(t => {
+                  if (t.status === 'completed' || t.status === 'pending_review') {
+                    if (!allFound.some(ex => String(ex.id) === String(t.id))) {
+                      allFound.push({
+                        ...t,
+                        taskTitle: t.title || t.projectName || 'Task Review',
+                        annotatorName: t.assignedTo || 'Annotator',
+                        status: 'pending_review'
+                      });
+                    }
+                  }
+                });
+              }
+            });
+          }
+        } catch (e) {}
+
+        setItems(allFound.length > 0 ? allFound : mockReviewerInboxAnnotations);
       } catch (err) {
         setItems(mockReviewerInboxAnnotations);
         setError(err?.response?.data?.message || 'Không thể tải task review từ API, đang dùng mock data.');

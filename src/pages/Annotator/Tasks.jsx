@@ -19,6 +19,8 @@ const STATUS_TABS = [
   { key: 'pending', label: 'Chờ làm', icon: Clock },
   { key: 'in_progress', label: 'Đang làm', icon: Zap },
   { key: 'completed', label: 'Chờ duyệt', icon: CheckCircle2 },
+  { key: 'approved', label: 'Hoàn thành', icon: ThumbsUp },
+  { key: 'rejected', label: 'Nhãn sai', icon: AlertCircle },
   { key: 'all', label: 'Tất cả', icon: Folder },
 ];
 const TYPE_ICONS = { image: ImageIcon, text: FileText, audio: Volume2, video: Video };
@@ -64,7 +66,24 @@ export default function AnnotatorTasks() {
       apiTasks.forEach(t => {
         if (t.id) {
           const ex = map.get(String(t.id));
-          map.set(String(t.id), { ...ex, ...t, items: t.items?.length > 0 ? t.items : ex?.items || [] });
+          const localIsAdv = ex && ['completed', 'approved', 'rejected', 'expired'].includes(ex.status);
+          map.set(String(t.id), { 
+            ...ex, 
+            ...t, 
+            ...(localIsAdv ? { status: ex.status, progress: ex.progress } : {}),
+            items: (t.items && t.items.length > 0 ? t.items : ex?.items || []).map(apiIt => {
+              const iid = String(apiIt.taskItemId || apiIt.id || '');
+              const localIt = (ex?.items || []).find(li => String(li.taskItemId || li.id || '') === iid) || {};
+              return { 
+                  ...apiIt, 
+                  ...localIt, 
+                  ...apiIt, 
+                  isConflict: localIt.isConflict,
+                  isConsensusWinner: localIt.isConsensusWinner,
+                  consensusLabel: localIt.consensusLabel 
+              };
+            })
+          });
         }
       });
       const finalTasks = normalizeTasks(Array.from(map.values()), uid);
@@ -115,6 +134,8 @@ export default function AnnotatorTasks() {
     pending: tasks.filter(t => t.status === 'pending').length,
     inProgress: tasks.filter(t => t.status === 'in_progress').length,
     completed: tasks.filter(t => t.status === 'completed' || t.status === 'pending_review').length,
+    approved: tasks.filter(t => t.status === 'approved').length,
+    rejected: tasks.filter(t => t.status === 'rejected').length,
   }), [tasks]);
 
   const filteredTasks = useMemo(() => tasks
@@ -135,7 +156,7 @@ export default function AnnotatorTasks() {
       return dateB - dateA; // Default: Recent assigned on top
     }), [tasks, activeTab, searchTerm, sortBy]);
 
-  const handleStart = (task) => navigate(`/annotator/tasks/${task.id}`, { state: { task } });
+  const handleStart = (task) => navigate(`/annotator/tasks/${task.id}`, { state: { task, isRework: task.status === 'rejected' } });
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -309,9 +330,17 @@ export default function AnnotatorTasks() {
                           <Zap className="w-4 h-4" /> Tiếp tục làm
                         </button>
                       )}
-                      {task.status === 'completed' && (
-                        <button onClick={() => handleStart(task)} className="flex-1 px-6 py-3 bg-slate-100 text-slate-600 rounded-2xl hover:bg-slate-200 font-bold flex items-center justify-center gap-2">
-                          <CheckCircle2 className="w-4 h-4" /> {task.reviewStatus === 'rejected' ? 'Sửa lại' : 'Xem chi tiết'}
+                      {task.status === 'rejected' && (
+                        <button 
+                          onClick={() => handleStart(task)} 
+                          className="flex-1 px-6 py-3 bg-red-600 text-white rounded-2xl hover:bg-red-700 shadow-lg font-bold flex items-center justify-center gap-2"
+                        >
+                          <RefreshCw className="w-4 h-4" /> Làm lại
+                        </button>
+                      )}
+                      {(task.status === 'completed' || task.status === 'pending_review') && (
+                        <button onClick={() => navigate(`/annotator/tasks/${task.id}/details`)} className="flex-1 px-6 py-3 bg-slate-100 text-slate-600 rounded-2xl hover:bg-slate-200 font-bold flex items-center justify-center gap-2">
+                          <CheckCircle2 className="w-4 h-4" /> {task.reviewStatus === 'rejected' ? 'Chờ sửa' : 'Xem chi tiết'}
                         </button>
                       )}
                       <button 

@@ -11,6 +11,7 @@ import {
   User,
   Users,
   Calendar,
+  Check,
   CheckCircle2,
   XCircle,
   AlertCircle,
@@ -30,6 +31,25 @@ import {
   RotateCw
 } from 'lucide-react';
 
+function resolveImageUrl(item) {
+  if (!item) return '';
+  const nested = item?.datasetItem || item?.DatasetItem;
+  if (nested) { const u = resolveImageUrl(nested); if (u) return u; }
+  const candidate =
+    item?.storageUri || item?.StorageUri ||
+    item?.thumbnailUrl || item?.previewUrl ||
+    item?.imageUrl || item?.ImageUrl ||
+    item?.url || item?.Url ||
+    item?.path || item?.Path ||
+    item?.filePath || item?.mediaUrl || '';
+  if (!candidate) { if (item?.data && typeof item.data === 'object') return resolveImageUrl(item.data); return ''; }
+  if (/^(https?:|data:|blob:)/i.test(candidate)) return candidate;
+  const base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/api$/i, '').replace(/\/$/, '');
+  return candidate.startsWith('/') ? `${base}${candidate}` : `${base}/${candidate}`;
+}
+
+import { processTaskConsensus } from '../../utils/annotatorTaskHelpers';
+
 const ReviewerTask = () => {
   const { taskId } = useParams();
   const navigate = useNavigate();
@@ -37,23 +57,20 @@ const ReviewerTask = () => {
   const [error, setError] = useState(null);
 
   const [task, setTask] = useState({
-    id: 'TASK-001',
-    title: 'Gán nhãn ảnh xe hơi',
-    description: 'Phân loại và gán nhãn các loại xe trong ảnh',
+    id: taskId,
+    title: 'Loading...',
+    description: '',
     type: 'image',
-    status: 'in_progress',
-    projectId: 'PRJ-001',
-    projectName: 'Phân loại phương tiện',
-    createdAt: '2026-01-20T10:00:00Z',
-    deadline: '2026-02-10T23:59:59Z',
+    status: 'pending_review',
+    projectName: 'Processing...',
   });
 
-  // Dynamic annotation data - expected to be an array of 3 for the new multi-annotator flow
   const [annotations, setAnnotations] = useState([]);
   const [selectedAnnotatorIndex, setSelectedAnnotatorIndex] = useState(0);
   const [attempts, setAttempts] = useState(1);
+  const [items, setItems] = useState([]);
+  const [selectedItemIndex, setSelectedItemIndex] = useState(0);
 
-  // Load annotation from API
   useEffect(() => {
     loadAnnotation();
   }, [taskId]);
@@ -63,42 +80,117 @@ const ReviewerTask = () => {
       setLoading(true);
       setError(null);
       
-      const response = await reviewAPI.getAnnotationForReview(taskId);
-      const data = response.data.data || response.data;
-      
-      let list = Array.isArray(data) ? data : (data.annotations || [data]);
-      
-      if (list.length < 3) {
-        console.warn('Backend returned less than 3 annotations, generating mock data for demo');
-        const base = list[0] || {
-            id: 'ANN-BASE',
-            annotatorName: 'Annotator 1',
-            data: { 
-                url: 'https://images.unsplash.com/photo-1605559424843-9e4c228bf1c2',
-                classification: 'sedan',
-                labels: [{ id: 1, name: 'Car', x: 100, y: 50, width: 200, height: 150, confidence: 0.95, color: '#ef4444' }]
-            },
-            timeSpent: 420,
-            status: 'pending_review',
-            createdAt: new Date().toISOString()
-        };
-        
-        list = [
-          { ...base, id: 'ANN-001', annotatorName: 'Nguyễn Văn A', data: { ...base.data, classification: 'sedan' } },
-          { ...base, id: 'ANN-002', annotatorName: 'Trần Thị B', data: { ...base.data, classification: 'sedan' } },
-          { ...base, id: 'ANN-003', annotatorName: 'Lê Văn C', data: { ...base.data, classification: 'SUV' } },
-        ];
+      let allFoundAnns = [];
+      let taskMeta = null;
+
+      // 1. Try API
+      try {
+        const response = await reviewAPI.getAnnotationForReview(taskId);
+        const data = response.data.data || response.data;
+        allFoundAnns = Array.isArray(data) ? data : (data.annotations || [data]);
+        if (data.task) taskMeta = data.task;
+        setAttempts(data.attempts || 1);
+      } catch (err) {
+        console.warn('[ReviewerTask] API failed, using local discovery');
       }
-      
-      setAnnotations(list);
-      setAttempts(data.attempts || 1);
-      
-      if (data.task) {
-        setTask(data.task);
+
+      // 2. Discover from Local Storage (Search all users for same taskId)
+      try {
+        const rawMap = localStorage.getItem('assignedTasksByUser');
+        if (rawMap) {
+          const map = JSON.parse(rawMap);
+          const discoveredAnns = [];
+          
+          const rawSubmissions = [];
+          Object.entries(map).forEach(([uid, userTasks]) => {
+            if (Array.isArray(userTasks)) {
+              const mt = userTasks.find(t => String(t.id) === String(taskId));
+              if (mt && (mt.status === 'completed' || mt.status === 'pending_review')) {
+                rawSubmissions.push({ uid, task: mt });
+              }
+            }
+          });
+
+          // Check for consensus winner - Try to trigger it if not set yet but we have 3
+          if (rawSubmissions.length === 3 && !rawSubmissions.some(s => s.task.isConsensusWinner)) {
+            console.log('[ReviewerTask] Re-triggering consensus check...');
+            processTaskConsensus(taskId);
+            // Re-read map to get updated flags
+            const updatedMap = JSON.parse(localStorage.getItem('assignedTasksByUser') || '{}');
+            rawSubmissions.forEach(rs => {
+                const uTasks = updatedMap[rs.uid] || [];
+                const updatedT = uTasks.find(it => String(it.id) === String(taskId));
+                if (updatedT) rs.task = updatedT;
+            });
+          }
+
+          let targetSubmissions = rawSubmissions;
+          const winner = rawSubmissions.find(s => s.task.isConsensusWinner);
+          if (winner) {
+            console.log('[ReviewerTask] Showing consensus winner only!', winner.uid);
+            targetSubmissions = [winner];
+          }
+
+          targetSubmissions.forEach(({ uid, task: matchedTask }) => {
+            const itemAnnotations = [];
+            if (Array.isArray(matchedTask.items)) {
+              if (items.length === 0) setItems(matchedTask.items);
+              matchedTask.items.forEach((itm, idx) => {
+                if (itm.annotations) {
+                   // Only gather annotations for this annotator
+                   // (We'll filter them by selectedItemIndex in the render)
+                }
+              });
+            }
+
+            discoveredAnns.push({
+              id: `ANN-${uid}-${taskId}`,
+              annotatorName: `Annotator ${uid.slice(0, 4)}`,
+              isConsensusWinner: matchedTask.isConsensusWinner,
+              rawItems: matchedTask.items || [], // Store items directly to have access per item later
+              data: {
+                // url: resolveImageUrl(matchedTask.items?.[0]) || 'https://images.unsplash.com/photo-1605559424843-9e4c228bf1c2',
+                // classification: matchedTask.items?.[0]?.classification || (matchedTask.items?.[0]?.annotations?.[0]?.label) || 'Unlabeled',
+              },
+              timeSpent: matchedTask.timeSpent || 300,
+              status: 'pending_review',
+              createdAt: matchedTask.updatedAt || new Date().toISOString()
+            });
+
+            if (!taskMeta) taskMeta = matchedTask;
+          });
+          
+          // Merge API and discovered
+          discoveredAnns.forEach(da => {
+            if (!allFoundAnns.some(aa => String(aa.id) === String(da.id))) {
+              allFoundAnns.push(da);
+            }
+          });
+        }
+      } catch (e) { console.error('Local discovery error', e); }
+
+      // 3. Validation
+      if (allFoundAnns.length === 0) {
+        setError('Không tìm thấy dữ liệu gán nhãn nào cho nhiệm vụ này. Vui lòng kiểm tra lại trạng thái bài nộp của các annotator.');
+        setLoading(false);
+        return;
+      }
+
+      setAnnotations(allFoundAnns);
+      if (taskMeta) {
+        setTask({
+          id: taskMeta.id,
+          title: taskMeta.title || taskMeta.name || 'Gán nhãn Task',
+          description: taskMeta.description || '',
+          type: taskMeta.type || 'image',
+          status: 'pending_review',
+          projectName: taskMeta.projectName || 'Dự án Hệ thống',
+          deadline: taskMeta.dueDate || taskMeta.deadline,
+        });
       }
     } catch (err) {
-      console.error('Error loading annotations from API:', err);
-      setError(err.response?.data?.message || 'Không thể tải dữ liệu review');
+      console.error('Error loading annotations:', err);
+      setError(err.message || 'Không thể tải dữ liệu review');
     } finally {
       setLoading(false);
     }
@@ -120,14 +212,22 @@ const ReviewerTask = () => {
   const getConsensus = () => {
     if (annotations.length < 3) return { type: 'incomplete', label: null };
     
-    const labels = annotations.map(a => a.data.classification || JSON.stringify(a.data.labels));
+    const itemRecords = annotations.map(a => {
+        const it = a.rawItems?.[selectedItemIndex] || {};
+        return it.classification || (it.annotations?.[0]?.label) || JSON.stringify(it.annotations || []);
+    });
+    
     const counts = {};
-    labels.forEach(l => counts[l] = (counts[l] || 0) + 1);
+    itemRecords.forEach(l => counts[l] = (counts[l] || 0) + 1);
     
     const majority = Object.entries(counts).find(([_, count]) => count >= 2);
     if (majority) {
-      const annWithMajority = annotations.find(a => (a.data.classification || JSON.stringify(a.data.labels)) === majority[0]);
-      return { type: 'majority', label: majority[0], count: majority[1], data: annWithMajority?.data };
+      const annWithMajority = annotations.find(a => {
+           const it = a.rawItems?.[selectedItemIndex] || {};
+           const val = it.classification || (it.annotations?.[0]?.label) || JSON.stringify(it.annotations || []);
+           return val === majority[0];
+      });
+      return { type: 'majority', label: majority[0], count: majority[1], data: annWithMajority?.rawItems?.[selectedItemIndex] };
     }
     
     return { type: 'conflict', label: null };
@@ -135,6 +235,21 @@ const ReviewerTask = () => {
 
   const consensus = getConsensus();
   const currentAnnotation = annotations[selectedAnnotatorIndex] || {};
+  const currentItem = items[selectedItemIndex] || {};
+  const itemInAnn = currentAnnotation.rawItems?.[selectedItemIndex] || {};
+
+  const displayData = {
+      url: resolveImageUrl(currentItem),
+      classification: itemInAnn.classification || (itemInAnn.annotations?.[0]?.label) || 'Unlabeled',
+      labels: (itemInAnn.annotations || []).map(a => ({
+          name: a.label,
+          x: (a.x || 0),
+          y: (a.y || 0),
+          width: (a.width || 0),
+          height: (a.height || 0),
+          color: a.color || '#3b82f6'
+      }))
+  };
 
   const handleIssueToggle = (issue) => {
     setReviewData({
@@ -180,6 +295,29 @@ const ReviewerTask = () => {
       else if (actionType === 'reopen') msg = 'Phát hiện conflict! Đã mở lại để gán nhãn lần 2.';
       else if (actionType === 'discard') msg = 'Vẫn conflict sau 2 lần! Ảnh đã bị hủy.';
       else msg = 'Cập nhật trạng thái thành công!';
+
+      // ✅ SYNC TO ALL ANNOTATORS IN LOCAL STORAGE
+      try {
+        const rawMap = localStorage.getItem('assignedTasksByUser');
+        if (rawMap) {
+          const map = JSON.parse(rawMap);
+          const newStatus = actionType === 'approve' ? 'approved' : (actionType === 'reject' || actionType === 'reopen') ? 'rejected' : null;
+          
+          if (newStatus) {
+            Object.keys(map).forEach(uid => {
+              if (Array.isArray(map[uid])) {
+                map[uid] = map[uid].map(t => {
+                  if (String(t.id) === String(taskId)) {
+                    return { ...t, status: newStatus, feedback: reviewData.feedback || (newStatus === 'rejected' ? 'Reviewer yêu cầu sửa lại' : null) };
+                  }
+                  return t;
+                });
+              }
+            });
+            localStorage.setItem('assignedTasksByUser', JSON.stringify(map));
+          }
+        }
+      } catch (e) { console.warn('Sync to local fail', e); }
 
       alert(msg);
       navigate('/reviewer/dashboard');
@@ -256,172 +394,80 @@ const ReviewerTask = () => {
           Quay lại Dashboard
         </button>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Sidebar */}
-          <div className="lg:col-span-3 space-y-6">
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-              <div className="flex items-center gap-3 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* 1. Left Sidebar: Project Info (Col 2) */}
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+              <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-                  {getTypeIcon(task.type)}
+                  <FileText className="w-5 h-5" />
                 </div>
-                <div>
-                  <p className="text-[10px] font-black uppercase text-slate-400 leading-none">Phân loại Task</p>
-                  <h2 className="text-lg font-black text-slate-800 uppercase tracking-tight">{task.type} Task</h2>
-                </div>
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">THÔNG TIN</h3>
               </div>
-
               <div className="space-y-4">
                 <div>
                   <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Dự án</p>
-                  <p className="font-bold text-slate-700 leading-tight">{task.projectName}</p>
+                  <p className="text-xs font-bold text-slate-700 leading-tight">{task.projectName}</p>
                 </div>
                 <div>
                   <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Tiêu đề</p>
-                  <p className="font-bold text-slate-700 leading-tight">{task.title}</p>
+                  <p className="text-xs font-bold text-slate-700 leading-tight">{task.title}</p>
                 </div>
                 <div>
                   <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Hạn chót</p>
-                  <p className="font-bold text-slate-700 flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-orange-400" />
+                  <p className="text-xs font-bold text-slate-700 flex items-center gap-2">
+                    <Calendar className="w-3 h-3 text-orange-400" />
                     {new Date(task.deadline).toLocaleDateString('vi-VN')}
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* Annotator Switcher */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
-                  <Users className="w-5 h-5" />
-                </div>
-                <h2 className="text-lg font-black text-slate-800 uppercase tracking-tight">KẾT QUẢ TỪ 3 NHÓM</h2>
-              </div>
-
-              <div className="space-y-3">
-                {annotations.map((ann, idx) => (
-                  <button
-                    key={ann.id}
-                    onClick={() => setSelectedAnnotatorIndex(idx)}
-                    className={`w-full p-4 rounded-xl border-2 transition-all flex items-center justify-between ${
-                      selectedAnnotatorIndex === idx 
-                        ? 'border-blue-500 bg-blue-50 shadow-md translate-x-1' 
-                        : 'border-slate-50 hover:border-slate-200 bg-white'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs text-white ${
-                        selectedAnnotatorIndex === idx ? 'bg-blue-600' : 'bg-slate-300'
-                      }`}>
-                        {idx + 1}
-                      </div>
-                      <div className="text-left">
-                        <p className="font-black text-slate-900 text-sm truncate w-32 uppercase">{ann.annotatorName}</p>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase">Nhãn: {ann.data.classification || 'Phức hợp'}</p>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              <div className="mt-8 p-5 bg-slate-900 rounded-2xl text-white">
-               <p className="text-[10px] font-black uppercase text-slate-400 mb-3 tracking-widest">Trạng thái đồng thuận</p>
-               {consensus.type === 'majority' ? (
-                 <div>
-                   <div className="flex items-center gap-2 text-emerald-400 mb-2">
-                     <CheckCircle2 className="w-5 h-5" />
-                     <span className="font-black text-sm uppercase">ĐỒNG THUẬN ({consensus.count}/3)</span>
-                   </div>
-                   <p className="text-xs font-bold text-slate-300">Duyệt nhãn phổ biến nhất</p>
-                 </div>
-               ) : (
-                 <div>
-                   <div className="flex items-center gap-2 text-rose-400 mb-2">
-                     <AlertCircle className="w-5 h-5" />
-                     <span className="font-black text-sm uppercase">CONFLICT (3 nhãn khác)</span>
-                   </div>
-                   <p className="text-xs font-bold text-slate-300">Yêu cầu can thiệp hoặc mở lại</p>
-                 </div>
-               )}
-               <div className="mt-4 pt-4 border-t border-slate-700 flex justify-between items-center text-[10px] font-black uppercase">
-                 <span className="text-slate-500">Lần nộp</span>
-                 <span className={attempts >= 2 ? 'text-rose-400' : 'text-blue-400'}>{attempts}/2</span>
-               </div>
-              </div>
-            </div>
-
-            {/* Actions for Reviewer */}
-            <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-6 overflow-hidden relative">
-              <h2 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">HÀNH ĐỘNG HỆ THỐNG</h2>
-              <div className="space-y-3">
+            {/* Consensus & Annotator Info */}
+            <div className="bg-slate-900 rounded-2xl p-5 text-white">
+                <p className="text-[8px] font-black uppercase text-slate-500 mb-3 tracking-widest">Trạng thái đồng thuận</p>
                 {consensus.type === 'majority' ? (
-                  <button
-                    onClick={() => handleOpenFeedbackModal('approve')}
-                    className="w-full py-4 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100/50 flex flex-col items-center justify-center"
-                  >
-                    <span className="font-black uppercase tracking-tighter text-lg">DUYỆT ĐA SỐ</span>
-                    <span className="text-[9px] font-bold opacity-70 uppercase tracking-widest mt-1">Accept {consensus.count}/3 Majority</span>
-                  </button>
+                  <div className="flex items-center gap-2 text-emerald-400">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span className="font-black text-[10px] uppercase">ĐỒNG THUẬN ({consensus.count}/3)</span>
+                  </div>
                 ) : (
-                  <>
-                    {attempts < 2 ? (
-                      <button
-                        onClick={() => handleOpenFeedbackModal('reopen')}
-                        className="w-full py-4 bg-amber-500 text-white rounded-xl hover:bg-amber-600 transition-all shadow-lg shadow-amber-100/50 flex flex-col items-center justify-center"
-                      >
-                        <span className="font-black uppercase tracking-tighter text-lg">MỞ LẠI (RE-OPEN)</span>
-                        <span className="text-[9px] font-bold opacity-70 uppercase tracking-widest mt-1">Yêu cầu nộp lại bài</span>
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => handleOpenFeedbackModal('discard')}
-                        className="w-full py-4 bg-rose-600 text-white rounded-xl hover:bg-rose-700 transition-all shadow-lg shadow-rose-100/50 flex flex-col items-center justify-center"
-                      >
-                        <span className="font-black uppercase tracking-tighter text-lg">HỦY BỎ (DISCARD)</span>
-                        <span className="text-[9px] font-bold opacity-70 uppercase tracking-widest mt-1">Hủy ảnh do ko đồng thuận</span>
-                      </button>
-                    )}
-                  </>
+                   <div className="flex items-center gap-2 text-rose-400">
+                    <AlertCircle className="w-4 h-4" />
+                    <span className="font-black text-[10px] uppercase">CONFLICT</span>
+                  </div>
                 )}
-                <button
-                  onClick={() => handleOpenFeedbackModal('reject')}
-                  className="w-full py-3 border-2 border-slate-100 text-slate-400 rounded-xl hover:bg-slate-50 transition-all font-black text-xs uppercase tracking-widest"
-                >
-                  Từ chối thủ công
-                </button>
-              </div>
+                <div className="mt-4 pt-4 border-t border-slate-800">
+                   <p className="text-[8px] font-black uppercase text-slate-500 mb-2">Đang xem nhóm</p>
+                   <p className="text-xs font-black uppercase text-blue-400 font-mono tracking-tighter truncate">{currentAnnotation.annotatorName}</p>
+                </div>
             </div>
           </div>
 
-          {/* Main Content Area */}
-          <div className="lg:col-span-9 space-y-8">
-            {/* Visualizer */}
+          {/* 2. Middle Content: Visualizer & Actions (Col 8) */}
+          <div className="lg:col-span-8 space-y-6">
             <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 min-h-[500px] flex flex-col">
               <div className="flex items-center justify-between mb-8">
                 <div>
-                  <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">XEM CHI TIẾT BẢN GÁN NHÃN</h2>
-                  <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-widest">Hiển thị kết quả của {currentAnnotation.annotatorName}</p>
+                  <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">XEM CHI TIẾT BẢN GÁN NHÃN</h2>
+                  <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">
+                    Ảnh {selectedItemIndex + 1} / {items.length} • Annotator {currentAnnotation.annotatorName}
+                  </p>
                 </div>
 
-                {task.type === 'image' && (
-                  <div className="flex items-center gap-2 p-1.5 bg-slate-50 rounded-xl">
-                    <button onClick={() => setZoom(z => Math.max(0.5, z-0.2))} className="p-2 hover:bg-white rounded-lg shadow-sm transition-all text-slate-600"><ZoomOut className="w-4 h-4" /></button>
-                    <span className="text-[10px] font-black w-10 text-center text-slate-500">{Math.round(zoom * 100)}%</span>
-                    <button onClick={() => setZoom(z => Math.min(3, z+0.2))} className="p-2 hover:bg-white rounded-lg shadow-sm transition-all text-slate-600"><ZoomIn className="w-4 h-4" /></button>
-                    <div className="h-4 w-px bg-slate-200 mx-1"></div>
-                    <button onClick={() => setShowLabels(!showLabels)} className={`p-2 rounded-lg transition-all ${showLabels ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-600' }`}>
-                      {showLabels ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                    </button>
-                  </div>
-                )}
+                <div className="flex items-center gap-2 p-1.5 bg-slate-50 rounded-xl">
+                  <button onClick={() => setZoom(z => Math.max(0.5, z-0.2))} className="p-2 hover:bg-white rounded-lg shadow-sm transition-all text-slate-600"><ZoomOut className="w-4 h-4" /></button>
+                  <span className="text-[10px] font-black w-10 text-center text-slate-500">{Math.round(zoom * 100)}%</span>
+                  <button onClick={() => setZoom(z => Math.min(3, z+0.2))} className="p-2 hover:bg-white rounded-lg shadow-sm transition-all text-slate-600"><ZoomIn className="w-4 h-4" /></button>
+                </div>
               </div>
 
-              <div className="flex-1 bg-slate-50 rounded-2xl overflow-hidden relative border-2 border-slate-100 min-h-[400px]">
-                {task.type === 'image' && currentAnnotation.data.url && (
+              <div className="flex-1 bg-slate-50 rounded-2xl overflow-hidden relative border-2 border-slate-100 min-h-[450px]">
+                {displayData.url ? (
                     <div className="relative w-full h-full overflow-auto flex items-center justify-center p-4">
                       <div className="relative inline-block" style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }}>
-                         <img src={currentAnnotation.data.url} alt="Annotation content" className="max-w-none shadow-2xl rounded-sm" />
-                         {showLabels && currentAnnotation.data.labels?.map((label, idx) => (
+                         <img src={displayData.url} alt="Content" className="max-w-none shadow-2xl rounded-sm max-h-[600px]" />
+                         {showLabels && displayData.labels?.map((label, idx) => (
                            <div 
                              key={idx} 
                              className="absolute border-2 transition-all hover:scale-105"
@@ -440,84 +486,90 @@ const ReviewerTask = () => {
                          ))}
                       </div>
                     </div>
-                )}
-
-                {task.type === 'text' && currentAnnotation.data.text && (
-                  <div className="p-10 h-full overflow-auto">
-                    <div className="max-w-3xl mx-auto space-y-8">
-                       <div className="bg-white p-8 rounded-2xl border border-slate-100 shadow-sm leading-relaxed text-slate-700 text-lg">
-                         {currentAnnotation.data.text}
-                       </div>
-                       {currentAnnotation.data.entities && (
-                         <div className="grid grid-cols-2 gap-4">
-                            {currentAnnotation.data.entities.map((e, i) => (
-                              <div key={i} className="flex items-center justify-between p-4 bg-white rounded-xl border border-slate-100">
-                                <span className="font-black text-xs uppercase text-slate-400">{e.label}</span>
-                                <span className="font-bold text-slate-800">{e.text}</span>
-                              </div>
-                            ))}
-                         </div>
-                       )}
-                    </div>
-                  </div>
-                )}
-
-                {task.type === 'video' && currentAnnotation.data.url && (
-                  <div className="w-full h-full flex items-center justify-center bg-black">
-                     <video src={currentAnnotation.data.url} controls className="max-h-full" />
-                  </div>
-                )}
-
-                {task.type === 'audio' && currentAnnotation.data.url && (
-                  <div className="w-full h-full flex flex-col items-center justify-center p-12 bg-white">
-                     <div className="w-full max-w-2xl bg-slate-50 p-10 rounded-3xl border border-slate-100">
-                        <Volume2 className="w-16 h-16 text-blue-500 mx-auto mb-8 animate-pulse" />
-                        <audio src={currentAnnotation.data.url} controls className="w-full" />
-                     </div>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-slate-400 font-bold uppercase text-xs">
+                    Không có nội dung hiển thị
                   </div>
                 )}
               </div>
 
-              {/* Data Meta */}
-              <div className="mt-8 grid grid-cols-4 gap-6">
-                 <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
-                    <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Độ tin cậy</p>
-                    <p className="text-xl font-black text-blue-600">{(currentAnnotation.data.confidence * 100 || 95).toFixed(0)}%</p>
+              {/* ACTION BUTTONS BELOW IMAGE */}
+              <div className="mt-8 grid grid-cols-2 lg:grid-cols-4 gap-4 items-center">
+                 <div className="col-span-2 flex items-center gap-3">
+                    {consensus.type === 'majority' ? (
+                      <button
+                        onClick={() => handleOpenFeedbackModal('approve')}
+                        className="flex-1 py-4 bg-emerald-600 text-white rounded-2xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 flex flex-col items-center justify-center"
+                      >
+                        <span className="font-black uppercase tracking-tighter text-lg">DUYỆT ĐA SỐ</span>
+                        <span className="text-[9px] font-bold opacity-70 uppercase tracking-widest mt-1">Accept {consensus.count}/3 Majority</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleOpenFeedbackModal('reopen')}
+                        className="flex-1 py-4 bg-amber-500 text-white rounded-2xl hover:bg-amber-600 transition-all shadow-lg shadow-amber-100 flex flex-col items-center justify-center"
+                      >
+                        <span className="font-black uppercase tracking-tighter text-lg">MỞ LẠI (RE-OPEN)</span>
+                        <span className="text-[9px] font-bold opacity-70 uppercase tracking-widest mt-1">Yêu cầu gán nhãn lại</span>
+                      </button>
+                    )}
                  </div>
-                 <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
-                    <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Thời gian tập trung</p>
-                    <p className="text-xl font-black text-purple-600">{formatTime(currentAnnotation.timeSpent)}</p>
-                 </div>
-                 <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
-                    <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Số thực thể</p>
-                    <p className="text-xl font-black text-emerald-600">
-                      {task.type === 'image' ? currentAnnotation.data.labels?.length || 0 :
-                       task.type === 'text' ? currentAnnotation.data.entities?.length || 0 : 
-                       'Đã nộp'}
-                    </p>
-                 </div>
-                 <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
-                    <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Trình độ nhóm</p>
-                    <p className="text-xl font-black text-orange-600 uppercase">Expert</p>
+                 
+                 <button
+                    onClick={() => handleOpenFeedbackModal('reject')}
+                    className="py-4 border-2 border-slate-100 text-slate-400 rounded-2xl hover:bg-slate-50 transition-all font-black text-xs uppercase tracking-widest"
+                 >
+                    Từ chối thủ công
+                 </button>
+
+                 <div className="flex flex-col p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <p className="text-[9px] font-black uppercase text-slate-400 mb-1">Loại Nhãn</p>
+                    <p className="text-xs font-black text-blue-600 uppercase truncate">{displayData.classification}</p>
                  </div>
               </div>
             </div>
+          </div>
 
-            {/* Feedback Summary if existing */}
-            {currentAnnotation.data.notes && (
-              <div className="bg-blue-50/50 p-6 rounded-3xl border border-blue-100 text-blue-700">
-                 <div className="flex gap-4">
-                    <MessageSquare className="w-6 h-6 flex-shrink-0" />
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-widest mb-1">Ghi chú từ Annotator</p>
-                      <p className="font-semibold text-sm leading-relaxed">{currentAnnotation.data.notes}</p>
-                    </div>
-                 </div>
-              </div>
-            )}
+          {/* 3. Right Sidebar: Task Items (Col 2) */}
+          <div className="lg:col-span-2 space-y-6">
+             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 h-full">
+                <div className="flex items-center gap-3 mb-6">
+                   <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
+                      <ImageIcon className="w-5 h-5" />
+                   </div>
+                   <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">DANH SÁCH ẢNH</h3>
+                </div>
+                
+                <div className="space-y-3 overflow-y-auto max-h-[700px] pr-2 custom-scrollbar">
+                   {items.map((item, idx) => (
+                     <button
+                       key={idx}
+                       onClick={() => setSelectedItemIndex(idx)}
+                       className={`w-full relative group transition-all rounded-xl overflow-hidden border-2 ${
+                         selectedItemIndex === idx ? 'border-blue-500 shadow-lg' : 'border-transparent opacity-60 hover:opacity-100'
+                       }`}
+                     >
+                       <img 
+                         src={resolveImageUrl(item)} 
+                         alt={`Item ${idx}`} 
+                         className="w-full h-24 object-cover"
+                       />
+                       <div className="absolute top-1 left-1 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded font-black">
+                         #{idx+1}
+                       </div>
+                       {selectedItemIndex === idx && (
+                         <div className="absolute inset-0 bg-blue-600/10 flex items-center justify-center">
+                            <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center shadow-lg">
+                               <Check className="w-3 h-3 text-white" />
+                            </div>
+                         </div>
+                       )}
+                     </button>
+                   ))}
+                </div>
+             </div>
           </div>
         </div>
-
         {/* Feedback Modal */}
         {showFeedbackModal && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-6">
@@ -556,7 +608,7 @@ const ReviewerTask = () => {
                </div>
 
                <div className="p-8 bg-slate-50 flex gap-4">
-                  <button onClick={handleCancel} className="flex-1 py-4 bg-white border-2 border-slate-200 rounded-2xl font-black uppercase text-xs tracking-widest text-slate-400 hover:text-slate-600 transition-all">Hủy</button>
+                  <button onClick={() => setShowFeedbackModal(false)} className="flex-1 py-4 bg-white border-2 border-slate-200 rounded-2xl font-black uppercase text-xs tracking-widest text-slate-400 hover:text-slate-600 transition-all">Hủy</button>
                   <button 
                     onClick={handleSubmitReview}
                     className={`flex-[2] py-4 rounded-2xl font-black uppercase text-xs tracking-widest text-white shadow-xl transition-all ${

@@ -6,7 +6,9 @@ import {
   resolveApiData,
   getCurrentUserId,
   getLocalAssignedTasksForUser,
+  getAssignedTasksByUserMap,
   upsertLocalAssignedTask,
+  processTaskConsensus,
 } from '../../utils/annotatorTaskHelpers';
 import {
   ArrowLeft, ArrowRight, Save, Send, Trash2, Tag, AlertCircle,
@@ -74,6 +76,7 @@ export default function AnnotatorTask() {
   const { taskId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const isRework = !!location.state?.isRework;
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -81,6 +84,7 @@ export default function AnnotatorTask() {
   const [error, setError] = useState(null);
   const [task, setTask] = useState(null);
   const [items, setItems] = useState([]);
+  const [fullItems, setFullItems] = useState([]); // All items, even if filtered for rework
   const [currentIndex, setCurrentIndex] = useState(0);
   const [labels, setLabels] = useState([]);
   const [selectedLabel, setSelectedLabel] = useState('');
@@ -97,6 +101,7 @@ export default function AnnotatorTask() {
   const [showSkipModal, setShowSkipModal] = useState(false);
   const [skipReason, setSkipReason] = useState('');
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const [isExpired, setIsExpired] = useState(false);
 
   const currentItem = items[currentIndex] || null;
   const currentItemId = currentItem?.taskItemId || currentItem?.id || `item-${currentIndex}`;
@@ -128,16 +133,20 @@ export default function AnnotatorTask() {
       } catch (e) {
         console.warn('[Task] getById failed, checking local fallback:', e?.message);
       }
-
-      if (!taskData || isMockTask) {
-        // Fallback: Tìm trong local storage của người dùng hiện tại
-        const userId = getCurrentUserId();
-        const localTasks = getLocalAssignedTasksForUser(userId);
-        const match = localTasks.find(t => String(t.id) === String(taskId));
-        if (match) {
-          taskData = normalizeTask(match);
-          console.log('[Task] Loaded from local storage fallback');
-        }
+      
+      // ✅ CRITICAL: Merge with Local Storage to get consensus metadata (like isConflict)
+      // Since consensus is calculated locally across labels, server doesn't have the flags.
+      const userId = getCurrentUserId();
+      const localTasks = getLocalAssignedTasksForUser(userId);
+      const localMatch = localTasks.find(t => String(t.id) === String(taskId));
+      if (localMatch) {
+          // Merge metadata like isConflict, items with flags, etc.
+          taskData = { 
+              ...taskData, 
+              ...localMatch, 
+              items: localMatch.items || taskData?.items || [] 
+          };
+          console.log('[Task] Merged with local storage for consensus metadata');
       }
 
       if (!taskData) { setError('Không tìm thấy nhiệm vụ.'); return; }
@@ -153,8 +162,11 @@ export default function AnnotatorTask() {
         console.warn('[Task] getItems failed:', e?.message);
       }
 
-      if (taskItems.length === 0 && taskData.items) {
-        taskItems = taskData.items;
+      if (isRework && taskData.items) {
+          console.log('[Rework] Using local task items to preserve conflict flags');
+          taskItems = taskData.items;
+      } else if (taskItems.length === 0 && taskData.items) {
+          taskItems = taskData.items;
       }
 
       // If still no items, we might need to fetch samples from the dataset if it's a mock task
@@ -167,12 +179,23 @@ export default function AnnotatorTask() {
         }
       }
 
-      // Normalize nested structure
-      taskItems = taskItems.map((item) =>
-        item?.taskItemId && item?.datasetItem
-          ? { ...item.datasetItem, taskItemId: item.taskItemId, id: item.taskItemId, _raw: item }
-          : item
-      );
+      taskItems = taskItems.map((item, idx) => {
+        const iid = String(item?.taskItemId || item?.id || item?.itemId || '');
+        // Find existing meta from taskData (which was merged with local storage)
+        const localMeta = (taskData.items || []).find(it => String(it.taskItemId || it.id || '') === iid) || {};
+        
+        const baseItem = item?.taskItemId && item?.datasetItem
+          ? { 
+              ...item.datasetItem, 
+              taskItemId: item.taskItemId, 
+              id: item.taskItemId, 
+              isConflict: !!(item.isConflict || localMeta.isConflict || localMeta._raw?.isConflict),
+              _raw: item 
+            }
+          : { ...item, isConflict: !!(item.isConflict || localMeta.isConflict || localMeta._raw?.isConflict) };
+        
+        return baseItem;
+      });
 
       // 3. Labels từ project
       // projectId có thể lấy từ taskData hoặc từ items (nếu getById fail)
@@ -190,9 +213,52 @@ export default function AnnotatorTask() {
           setSelectedLabel('');
         }
       }
-
       setTask(taskData);
+      setFullItems(taskItems);
+      
+      if (isRework) {
+        // QUICK ON-THE-FLY CONSENSUS CHECK
+        // If we're in rework and flags are missing, recalculate them locally
+        const localTasksRaw = getAssignedTasksByUserMap();
+        const submissions = [];
+        Object.entries(localTasksRaw || {}).forEach(([uid, tks]) => {
+           const match = (tks || []).find(it => String(it.id || it._id || '') === String(taskId));
+           if (match && (match.status === 'completed' || match.status === 'done' || match.status === 'rejected')) {
+               submissions.push(match);
+           }
+        });
+
+        if (submissions.length > 0) {
+            console.log(`[Rework] Found ${submissions.length} local submissions for on-the-fly conflict check`);
+            taskItems = taskItems.map((item, i) => {
+                const labels = submissions.map(s => {
+                   const sIt = s.items?.[i] || {};
+                   return sIt.classification || (sIt.annotations?.[0]?.label) || 'unknown';
+                });
+                const counts = {};
+                labels.forEach(l => counts[l] = (counts[l] || 0) + 1);
+                const majority = Object.entries(counts).find(([_, count]) => count >= 2);
+                
+                return { ...item, isConflict: item.isConflict || !majority };
+            });
+        }
+
+        const conflictedCount = taskItems.filter(it => it.isConflict).length;
+        if (conflictedCount === 0) {
+            console.warn('[Rework Mode] No specific conflicts found. Defaulting to ALL images for safety.');
+            taskItems = taskItems.map(it => ({ ...it, isConflict: true }));
+        }
+        console.log(`[Rework Mode] Finalizing items for ${taskItems.filter(it => it.isConflict).length} conflicted images.`);
+      }
       setItems(taskItems);
+
+      // Check deadline
+      if (taskData.dueDate) {
+        const deadlineDate = new Date(taskData.dueDate);
+        if (deadlineDate < new Date()) {
+          setIsExpired(true);
+        }
+      }
 
       const firstUnprocessed = taskItems.findIndex((it) => {
         const st = String(it?.status || '').toLowerCase();
@@ -205,9 +271,13 @@ export default function AnnotatorTask() {
       for (const item of taskItems) {
         const itemId = item?.taskItemId || item?.id || item?.itemId;
         const itemStatus = String(item?.status || '').toLowerCase();
+        
+        // Force pending if it's a conflict in rework mode
+        const isConflictItem = item.isConflict && isRework;
+
         initialStates[itemId] = {
           annotations: [],
-          status: itemStatus === 'completed' || itemStatus === 'done' ? 'done' : itemStatus === 'skipped' ? 'skipped' : 'pending',
+          status: isConflictItem ? 'pending' : (itemStatus === 'completed' || itemStatus === 'done' ? 'done' : itemStatus === 'skipped' ? 'skipped' : 'pending'),
           skipReason: '',
         };
         // Try to load any existing annotations for this item (don't strictly wait for status === 'done')
@@ -235,7 +305,13 @@ export default function AnnotatorTask() {
               }));
 
               // If we found server annotations, ensure status is 'done'
-              initialStates[itemId].status = 'done';
+              if (!isConflictItem) {
+                initialStates[itemId].status = 'done';
+              } else {
+                console.log(`[Rework] Clearing annotations for conflicted item: ${itemId}`);
+                initialStates[itemId].annotations = [];
+                initialStates[itemId].status = 'pending';
+              }
             }
           } catch (e) {
             console.warn(`[Task] Failed to fetch annotations for item ${itemId}:`, e?.message);
@@ -267,6 +343,7 @@ export default function AnnotatorTask() {
   }
 
   function handleCanvasMouseDown(e) {
+    if (isExpired) return; // Block drawing if expired
     if (!selectedLabel) { alert('Vui lòng chọn nhãn trước khi vẽ bounding box!'); return; }
     setIsDrawing(true); setStartPoint(getCanvasCoords(e)); setPreviewBox(null);
   }
@@ -426,8 +503,43 @@ export default function AnnotatorTask() {
       setShowSubmitConfirm(false); return;
     }
     setSubmitting(true);
+    const currentUserId = getCurrentUserId();
     try {
-      try { await taskAPI.submit(taskId); } catch (e) { console.warn('[Task] submit not available:', e?.message); }
+      // ✅ Prepare updated task first
+      const updatedTask = {
+        ...task,
+        status: 'completed',
+        progress: 100,
+        updatedAt: new Date().toISOString(),
+        items: fullItems.map(it => {
+            const iid = it?.taskItemId || it?.id || it?.itemId;
+            const istate = itemStates[iid];
+            // If item has a current state (meaning it was in the labelable list)
+            if (istate) {
+                return { 
+                    ...it, 
+                    status: istate.status === 'skipped' ? 'skipped' : 'completed',
+                    annotations: istate.annotations || []
+                };
+            }
+            // Fallback: keep original if not touched this session
+            return it;
+        })
+      };
+
+      // ✅ Submit to server
+      try { 
+          await taskAPI.submit(taskId, { items: updatedTask.items }); 
+      } catch (e) { 
+          console.warn('[Task] submit API failed:', e?.message); 
+      }
+      
+      // ✅ Update local storage
+      upsertLocalAssignedTask(updatedTask, currentUserId);
+
+      // ✅ Trigger consensus check across all users
+      processTaskConsensus(taskId);
+
       alert('Nộp dự án thành công! Đang chuyển hướng...');
       navigate('/annotator/tasks');
     } catch (err) { alert('Nộp thất bại: ' + (err?.response?.data?.message || err?.message)); }
@@ -477,16 +589,21 @@ export default function AnnotatorTask() {
             <span className="text-xs text-gray-500 font-medium">{processedCount}/{totalItems} ảnh · {progressPercent}%</span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button onClick={saveCurrentItem} disabled={saving || annotations.length === 0 || currentState.status === 'done'} className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 disabled:opacity-40 text-sm font-semibold transition-all">
+            {isExpired && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-red-100 text-red-700 rounded-xl text-xs font-black uppercase tracking-tighter shadow-sm border border-red-200">
+                    <AlertCircle className="w-4 h-4" /> ĐÃ HẾT HẠN
+                </div>
+            )}
+            <button onClick={saveCurrentItem} disabled={saving || annotations.length === 0 || currentState.status === 'done' || isExpired} className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 disabled:opacity-40 text-sm font-semibold transition-all">
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Lưu
             </button>
-            <button onClick={() => setShowSkipModal(true)} disabled={saving || currentState.status === 'done' || currentState.status === 'skipped'} className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 text-amber-600 border border-amber-200 rounded-xl hover:bg-amber-100 disabled:opacity-40 text-sm font-semibold transition-all">
+            <button onClick={() => setShowSkipModal(true)} disabled={saving || currentState.status === 'done' || currentState.status === 'skipped' || isExpired} className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 text-amber-600 border border-amber-200 rounded-xl hover:bg-amber-100 disabled:opacity-40 text-sm font-semibold transition-all">
               <SkipForward className="w-4 h-4" /> Skip
             </button>
             <button
               onClick={() => { if (!canSubmit) { alert(`Còn ${totalItems - processedCount} ảnh chưa xử lý!`); return; } setShowSubmitConfirm(true); }}
-              disabled={submitting}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-md ${canSubmit ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200' : 'bg-gray-200 text-gray-500 cursor-not-allowed'}`}
+              disabled={submitting || isExpired}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-md ${canSubmit && !isExpired ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200' : 'bg-gray-200 text-gray-500 cursor-not-allowed'}`}
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               Nộp dự án {!canSubmit && <span className="ml-1 text-xs">({totalItems - processedCount} còn lại)</span>}
@@ -495,7 +612,7 @@ export default function AnnotatorTask() {
         </div>
       </div>
 
-      {/* Main */}
+      {/* Main Content */}
       <div className="flex-1 flex overflow-hidden max-w-screen-2xl mx-auto w-full">
 
         {/* Left: Image list */}
@@ -513,9 +630,14 @@ export default function AnnotatorTask() {
                 >
                   {url ? <img src={url} alt={`item-${idx}`} className="w-full h-24 object-cover bg-gray-100" onError={(e) => { e.target.style.display = 'none'; }} />
                     : <div className="w-full h-24 bg-gray-100 flex items-center justify-center text-gray-400"><Tag className="w-8 h-8" /></div>}
-                  <div className="absolute top-1 right-1">
-                    {state.status === 'done' && <span className="bg-emerald-500 text-white rounded-full w-5 h-5 flex items-center justify-center"><Check className="w-3 h-3" /></span>}
-                    {state.status === 'skipped' && <span className="bg-amber-500 text-white rounded-full w-5 h-5 flex items-center justify-center"><SkipForward className="w-3 h-3" /></span>}
+                  <div className="absolute top-1 right-1 flex flex-col gap-1">
+                    {item.isConflict && isRework && (
+                        <span className="bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-lg animate-bounce">
+                           <AlertCircle className="w-3 h-3" />
+                        </span>
+                    )}
+                    {state.status === 'done' && <span className="bg-emerald-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md"><Check className="w-3 h-3" /></span>}
+                    {state.status === 'skipped' && <span className="bg-amber-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md"><SkipForward className="w-3 h-3" /></span>}
                   </div>
                   <div className="absolute bottom-0 left-0 right-0 bg-black/40 text-white text-[9px] font-bold px-1 py-0.5 text-center">{idx + 1}</div>
                 </button>

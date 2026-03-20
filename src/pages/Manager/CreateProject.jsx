@@ -69,6 +69,7 @@ export default function CreateProjectPage() {
   const [projectName, setProjectName] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
   const [guidelines, setGuidelines] = useState("");
+  const [deadline, setDeadline] = useState("");
 
   const [categories, setCategories] = useState([]);
   const [datasets, setDatasets] = useState([]);
@@ -283,7 +284,7 @@ export default function CreateProjectPage() {
         categoryId: normalizedCategoryId,
         templateId: FIXED_TEMPLATE_ID,
         guideline: guidelines.trim() || undefined,         // ✅ Gửi guideline khi tạo project
-        deadline: undefined, // Removed deadline
+        deadline: deadline || undefined,
       };
 
       let createRes;
@@ -314,7 +315,7 @@ export default function CreateProjectPage() {
           name: projectName.trim(),
           description: projectDescription.trim(),
           guideline: guidelines.trim() || "",
-          deadline: null,
+          deadline: deadline || null,
           isActive: true,
         });
       } catch (e) {
@@ -433,6 +434,18 @@ export default function CreateProjectPage() {
               {guidelines.trim() && (
                 <p className="text-xs text-emerald-600 mt-1">✓ Annotator sẽ thấy hướng dẫn này khi làm task</p>
               )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Thời hạn dự án (Deadline)</label>
+              <input
+                type="date"
+                min={new Date().toISOString().split('T')[0]}
+                className="w-full border rounded px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                value={deadline}
+                onChange={(e) => setDeadline(e.target.value)}
+              />
+              <p className="text-[10px] text-gray-400 mt-1">Sau ngày này, dự án sẽ không thể thực hiện gán nhãn được nữa.</p>
             </div>
           </div>
         )}
@@ -583,6 +596,12 @@ export default function CreateProjectPage() {
               <div className="flex gap-2">
                 <span className="font-bold w-32 shrink-0">Datasets:</span>
                 <span>{selectedDatasetIds.length} dataset đã chọn</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="font-bold w-32 shrink-0">Thời hạn:</span>
+                <span className={deadline ? "text-slate-800" : "text-gray-400"}>
+                  {deadline ? new Date(deadline).toLocaleDateString('vi-VN') : "Không có (Vô thời hạn)"}
+                </span>
               </div>
               {guidelines.trim() && (
                 <div className="flex gap-2">

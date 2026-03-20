@@ -36,7 +36,7 @@ const roleNavItems = {
         { icon: FolderOpen, label: "Quản lý nhãn", path: "/manager/categories" },
         { icon: Database, label: "Datasets", path: "/manager/datasets" },
         { icon: Users, label: "Giao việc", path: "/manager/assignments" },
-        { icon: ClipboardCheck, label: "Duyệt dự án", path: "/manager/review" },
+        { icon: FileCheck, label: "Kết quả", path: "/manager/results" },
     ],
     annotator: [
         { icon: LayoutDashboard, label: "Dashboard", path: "/annotator/dashboard" },
