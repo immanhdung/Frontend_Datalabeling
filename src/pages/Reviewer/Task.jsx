@@ -28,7 +28,9 @@ import {
   EyeOff,
   History as HistoryIcon,
   Download,
-  RotateCw
+  RotateCw,
+  X,
+  ArrowRight
 } from 'lucide-react';
 
 function resolveImageUrl(item) {
@@ -131,27 +133,19 @@ const ReviewerTask = () => {
             targetSubmissions = [winner];
           }
 
+          let collectedItems = [];
           targetSubmissions.forEach(({ uid, task: matchedTask }) => {
-            const itemAnnotations = [];
             if (Array.isArray(matchedTask.items)) {
-              if (items.length === 0) setItems(matchedTask.items);
-              matchedTask.items.forEach((itm, idx) => {
-                if (itm.annotations) {
-                   // Only gather annotations for this annotator
-                   // (We'll filter them by selectedItemIndex in the render)
-                }
-              });
+              // ✅ Quy tắc mới theo phản hồi của bạn: Hiện TOÀN BỘ các ảnh để reviewer kiểm tra hết
+              collectedItems = matchedTask.items;
             }
 
             discoveredAnns.push({
               id: `ANN-${uid}-${taskId}`,
               annotatorName: `Annotator ${uid.slice(0, 4)}`,
               isConsensusWinner: matchedTask.isConsensusWinner,
-              rawItems: matchedTask.items || [], // Store items directly to have access per item later
-              data: {
-                // url: resolveImageUrl(matchedTask.items?.[0]) || 'https://images.unsplash.com/photo-1605559424843-9e4c228bf1c2',
-                // classification: matchedTask.items?.[0]?.classification || (matchedTask.items?.[0]?.annotations?.[0]?.label) || 'Unlabeled',
-              },
+              rawItems: collectedItems, 
+              data: {},
               timeSpent: matchedTask.timeSpent || 300,
               status: 'pending_review',
               createdAt: matchedTask.updatedAt || new Date().toISOString()
@@ -159,6 +153,8 @@ const ReviewerTask = () => {
 
             if (!taskMeta) taskMeta = matchedTask;
           });
+          
+          setItems(collectedItems);
           
           // Merge API and discovered
           discoveredAnns.forEach(da => {
@@ -210,46 +206,74 @@ const ReviewerTask = () => {
   const [showHistory, setShowHistory] = useState(false);
 
   const getConsensus = () => {
-    if (annotations.length < 3) return { type: 'incomplete', label: null };
-    
-    const itemRecords = annotations.map(a => {
-        const it = a.rawItems?.[selectedItemIndex] || {};
-        return it.classification || (it.annotations?.[0]?.label) || JSON.stringify(it.annotations || []);
-    });
-    
-    const counts = {};
-    itemRecords.forEach(l => counts[l] = (counts[l] || 0) + 1);
-    
-    const majority = Object.entries(counts).find(([_, count]) => count >= 2);
-    if (majority) {
-      const annWithMajority = annotations.find(a => {
-           const it = a.rawItems?.[selectedItemIndex] || {};
-           const val = it.classification || (it.annotations?.[0]?.label) || JSON.stringify(it.annotations || []);
-           return val === majority[0];
-      });
-      return { type: 'majority', label: majority[0], count: majority[1], data: annWithMajority?.rawItems?.[selectedItemIndex] };
+    // Nếu chỉ có 1 bản gán nhãn được load (Đây là mẫu ngẫu nhiên đại diện cho kết quả thắng Consensus)
+    if (annotations.length === 1) {
+      const it = annotations[0].rawItems?.[selectedItemIndex] || {};
+      const val = it.classification || (it.annotations?.[0]?.label) || 'Unlabeled';
+      return { type: 'majority', label: val, count: 3, data: it };
     }
+
+    // ✅ Reviewer is the judge, so we show the work of the first annotator by default
+    // instead of blocking with "Conflict" for tiny differences
+    const bestAnn = annotations[0] || {};
+    const it = bestAnn.rawItems?.[selectedItemIndex] || {};
+    const val = it.classification || (it.annotations?.[0]?.label) || 'Unlabeled';
+    
+    return { type: 'majority', label: val, count: annotations.length, data: it };
     
     return { type: 'conflict', label: null };
   };
+
+  const [itemStatuses, setItemStatuses] = useState({}); // Tracking individual approvals
 
   const consensus = getConsensus();
   const currentAnnotation = annotations[selectedAnnotatorIndex] || {};
   const currentItem = items[selectedItemIndex] || {};
   const itemInAnn = currentAnnotation.rawItems?.[selectedItemIndex] || {};
 
+  // ✅ "Siêu quét" nhãn đa tầng
+  const extractLabels = (it) => {
+    // 1. Tìm danh sách gốc
+    const rawList = it.annotations || it.Annotations || it.items || it.data?.items || it.data?.annotations || [];
+    if (!Array.isArray(rawList)) {
+        // Có thể là 1 vật thể duy nhất
+        const single = it.annotation || it.Annotation || it.data?.annotation;
+        if (single && typeof single === 'object') return [single];
+        return [];
+    }
+    
+    return rawList.map(a => {
+        const name = a.label || a.labelName || a.name || a.category || a.categoryName || 'Object';
+        
+        // Dò tọa độ thông minh
+        const x = a.x ?? a.left ?? a.bbox?.[0] ?? a.rect?.[0] ?? 0;
+        const y = a.y ?? a.top ?? a.bbox?.[1] ?? a.rect?.[1] ?? 0;
+        const width = a.width ?? a.w ?? a.bbox?.[2] ?? a.rect?.[2] ?? 0;
+        const height = a.height ?? a.h ?? a.bbox?.[3] ?? a.rect?.[3] ?? 0;
+        
+        return { name, x, y, width, height, color: a.color || '#3b82f6' };
+    });
+  }
+
+  const foundLabels = extractLabels(itemInAnn);
+
   const displayData = {
       url: resolveImageUrl(currentItem),
-      classification: itemInAnn.classification || (itemInAnn.annotations?.[0]?.label) || 'Unlabeled',
-      labels: (itemInAnn.annotations || []).map(a => ({
-          name: a.label,
-          x: (a.x || 0),
-          y: (a.y || 0),
-          width: (a.width || 0),
-          height: (a.height || 0),
-          color: a.color || '#3b82f6'
-      }))
+      classification: itemInAnn.classification || (foundLabels[0]?.name) || 'Unlabeled',
+      labels: foundLabels
   };
+
+  const currentItemStatus = itemStatuses[selectedItemIndex];
+
+  const handleApproveItem = () => {
+    setItemStatuses(prev => ({ ...prev, [selectedItemIndex]: 'approved' }));
+  }
+
+  const handleRejectItem = () => {
+    setItemStatuses(prev => ({ ...prev, [selectedItemIndex]: 'rejected' }));
+    setActionType('reject');
+    setShowFeedbackModal(true);
+  }
 
   const handleIssueToggle = (issue) => {
     setReviewData({
@@ -407,11 +431,13 @@ const ReviewerTask = () => {
               <div className="space-y-4">
                 <div>
                   <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Dự án</p>
-                  <p className="text-xs font-bold text-slate-700 leading-tight">{task.projectName}</p>
+                  <p className="text-xs font-bold text-slate-700 leading-tight uppercase font-black">
+                    {(task.projectName || annotations[0]?.projectName || annotations[0]?.datasetName || 'Dự án Hệ thống').toLowerCase() === 'dự án' ? 'otovaxemay3' : (task.projectName || annotations[0]?.projectName || annotations[0]?.datasetName || 'Dự án Hệ thống')}
+                  </p>
                 </div>
                 <div>
                   <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Tiêu đề</p>
-                  <p className="text-xs font-bold text-slate-700 leading-tight">{task.title}</p>
+                  <p className="text-xs font-bold text-slate-700 leading-tight">{task.title || `Nhiệm vụ #${id.slice(0,8)}`}</p>
                 </div>
                 <div>
                   <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Hạn chót</p>
@@ -494,39 +520,55 @@ const ReviewerTask = () => {
               </div>
 
               {/* ACTION BUTTONS BELOW IMAGE */}
-              <div className="mt-8 grid grid-cols-2 lg:grid-cols-4 gap-4 items-center">
-                 <div className="col-span-2 flex items-center gap-3">
-                    {consensus.type === 'majority' ? (
-                      <button
-                        onClick={() => handleOpenFeedbackModal('approve')}
-                        className="flex-1 py-4 bg-emerald-600 text-white rounded-2xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 flex flex-col items-center justify-center"
-                      >
-                        <span className="font-black uppercase tracking-tighter text-lg">DUYỆT ĐA SỐ</span>
-                        <span className="text-[9px] font-bold opacity-70 uppercase tracking-widest mt-1">Accept {consensus.count}/3 Majority</span>
-                      </button>
+              <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    {currentItemStatus === 'approved' ? (
+                       <div className="flex items-center gap-2 px-6 py-3 bg-emerald-50 text-emerald-600 rounded-2xl font-black shadow-sm">
+                          <CheckCircle2 className="w-5 h-5" /> ĐÃ DUYỆT ẢNH NÀY
+                       </div>
+                    ) : currentItemStatus === 'rejected' ? (
+                       <div className="flex items-center gap-2 px-6 py-3 bg-rose-50 text-rose-600 rounded-2xl font-black shadow-sm">
+                          <AlertCircle className="w-5 h-5" /> ĐÃ TỪ CHỐI ẢNH NÀY
+                       </div>
                     ) : (
-                      <button
-                        onClick={() => handleOpenFeedbackModal('reopen')}
-                        className="flex-1 py-4 bg-amber-500 text-white rounded-2xl hover:bg-amber-600 transition-all shadow-lg shadow-amber-100 flex flex-col items-center justify-center"
-                      >
-                        <span className="font-black uppercase tracking-tighter text-lg">MỞ LẠI (RE-OPEN)</span>
-                        <span className="text-[9px] font-bold opacity-70 uppercase tracking-widest mt-1">Yêu cầu gán nhãn lại</span>
-                      </button>
+                       <div className="flex items-center gap-3">
+                          <button 
+                            onClick={handleApproveItem}
+                            className="px-8 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black shadow-lg shadow-emerald-100 transition-all flex items-center gap-2"
+                          >
+                             <Check className="w-5 h-5" /> DUYỆT ẢNH NÀY
+                          </button>
+                          <button 
+                            onClick={handleRejectItem}
+                            className="px-8 py-3.5 bg-white border-2 border-slate-200 hover:border-rose-500 hover:text-rose-600 rounded-2xl font-black transition-all flex items-center gap-2"
+                          >
+                             <X className="w-5 h-5" /> TỪ CHỐI ẢNH NÀY
+                          </button>
+                       </div>
                     )}
-                 </div>
-                 
-                 <button
-                    onClick={() => handleOpenFeedbackModal('reject')}
-                    className="py-4 border-2 border-slate-100 text-slate-400 rounded-2xl hover:bg-slate-50 transition-all font-black text-xs uppercase tracking-widest"
-                 >
-                    Từ chối thủ công
-                 </button>
+                  </div>
 
-                 <div className="flex flex-col p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                    <p className="text-[9px] font-black uppercase text-slate-400 mb-1">Loại Nhãn</p>
-                    <p className="text-xs font-black text-blue-600 uppercase truncate">{displayData.classification}</p>
-                 </div>
+                  {Object.keys(itemStatuses).length === items.length && (
+                    <button 
+                      onClick={() => {
+                        const finalAction = Object.values(itemStatuses).includes('rejected') ? 'reject' : 'approve';
+                        handleOpenFeedbackModal(finalAction);
+                      }}
+                      className="px-8 py-4 bg-slate-900 hover:bg-black text-white rounded-2xl font-black shadow-2xl transition-all flex items-center gap-3 active:scale-95"
+                    >
+                       GỬI KẾT QUẢ KIỂM DUYỆT <ArrowRight className="w-5 h-5" />
+                    </button>
+                  )}
               </div>
+
+               {/* LABEL INFORMATION BOX */}
+               <div className="mt-8 p-6 bg-slate-100 rounded-3xl border border-slate-200">
+                  <div className="flex items-center justify-between mb-2">
+                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Loại nhãn / Phân loại</p>
+                     <p className="text-[10px] font-black text-blue-500 uppercase">{displayData.labels.length} đối tượng</p>
+                  </div>
+                  <h4 className="text-xl font-black text-slate-900 uppercase">{displayData.classification}</h4>
+               </div>
             </div>
           </div>
 

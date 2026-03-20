@@ -88,11 +88,18 @@ const ReviewerDashboard = () => {
                 if (t.status === 'completed' || t.status === 'pending_review') {
                   // Avoid duplicates if already in allFoundAnnotations
                   if (!allFoundAnnotations.some(ann => String(ann.id) === String(t.id))) {
+                    const candidates = [t.projectName, t.projectTitle, t.datasetName, t.DatasetName, t.project?.name, t.title]
+                      .filter(name => name && name.toLowerCase() !== 'dự án' && name.toLowerCase() !== 'dự án hệ thống' && !name.includes('Nhiệm vụ'));
+                    
+                    const realProjectName = candidates[0] || t.projectName || 'Dự án Hệ thống';
+
                     allFoundAnnotations.push({
                       ...t,
-                      taskTitle: t.title || t.projectName || 'Annotated Task',
-                      annotatorName: t.assignedTo || 'Unknown Annotator',
-                      status: 'pending_review', // Ensure it shows as pending in reviewer view
+                      taskTitle: (t.title && t.title.includes('Nhiệm vụ')) ? t.title : `Nhiệm vụ #${String(t.id).slice(0, 8)}`,
+                      projectName: realProjectName,
+                      annotatorName: t.assignedTo || t.userName || 'Annotator',
+                      status: 'pending_review',
+                      itemCount: Array.isArray(t.items) ? t.items.length : 0,
                     });
                   }
                 }
@@ -335,9 +342,9 @@ const ReviewerDashboard = () => {
                        </div>
                        <div className="min-w-0">
                           <div className="flex items-center gap-3 mb-1.5 font-black uppercase tracking-widest text-[10px] text-blue-500">
-                             <Folder className="w-3 h-3" /> {ann.projectName}
+                             <Folder className="w-3 h-3" /> {ann.taskTitle}
                           </div>
-                          <h3 className="text-2xl font-black text-slate-900 group-hover:text-blue-600 transition-colors line-clamp-1">{ann.taskTitle}</h3>
+                          <h3 className="text-2xl font-black text-slate-900 group-hover:text-blue-600 transition-colors line-clamp-1">{ann.projectName}</h3>
                           <div className="flex items-center gap-4 mt-2">
                              <div className="flex items-center gap-2">
                                 <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500">{ann.annotatorName?.charAt(0)}</div>
@@ -348,6 +355,15 @@ const ReviewerDashboard = () => {
                                 <Calendar className="w-3.5 h-3.5" />
                                 {new Date(ann.createdAt).toLocaleDateString('vi-VN')}
                              </div>
+                             {ann.itemCount > 0 && (
+                               <>
+                                 <div className="w-1 h-1 bg-slate-200 rounded-full"></div>
+                                 <div className="flex items-center gap-2 text-xs font-bold text-blue-600">
+                                   <Image className="w-3.5 h-3.5" />
+                                   {ann.itemCount} ảnh
+                                 </div>
+                               </>
+                             )}
                           </div>
                        </div>
                     </div>

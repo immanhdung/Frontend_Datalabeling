@@ -57,20 +57,25 @@ const trySequential = async (requestFactories) => {
 };
 
 export const reviewAPI = {
-  getPendingReviews: () => api.get("/reviews/pending"),
-  getAnnotationForReview: (taskId) => api.get(`/reviews/tasks/${taskId}`),
-  approve: (annotationId, payload) =>
-    api.post(`/reviews/${annotationId}/approve`, payload),
-  reject: (annotationId, payload) =>
-    api.post(`/reviews/${annotationId}/reject`, payload),
-  reopen: (taskId, payload) => api.post(`/reviews/tasks/${taskId}/reopen`, payload),
-  discard: (taskId, payload) => api.post(`/reviews/tasks/${taskId}/discard`, payload),
+  getPendingReviews: (params) => api.get("/reviews", { params: { Status: "Pending", ...params } }),
+  getAnnotationForReview: (taskId) => api.get(`/tasks/${taskId}/reviews`),
+  submit: (payload) => api.post("/reviews", payload), 
+  approve: (taskId, payload) => api.post("/reviews", { taskId, status: "Approved", ...payload }),
+  reject: (taskId, payload) => api.post("/reviews", { taskId, status: "Rejected", ...payload }),
   getAll: (params) => api.get("/reviews", { params }),
 };
 
 export const projectAPI = {
+  getAll: (params) => api.get("/projects", { params }),
   getById: (id) => api.get(`/projects/${id}`),
   getDatasets: (id) => api.get(`/projects/${id}/datasets`),
+  getStats: (id) => api.get(`/statistics/projects/${id}/overview`),
+  getAgreementStats: (id) => api.get(`/statistics/projects/${id}/agreement`),
+};
+
+export const consensusAPI = {
+  getAll: (params) => api.get("/consensuses", { params }),
+  getByTaskItem: (taskItemId) => api.get(`/consensuses/task-items/${taskItemId}`),
 };
 
 export const taskAPI = {
