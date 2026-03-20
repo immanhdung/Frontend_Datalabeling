@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'; // Force reload at 20:30
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import api, { taskAPI, annotationAPI, projectAPI } from '../../config/api';
+import api, { taskAPI, annotationAPI } from '../../config/api';
 import {
   normalizeTask,
   resolveApiData,
@@ -9,11 +9,12 @@ import {
   getAssignedTasksByUserMap,
   upsertLocalAssignedTask,
   processTaskConsensus,
+  getSubmissionCount,
 } from '../../utils/annotatorTaskHelpers';
 import {
   ArrowLeft, ArrowRight, Save, Send, Trash2, Tag, AlertCircle,
   Check, X, ChevronLeft, ChevronRight, RotateCcw, ZoomIn, ZoomOut,
-  CheckCircle2, SkipForward, List, Loader2,
+  CheckCircle2, SkipForward, List, Loader2, Users,
 } from 'lucide-react';
 
 // ── Colors ──────────────────────────────────────────────────
@@ -33,7 +34,6 @@ function getLabelColor(label, index = 0) {
   return _labelColorRegistry[label];
 }
 
-// ── Image URL ────────────────────────────────────────────────
 function resolveImageUrl(item) {
   if (!item) return '';
   const nested = item?.datasetItem || item?.DatasetItem;
@@ -51,24 +51,141 @@ function resolveImageUrl(item) {
   return candidate.startsWith('/') ? `${base}${candidate}` : `${base}/${candidate}`;
 }
 
-// ── Fetch labels của project ────────────────────────────────
-// Endpoint: GET /api/projects/{id}/labels
 async function fetchProjectLabels(projectId) {
   const parse = (data) => {
     const raw = Array.isArray(data) ? data : (data?.items || data?.data || data?.labels || []);
     return raw.map((l) => typeof l === 'string' ? l : (l?.name || l?.Name || l?.labelName || '')).filter(Boolean);
   };
-
   try {
     const res = await api.get(`/projects/${projectId}/labels`);
     const labels = parse(res?.data);
-    if (labels.length > 0) { console.log('[Labels] /projects/{id}/labels OK:', labels); return labels; }
-    console.warn('[Labels] /projects/{id}/labels trả về rỗng');
+    if (labels.length > 0) return labels;
   } catch (e) {
-    console.warn('[Labels] /projects/{id}/labels failed:', e?.response?.status, e?.message);
+    console.warn('[Labels] failed:', e?.message);
+  }
+  return [];
+}
+
+// ── Submission Result Modal ───────────────────────────────────
+function SubmissionResultModal({ result, onClose, onRework }) {
+  const { hasConflict, conflictCount, totalItems, nonConflictCount } = result;
+
+  if (!hasConflict) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-md p-10 text-center animate-in zoom-in duration-300">
+          <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-6">
+            <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+          </div>
+          <h2 className="text-2xl font-black text-slate-900 mb-3">Nộp thành công!</h2>
+          <p className="text-slate-500 mb-2">
+            Tất cả <strong>{totalItems}</strong> ảnh đã đạt đồng thuận.
+          </p>
+          <p className="text-sm text-slate-400 mb-8">
+            Kết quả đã được chuyển đến <strong className="text-indigo-600">Reviewer</strong> để kiểm duyệt.
+          </p>
+          <div className="flex items-center gap-2 p-3 bg-indigo-50 rounded-2xl mb-8 text-left">
+            <Users className="w-5 h-5 text-indigo-500 shrink-0" />
+            <p className="text-xs text-indigo-700 font-medium">
+              3 annotator đã đồng thuận. Reviewer sẽ kiểm tra kết quả và phê duyệt cuối.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+          >
+            Về danh sách nhiệm vụ
+          </button>
+        </div>
+      </div>
+    );
   }
 
-  return [];
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-md p-10 text-center animate-in zoom-in duration-300">
+        <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-6">
+          <AlertCircle className="w-10 h-10 text-amber-500" />
+        </div>
+        <h2 className="text-2xl font-black text-slate-900 mb-3">Có ảnh bị Conflict!</h2>
+        <p className="text-slate-500 mb-6">
+          <strong className="text-amber-600">{conflictCount}</strong> / {totalItems} ảnh bị conflict
+          (3 annotator gán nhãn khác nhau).
+        </p>
+
+        <div className="space-y-3 mb-8">
+          {nonConflictCount > 0 && (
+            <div className="flex items-center gap-3 p-3 bg-emerald-50 rounded-2xl text-left">
+              <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+              <p className="text-sm text-emerald-700 font-medium">
+                <strong>{nonConflictCount}</strong> ảnh đã đồng thuận → đã gửi cho Reviewer duyệt.
+              </p>
+            </div>
+          )}
+          <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-2xl text-left">
+            <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
+            <p className="text-sm text-amber-700 font-medium">
+              <strong>{conflictCount}</strong> ảnh cần gán nhãn lại (3 annotator không đồng ý).
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-2xl font-bold hover:bg-slate-200 transition-all text-sm"
+          >
+            Về danh sách
+          </button>
+          <button
+            onClick={onRework}
+            className="flex-1 py-3 bg-amber-600 text-white rounded-2xl font-bold hover:bg-amber-700 transition-all text-sm shadow-lg shadow-amber-100"
+          >
+            Làm lại ảnh conflict
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Waiting for other annotators modal ───────────────────────
+function WaitingModal({ submittedCount, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-md p-10 text-center animate-in zoom-in duration-300">
+        <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6">
+          <Users className="w-10 h-10 text-blue-500" />
+        </div>
+        <h2 className="text-2xl font-black text-slate-900 mb-3">Đã nộp thành công!</h2>
+        <p className="text-slate-500 mb-4">
+          Bạn là annotator thứ <strong className="text-blue-600">{submittedCount}</strong>/3 nộp bài.
+        </p>
+        <div className="flex justify-center gap-2 mb-6">
+          {[1, 2, 3].map(n => (
+            <div
+              key={n}
+              className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-sm border-2 ${n <= submittedCount
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-slate-100 text-slate-300 border-slate-200'
+                }`}
+            >
+              {n <= submittedCount ? <Check className="w-5 h-5" /> : n}
+            </div>
+          ))}
+        </div>
+        <p className="text-sm text-slate-400 mb-8">
+          Đang chờ <strong>{3 - submittedCount}</strong> annotator còn lại nộp bài để tính đồng thuận.
+        </p>
+        <button
+          onClick={onClose}
+          className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
+        >
+          Về danh sách nhiệm vụ
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // ── Main Component ───────────────────────────────────────────
@@ -84,11 +201,16 @@ export default function AnnotatorTask() {
   const [error, setError] = useState(null);
   const [task, setTask] = useState(null);
   const [items, setItems] = useState([]);
-  const [fullItems, setFullItems] = useState([]); // All items, even if filtered for rework
+  const [fullItems, setFullItems] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [labels, setLabels] = useState([]);
   const [selectedLabel, setSelectedLabel] = useState('');
   const [itemStates, setItemStates] = useState({});
+
+  // Post-submit result
+  const [submitResult, setSubmitResult] = useState(null); // { hasConflict, conflictCount, totalItems, nonConflictCount }
+  const [submittedCount, setSubmittedCount] = useState(0);
+  const [showWaiting, setShowWaiting] = useState(false);
 
   const canvasRef = useRef(null);
   const imgRef = useRef(null);
@@ -112,15 +234,13 @@ export default function AnnotatorTask() {
   const allProcessed = totalItems > 0 && processedCount >= totalItems;
   const progressPercent = totalItems > 0 ? Math.round((processedCount / totalItems) * 100) : 0;
 
-  useEffect(() => { loadTask(); }, [taskId]); // eslint-disable-line
+  useEffect(() => { loadTask(); }, [taskId]);
 
   async function loadTask() {
     setLoading(true);
     setError(null);
     try {
       const passedTask = location.state?.task;
-
-      // 1. Task
       let taskData = null;
       const isMockTask = String(taskId).startsWith('MOCK-TASK') || String(taskId).startsWith('OFFLINE');
 
@@ -131,27 +251,18 @@ export default function AnnotatorTask() {
           taskData = normalizeTask(Array.isArray(raw) ? raw[0] : raw);
         }
       } catch (e) {
-        console.warn('[Task] getById failed, checking local fallback:', e?.message);
+        console.warn('[Task] getById failed:', e?.message);
       }
-      
-      // ✅ CRITICAL: Merge with Local Storage to get consensus metadata (like isConflict)
-      // Since consensus is calculated locally across labels, server doesn't have the flags.
+
       const userId = getCurrentUserId();
       const localTasks = getLocalAssignedTasksForUser(userId);
       const localMatch = localTasks.find(t => String(t.id) === String(taskId));
       if (localMatch) {
-          // Merge metadata like isConflict, items with flags, etc.
-          taskData = { 
-              ...taskData, 
-              ...localMatch, 
-              items: localMatch.items || taskData?.items || [] 
-          };
-          console.log('[Task] Merged with local storage for consensus metadata');
+        taskData = { ...taskData, ...localMatch, items: localMatch.items || taskData?.items || [] };
       }
 
       if (!taskData) { setError('Không tìm thấy nhiệm vụ.'); return; }
 
-      // 2. Items
       let taskItems = [];
       try {
         if (!isMockTask) {
@@ -163,46 +274,37 @@ export default function AnnotatorTask() {
       }
 
       if (isRework && taskData.items) {
-          console.log('[Rework] Using local task items to preserve conflict flags');
-          taskItems = taskData.items;
+        taskItems = taskData.items;
       } else if (taskItems.length === 0 && taskData.items) {
-          taskItems = taskData.items;
+        taskItems = taskData.items;
       }
 
-      // If still no items, we might need to fetch samples from the dataset if it's a mock task
       if (taskItems.length === 0 && taskData.datasetId) {
         try {
-          const dsItemsRes = await api.get(`/datasets/${taskData.datasetId}/items`).catch(() => api.get(`/Datasets/${taskData.datasetId}`));
+          const dsItemsRes = await api.get(`/datasets/${taskData.datasetId}/items`)
+            .catch(() => api.get(`/Datasets/${taskData.datasetId}`));
           taskItems = resolveApiData(dsItemsRes);
         } catch (e) {
-          console.warn('[Task] Fallback fetch dataset items failed');
+          console.warn('[Task] Fallback dataset items failed');
         }
       }
 
       taskItems = taskItems.map((item, idx) => {
         const iid = String(item?.taskItemId || item?.id || item?.itemId || '');
-        // Find existing meta from taskData (which was merged with local storage)
         const localMeta = (taskData.items || []).find(it => String(it.taskItemId || it.id || '') === iid) || {};
-        
         const baseItem = item?.taskItemId && item?.datasetItem
-          ? { 
-              ...item.datasetItem, 
-              taskItemId: item.taskItemId, 
-              id: item.taskItemId, 
-              isConflict: !!(item.isConflict || localMeta.isConflict || localMeta._raw?.isConflict),
-              _raw: item 
-            }
-          : { ...item, isConflict: !!(item.isConflict || localMeta.isConflict || localMeta._raw?.isConflict) };
-        
+          ? {
+            ...item.datasetItem,
+            taskItemId: item.taskItemId,
+            id: item.taskItemId,
+            isConflict: !!(item.isConflict || localMeta.isConflict),
+            _raw: item
+          }
+          : { ...item, isConflict: !!(item.isConflict || localMeta.isConflict) };
         return baseItem;
       });
 
-      // 3. Labels từ project
-      // projectId có thể lấy từ taskData hoặc từ items (nếu getById fail)
-      const projectId = taskData.projectId
-        || taskItems[0]?._raw?.projectId
-        || taskItems[0]?.projectId;
-
+      const projectId = taskData.projectId || taskItems[0]?._raw?.projectId || taskItems[0]?.projectId;
       if (projectId) {
         const projectLabels = await fetchProjectLabels(projectId);
         if (projectLabels.length > 0) {
@@ -213,51 +315,43 @@ export default function AnnotatorTask() {
           setSelectedLabel('');
         }
       }
+
       setTask(taskData);
       setFullItems(taskItems);
-      
+
       if (isRework) {
-        // QUICK ON-THE-FLY CONSENSUS CHECK
-        // If we're in rework and flags are missing, recalculate them locally
         const localTasksRaw = getAssignedTasksByUserMap();
         const submissions = [];
         Object.entries(localTasksRaw || {}).forEach(([uid, tks]) => {
-           const match = (tks || []).find(it => String(it.id || it._id || '') === String(taskId));
-           if (match && (match.status === 'completed' || match.status === 'done' || match.status === 'rejected')) {
-               submissions.push(match);
-           }
+          const match = (tks || []).find(it => String(it.id || it._id || '') === String(taskId));
+          if (match && (match.status === 'completed' || match.status === 'done' || match.status === 'rejected')) {
+            submissions.push(match);
+          }
         });
 
         if (submissions.length > 0) {
-            console.log(`[Rework] Found ${submissions.length} local submissions for on-the-fly conflict check`);
-            taskItems = taskItems.map((item, i) => {
-                const labels = submissions.map(s => {
-                   const sIt = s.items?.[i] || {};
-                   return sIt.classification || (sIt.annotations?.[0]?.label) || 'unknown';
-                });
-                const counts = {};
-                labels.forEach(l => counts[l] = (counts[l] || 0) + 1);
-                const majority = Object.entries(counts).find(([_, count]) => count >= 2);
-                
-                return { ...item, isConflict: item.isConflict || !majority };
+          taskItems = taskItems.map((item, i) => {
+            const fpList = submissions.map(s => {
+              const it = s.items?.[i] || {};
+              return it.classification || (it.annotations?.[0]?.label) || 'unknown';
             });
+            const counts = {};
+            fpList.forEach(l => counts[l] = (counts[l] || 0) + 1);
+            const majority = Object.entries(counts).find(([_, count]) => count >= 2);
+            return { ...item, isConflict: item.isConflict || !majority };
+          });
         }
 
         const conflictedCount = taskItems.filter(it => it.isConflict).length;
         if (conflictedCount === 0) {
-            console.warn('[Rework Mode] No specific conflicts found. Defaulting to ALL images for safety.');
-            taskItems = taskItems.map(it => ({ ...it, isConflict: true }));
+          taskItems = taskItems.map(it => ({ ...it, isConflict: true }));
         }
-        console.log(`[Rework Mode] Finalizing items for ${taskItems.filter(it => it.isConflict).length} conflicted images.`);
       }
+
       setItems(taskItems);
 
-      // Check deadline
-      if (taskData.dueDate) {
-        const deadlineDate = new Date(taskData.dueDate);
-        if (deadlineDate < new Date()) {
-          setIsExpired(true);
-        }
+      if (taskData.dueDate && new Date(taskData.dueDate) < new Date()) {
+        setIsExpired(true);
       }
 
       const firstUnprocessed = taskItems.findIndex((it) => {
@@ -266,13 +360,10 @@ export default function AnnotatorTask() {
       });
       setCurrentIndex(firstUnprocessed >= 0 ? firstUnprocessed : 0);
 
-      // 4. Load existing annotations
       const initialStates = {};
       for (const item of taskItems) {
         const itemId = item?.taskItemId || item?.id || item?.itemId;
         const itemStatus = String(item?.status || '').toLowerCase();
-        
-        // Force pending if it's a conflict in rework mode
         const isConflictItem = item.isConflict && isRework;
 
         initialStates[itemId] = {
@@ -280,35 +371,24 @@ export default function AnnotatorTask() {
           status: isConflictItem ? 'pending' : (itemStatus === 'completed' || itemStatus === 'done' ? 'done' : itemStatus === 'skipped' ? 'skipped' : 'pending'),
           skipReason: '',
         };
-        // Try to load any existing annotations for this item (don't strictly wait for status === 'done')
+
         if (itemId) {
           try {
             const annRes = await annotationAPI.getByItem(itemId);
             const data = resolveApiData(annRes);
             const anns = Array.isArray(data) ? data : [];
-
             if (anns.length > 0) {
               const latestAnn = anns[anns.length - 1];
               const bboxes = latestAnn?.payload?.bboxes || [];
-
-              // Store the ID of the annotation object for future PUT updates
               initialStates[itemId].annotationId = latestAnn.id;
-
               initialStates[itemId].annotations = bboxes.map((b, idx) => ({
                 id: b.id || `ann-${idx}`,
                 label: b.label,
-                x: b.x,
-                y: b.y,
-                width: b.width,
-                height: b.height,
+                x: b.x, y: b.y, width: b.width, height: b.height,
                 color: getLabelColor(b.label, idx),
               }));
-
-              // If we found server annotations, ensure status is 'done'
-              if (!isConflictItem) {
-                initialStates[itemId].status = 'done';
-              } else {
-                console.log(`[Rework] Clearing annotations for conflicted item: ${itemId}`);
+              if (!isConflictItem) initialStates[itemId].status = 'done';
+              else {
                 initialStates[itemId].annotations = [];
                 initialStates[itemId].status = 'pending';
               }
@@ -334,16 +414,19 @@ export default function AnnotatorTask() {
     }));
   }, []);
 
-  // ── Canvas ───────────────────────────────────────────────────
+  // ── Canvas ──────────────────────────────────────────────────
   function getCanvasCoords(e) {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
-    return { x: (e.clientX - rect.left) * (canvas.width / rect.width), y: (e.clientY - rect.top) * (canvas.height / rect.height) };
+    return {
+      x: (e.clientX - rect.left) * (canvas.width / rect.width),
+      y: (e.clientY - rect.top) * (canvas.height / rect.height)
+    };
   }
 
   function handleCanvasMouseDown(e) {
-    if (isExpired) return; // Block drawing if expired
+    if (isExpired) return;
     if (!selectedLabel) { alert('Vui lòng chọn nhãn trước khi vẽ bounding box!'); return; }
     setIsDrawing(true); setStartPoint(getCanvasCoords(e)); setPreviewBox(null);
   }
@@ -351,17 +434,28 @@ export default function AnnotatorTask() {
   function handleCanvasMouseMove(e) {
     if (!isDrawing || !startPoint) return;
     const pt = getCanvasCoords(e);
-    setPreviewBox({ x: Math.min(startPoint.x, pt.x), y: Math.min(startPoint.y, pt.y), width: Math.abs(pt.x - startPoint.x), height: Math.abs(pt.y - startPoint.y) });
+    setPreviewBox({
+      x: Math.min(startPoint.x, pt.x), y: Math.min(startPoint.y, pt.y),
+      width: Math.abs(pt.x - startPoint.x), height: Math.abs(pt.y - startPoint.y)
+    });
   }
 
   function handleCanvasMouseUp(e) {
     if (!isDrawing || !startPoint) return;
     const pt = getCanvasCoords(e);
-    const box = { x: Math.min(startPoint.x, pt.x), y: Math.min(startPoint.y, pt.y), width: Math.abs(pt.x - startPoint.x), height: Math.abs(pt.y - startPoint.y) };
+    const box = {
+      x: Math.min(startPoint.x, pt.x), y: Math.min(startPoint.y, pt.y),
+      width: Math.abs(pt.x - startPoint.x), height: Math.abs(pt.y - startPoint.y)
+    };
     setIsDrawing(false); setStartPoint(null); setPreviewBox(null);
     if (box.width > 8 && box.height > 8) {
       updateItemState(currentItemId, {
-        annotations: [...annotations, { id: `ann-${Date.now()}`, label: selectedLabel, color: getLabelColor(selectedLabel, labels.indexOf(selectedLabel)), ...box }],
+        annotations: [...annotations, {
+          id: `ann-${Date.now()}`,
+          label: selectedLabel,
+          color: getLabelColor(selectedLabel, labels.indexOf(selectedLabel)),
+          ...box
+        }],
         status: 'pending',
       });
     }
@@ -386,50 +480,37 @@ export default function AnnotatorTask() {
       const color = getLabelColor(selectedLabel, labels.indexOf(selectedLabel));
       ctx.fillStyle = color + '22'; ctx.fillRect(previewBox.x, previewBox.y, previewBox.width, previewBox.height);
       ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([6, 3]);
-      ctx.strokeRect(previewBox.x, previewBox.y, previewBox.width, previewBox.height); ctx.setLineDash([]);
+      ctx.strokeRect(previewBox.x, previewBox.y, previewBox.width, previewBox.height);
+      ctx.setLineDash([]);
     }
   }, [annotations, previewBox, selectedLabel, labels, currentIndex]);
 
-  // ── Actions ──────────────────────────────────────────────────
+  // ── Actions ─────────────────────────────────────────────────
   async function saveCurrentItem() {
     if (!currentItem) return;
     if (annotations.length === 0) { alert('Vui lòng gán ít nhất một nhãn hoặc chọn Skip.'); return false; }
     setSaving(true);
     try {
       const bboxes = annotations.map((a) => ({
-        label: a.label,
-        x: Math.round(a.x),
-        y: Math.round(a.y),
-        width: Math.round(a.width),
-        height: Math.round(a.height)
+        label: a.label, x: Math.round(a.x), y: Math.round(a.y),
+        width: Math.round(a.width), height: Math.round(a.height)
       }));
 
       const existingAnnId = itemStates[currentItemId]?.annotationId;
-
       if (existingAnnId) {
-        // Cập nhật gán nhãn đã tồn tại (PUT)
-        await annotationAPI.update(existingAnnId, {
-          payload: { bboxes }
-        });
+        await annotationAPI.update(existingAnnId, { payload: { bboxes } });
       } else {
-        // Tạo gán nhãn mới (POST)
-        await annotationAPI.submit([{
-          taskItemId: currentItemId,
-          payload: { bboxes }
-        }]);
+        await annotationAPI.submit([{ taskItemId: currentItemId, payload: { bboxes } }]);
       }
 
       updateItemState(currentItemId, { status: 'done' });
 
-      // 5. Update local task items and progress for dashboard/details
       const nextProcessedCount = Object.values({
         ...itemStates,
         [currentItemId]: { ...(itemStates[currentItemId] || {}), status: 'done' }
       }).filter((s) => s.status === 'done' || s.status === 'skipped').length;
 
       const newProgress = Math.round((nextProcessedCount / totalItems) * 100);
-
-      // Update items array in local task
       const updatedItems = items.map(it => {
         const id = it?.taskItemId || it?.id;
         if (id === currentItemId) return { ...it, status: 'done' };
@@ -437,10 +518,7 @@ export default function AnnotatorTask() {
       });
 
       upsertLocalAssignedTask({
-        ...task,
-        progress: newProgress,
-        items: updatedItems,
-        totalItems: items.length
+        ...task, progress: newProgress, items: updatedItems, totalItems: items.length
       }, getCurrentUserId());
 
       return true;
@@ -466,15 +544,12 @@ export default function AnnotatorTask() {
       await annotationAPI.skip({ taskItemId: currentItemId, note: skipReason });
       updateItemState(currentItemId, { status: 'skipped', skipReason, annotations: [] });
 
-      // Update local task progress for dashboard/details
       const nextProcessedCount = Object.values({
         ...itemStates,
         [currentItemId]: { ...(itemStates[currentItemId] || {}), status: 'skipped' }
       }).filter((s) => s.status === 'done' || s.status === 'skipped').length;
 
       const newProgress = Math.round((nextProcessedCount / totalItems) * 100);
-
-      // Update items array in local task
       const updatedItems = items.map(it => {
         const id = it?.taskItemId || it?.id;
         if (id === currentItemId) return { ...it, status: 'skipped' };
@@ -482,10 +557,7 @@ export default function AnnotatorTask() {
       });
 
       upsertLocalAssignedTask({
-        ...task,
-        progress: newProgress,
-        items: updatedItems,
-        totalItems: items.length
+        ...task, progress: newProgress, items: updatedItems, totalItems: items.length
       }, getCurrentUserId());
 
       setShowSkipModal(false); setSkipReason('');
@@ -496,60 +568,96 @@ export default function AnnotatorTask() {
 
   async function handleSubmit() {
     if (!allProcessed) {
-      const cnt = items.filter((item, idx) => { const id = item?.taskItemId || item?.id || `item-${idx}`; const st = itemStates[id]?.status; return st !== 'done' && st !== 'skipped'; }).length;
-      const first = items.findIndex((item, idx) => { const id = item?.taskItemId || item?.id || `item-${idx}`; return itemStates[id]?.status !== 'done' && itemStates[id]?.status !== 'skipped'; });
+      const cnt = items.filter((item, idx) => {
+        const id = item?.taskItemId || item?.id || `item-${idx}`;
+        const st = itemStates[id]?.status;
+        return st !== 'done' && st !== 'skipped';
+      }).length;
+      const first = items.findIndex((item, idx) => {
+        const id = item?.taskItemId || item?.id || `item-${idx}`;
+        return itemStates[id]?.status !== 'done' && itemStates[id]?.status !== 'skipped';
+      });
       alert(`Còn ${cnt} ảnh chưa xử lý. Hoàn thành hoặc skip tất cả trước khi nộp!`);
       if (first >= 0) setCurrentIndex(first);
-      setShowSubmitConfirm(false); return;
+      setShowSubmitConfirm(false);
+      return;
     }
+
     setSubmitting(true);
     const currentUserId = getCurrentUserId();
+
     try {
-      // ✅ Prepare updated task first
+      // Build updated task with all items
       const updatedTask = {
         ...task,
         status: 'completed',
         progress: 100,
         updatedAt: new Date().toISOString(),
         items: fullItems.map(it => {
-            const iid = it?.taskItemId || it?.id || it?.itemId;
-            const istate = itemStates[iid];
-            // If item has a current state (meaning it was in the labelable list)
-            if (istate) {
-                return { 
-                    ...it, 
-                    status: istate.status === 'skipped' ? 'skipped' : 'completed',
-                    annotations: istate.annotations || []
-                };
-            }
-            // Fallback: keep original if not touched this session
-            return it;
+          const iid = it?.taskItemId || it?.id || it?.itemId;
+          const istate = itemStates[iid];
+          if (istate) {
+            return {
+              ...it,
+              status: istate.status === 'skipped' ? 'skipped' : 'completed',
+              annotations: istate.annotations || []
+            };
+          }
+          return it;
         })
       };
 
-      // ✅ Submit to server
-      try { 
-          await taskAPI.submit(taskId, { items: updatedTask.items }); 
-      } catch (e) { 
-          console.warn('[Task] submit API failed:', e?.message); 
+      // Submit to API
+      try {
+        await taskAPI.submit(taskId, { items: updatedTask.items });
+      } catch (e) {
+        console.warn('[Task] submit API failed:', e?.message);
       }
-      
-      // ✅ Update local storage
+
+      // Save to local storage
       upsertLocalAssignedTask(updatedTask, currentUserId);
 
-      // ✅ Trigger consensus check across all users
-      processTaskConsensus(taskId);
+      // Check how many have submitted so far (including this one)
+      const currentCount = getSubmissionCount(taskId);
+      setSubmittedCount(currentCount);
 
-      alert('Nộp dự án thành công! Đang chuyển hướng...');
-      navigate('/annotator/tasks');
-    } catch (err) { alert('Nộp thất bại: ' + (err?.response?.data?.message || err?.message)); }
-    finally { setSubmitting(false); setShowSubmitConfirm(false); }
+      // Process consensus
+      const consensusResult = processTaskConsensus(taskId);
+
+      setShowSubmitConfirm(false);
+
+      if (!consensusResult.ready) {
+        // Not all 3 have submitted yet
+        setShowWaiting(true);
+      } else {
+        // All 3 submitted, show result
+        setSubmitResult(consensusResult);
+      }
+    } catch (err) {
+      alert('Nộp thất bại: ' + (err?.response?.data?.message || err?.message));
+    } finally {
+      setSubmitting(false);
+      setShowSubmitConfirm(false);
+    }
+  }
+
+  function handleSubmitResultClose() {
+    navigate('/annotator/tasks');
+  }
+
+  function handleRework() {
+    setSubmitResult(null);
+    navigate(`/annotator/tasks/${taskId}`, { state: { task, isRework: true } });
+    window.location.reload();
   }
 
   // ── Render ───────────────────────────────────────────────────
   if (loading) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-center"><Loader2 className="w-12 h-12 text-indigo-600 animate-spin mx-auto mb-4" /><p className="text-gray-600 font-medium">Đang tải nhiệm vụ...</p></div>
+      <div className="text-center">
+        <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mx-auto mb-4" />
+        <p className="text-gray-600 font-medium">Đang tải nhiệm vụ...</p>
+      </div>
     </div>
   );
 
@@ -568,6 +676,7 @@ export default function AnnotatorTask() {
   );
 
   if (!task) return null;
+
   const imageUrl = currentItem ? resolveImageUrl(currentItem) : '';
   const canSubmit = allProcessed;
 
@@ -578,32 +687,55 @@ export default function AnnotatorTask() {
       <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-30 shadow-sm">
         <div className="max-w-screen-2xl mx-auto flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <button onClick={() => navigate('/annotator/tasks')} className="p-2 hover:bg-gray-100 rounded-lg transition-colors shrink-0"><ArrowLeft className="w-5 h-5" /></button>
+            <button onClick={() => navigate('/annotator/tasks')} className="p-2 hover:bg-gray-100 rounded-lg transition-colors shrink-0">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
             <div className="min-w-0">
               <h1 className="text-base font-bold text-gray-900 truncate">{task.projectName || 'Dự án'}</h1>
-              <p className="text-xs text-gray-500 truncate">{task.title && !task.title.startsWith('Task #') ? task.title : `Nhiệm vụ #${task.id?.slice(0, 8)}`} · {task.datasetName}</p>
+              <p className="text-xs text-gray-500 truncate">
+                {task.title && !task.title.startsWith('Task #') ? task.title : `Nhiệm vụ #${task.id?.slice(0, 8)}`} · {task.datasetName}
+                {isRework && <span className="ml-2 text-amber-600 font-bold">• Đang làm lại ảnh conflict</span>}
+              </p>
             </div>
           </div>
+
           <div className="hidden md:flex flex-col items-center gap-1 min-w-[200px]">
-            <div className="w-full bg-gray-200 rounded-full h-2"><div className="bg-indigo-600 h-2 rounded-full transition-all" style={{ width: `${progressPercent}%` }} /></div>
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="bg-indigo-600 h-2 rounded-full transition-all" style={{ width: `${progressPercent}%` }} />
+            </div>
             <span className="text-xs text-gray-500 font-medium">{processedCount}/{totalItems} ảnh · {progressPercent}%</span>
           </div>
+
           <div className="flex items-center gap-2 shrink-0">
             {isExpired && (
-                <div className="flex items-center gap-2 px-3 py-2 bg-red-100 text-red-700 rounded-xl text-xs font-black uppercase tracking-tighter shadow-sm border border-red-200">
-                    <AlertCircle className="w-4 h-4" /> ĐÃ HẾT HẠN
-                </div>
+              <div className="flex items-center gap-2 px-3 py-2 bg-red-100 text-red-700 rounded-xl text-xs font-black uppercase tracking-tighter shadow-sm border border-red-200">
+                <AlertCircle className="w-4 h-4" /> ĐÃ HẾT HẠN
+              </div>
             )}
-            <button onClick={saveCurrentItem} disabled={saving || annotations.length === 0 || currentState.status === 'done' || isExpired} className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 disabled:opacity-40 text-sm font-semibold transition-all">
+            <button
+              onClick={saveCurrentItem}
+              disabled={saving || annotations.length === 0 || currentState.status === 'done' || isExpired}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 disabled:opacity-40 text-sm font-semibold transition-all"
+            >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Lưu
             </button>
-            <button onClick={() => setShowSkipModal(true)} disabled={saving || currentState.status === 'done' || currentState.status === 'skipped' || isExpired} className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 text-amber-600 border border-amber-200 rounded-xl hover:bg-amber-100 disabled:opacity-40 text-sm font-semibold transition-all">
+            <button
+              onClick={() => setShowSkipModal(true)}
+              disabled={saving || currentState.status === 'done' || currentState.status === 'skipped' || isExpired}
+              className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 text-amber-600 border border-amber-200 rounded-xl hover:bg-amber-100 disabled:opacity-40 text-sm font-semibold transition-all"
+            >
               <SkipForward className="w-4 h-4" /> Skip
             </button>
             <button
-              onClick={() => { if (!canSubmit) { alert(`Còn ${totalItems - processedCount} ảnh chưa xử lý!`); return; } setShowSubmitConfirm(true); }}
+              onClick={() => {
+                if (!canSubmit) { alert(`Còn ${totalItems - processedCount} ảnh chưa xử lý!`); return; }
+                setShowSubmitConfirm(true);
+              }}
               disabled={submitting || isExpired}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-md ${canSubmit && !isExpired ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200' : 'bg-gray-200 text-gray-500 cursor-not-allowed'}`}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-md ${canSubmit && !isExpired
+                  ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'
+                  : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                }`}
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               Nộp dự án {!canSubmit && <span className="ml-1 text-xs">({totalItems - processedCount} còn lại)</span>}
@@ -617,7 +749,9 @@ export default function AnnotatorTask() {
 
         {/* Left: Image list */}
         <div className="w-52 bg-white border-r border-gray-200 flex flex-col overflow-hidden shrink-0">
-          <div className="p-3 border-b border-gray-100"><p className="text-xs font-black uppercase text-gray-400 tracking-wider">Danh sách ảnh ({totalItems})</p></div>
+          <div className="p-3 border-b border-gray-100">
+            <p className="text-xs font-black uppercase text-gray-400 tracking-wider">Danh sách ảnh ({totalItems})</p>
+          </div>
           <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
             {items.map((item, idx) => {
               const id = item?.taskItemId || item?.id || `item-${idx}`;
@@ -625,16 +759,24 @@ export default function AnnotatorTask() {
               const url = resolveImageUrl(item);
               const isActive = idx === currentIndex;
               return (
-                <button key={id} onClick={() => setCurrentIndex(idx)}
-                  className={`w-full rounded-xl border-2 overflow-hidden transition-all relative ${isActive ? 'border-indigo-500 shadow-md' : state.status === 'done' ? 'border-emerald-300 opacity-80' : state.status === 'skipped' ? 'border-amber-300 opacity-70' : 'border-transparent hover:border-slate-300'}`}
+                <button
+                  key={id}
+                  onClick={() => setCurrentIndex(idx)}
+                  className={`w-full rounded-xl border-2 overflow-hidden transition-all relative ${isActive ? 'border-indigo-500 shadow-md' :
+                      state.status === 'done' ? 'border-emerald-300 opacity-80' :
+                        state.status === 'skipped' ? 'border-amber-300 opacity-70' :
+                          'border-transparent hover:border-slate-300'
+                    }`}
                 >
-                  {url ? <img src={url} alt={`item-${idx}`} className="w-full h-24 object-cover bg-gray-100" onError={(e) => { e.target.style.display = 'none'; }} />
-                    : <div className="w-full h-24 bg-gray-100 flex items-center justify-center text-gray-400"><Tag className="w-8 h-8" /></div>}
+                  {url
+                    ? <img src={url} alt={`item-${idx}`} className="w-full h-24 object-cover bg-gray-100" onError={(e) => { e.target.style.display = 'none'; }} />
+                    : <div className="w-full h-24 bg-gray-100 flex items-center justify-center text-gray-400"><Tag className="w-8 h-8" /></div>
+                  }
                   <div className="absolute top-1 right-1 flex flex-col gap-1">
                     {item.isConflict && isRework && (
-                        <span className="bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-lg animate-bounce">
-                           <AlertCircle className="w-3 h-3" />
-                        </span>
+                      <span className="bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-lg animate-bounce">
+                        <AlertCircle className="w-3 h-3" />
+                      </span>
                     )}
                     {state.status === 'done' && <span className="bg-emerald-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md"><Check className="w-3 h-3" /></span>}
                     {state.status === 'skipped' && <span className="bg-amber-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md"><SkipForward className="w-3 h-3" /></span>}
@@ -667,12 +809,24 @@ export default function AnnotatorTask() {
           <div ref={containerRef} className="flex-1 overflow-auto flex items-center justify-center p-4">
             {imageUrl ? (
               <div className="relative inline-block" style={{ transform: `scale(${zoom})`, transformOrigin: 'center center' }}>
-                <img ref={imgRef} src={imageUrl} alt="annotation" className="max-w-none select-none" style={{ display: 'block', maxHeight: '70vh' }}
-                  onLoad={(e) => { const img = e.target; setImgNaturalSize({ w: img.naturalWidth, h: img.naturalHeight }); }} draggable={false} />
-                <canvas ref={canvasRef}
-                  width={imgRef.current?.naturalWidth || imgNaturalSize.w} height={imgRef.current?.naturalHeight || imgNaturalSize.h}
-                  className="absolute inset-0 cursor-crosshair" style={{ width: imgRef.current?.width || '100%', height: imgRef.current?.height || '100%' }}
-                  onMouseDown={handleCanvasMouseDown} onMouseMove={handleCanvasMouseMove} onMouseUp={handleCanvasMouseUp}
+                <img
+                  ref={imgRef}
+                  src={imageUrl}
+                  alt="annotation"
+                  className="max-w-none select-none"
+                  style={{ display: 'block', maxHeight: '70vh' }}
+                  onLoad={(e) => { const img = e.target; setImgNaturalSize({ w: img.naturalWidth, h: img.naturalHeight }); }}
+                  draggable={false}
+                />
+                <canvas
+                  ref={canvasRef}
+                  width={imgRef.current?.naturalWidth || imgNaturalSize.w}
+                  height={imgRef.current?.naturalHeight || imgNaturalSize.h}
+                  className="absolute inset-0 cursor-crosshair"
+                  style={{ width: imgRef.current?.width || '100%', height: imgRef.current?.height || '100%' }}
+                  onMouseDown={handleCanvasMouseDown}
+                  onMouseMove={handleCanvasMouseMove}
+                  onMouseUp={handleCanvasMouseUp}
                   onMouseLeave={() => { setIsDrawing(false); setStartPoint(null); setPreviewBox(null); }}
                 />
               </div>
@@ -690,7 +844,9 @@ export default function AnnotatorTask() {
             </button>
             <div className="flex items-center gap-4">
               <span className="text-gray-400 text-sm">{processedCount}/{totalItems} đã xử lý</span>
-              <div className="w-32 bg-gray-700 rounded-full h-2"><div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${progressPercent}%` }} /></div>
+              <div className="w-32 bg-gray-700 rounded-full h-2">
+                <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${progressPercent}%` }} />
+              </div>
             </div>
             <button onClick={goNext} disabled={currentIndex >= totalItems - 1} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl disabled:opacity-40 hover:bg-indigo-500 font-semibold text-sm">
               Ảnh tiếp <ArrowRight className="w-4 h-4" />
@@ -714,7 +870,9 @@ export default function AnnotatorTask() {
                 const color = getLabelColor(label, idx);
                 const isSelected = selectedLabel === label;
                 return (
-                  <button key={label} onClick={() => setSelectedLabel(isSelected ? '' : label)}
+                  <button
+                    key={label}
+                    onClick={() => setSelectedLabel(isSelected ? '' : label)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left font-semibold text-sm transition-all ${isSelected ? 'text-white shadow-md' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'}`}
                     style={isSelected ? { backgroundColor: color } : {}}
                   >
@@ -730,7 +888,9 @@ export default function AnnotatorTask() {
 
           <div className="flex-1 overflow-y-auto p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-black uppercase text-gray-500 tracking-wider flex items-center gap-2"><List className="w-4 h-4" /> Bounding boxes ({annotations.length})</h3>
+              <h3 className="text-sm font-black uppercase text-gray-500 tracking-wider flex items-center gap-2">
+                <List className="w-4 h-4" /> Bounding boxes ({annotations.length})
+              </h3>
               {annotations.length > 0 && currentState.status !== 'done' && (
                 <button onClick={() => updateItemState(currentItemId, { annotations: [] })} className="text-xs text-red-500 hover:text-red-700 font-semibold">Xóa tất cả</button>
               )}
@@ -771,8 +931,11 @@ export default function AnnotatorTask() {
 
           {currentState.status !== 'done' && currentState.status !== 'skipped' && (
             <div className="p-4 border-t border-gray-100">
-              <button onClick={saveCurrentItem} disabled={saving || annotations.length === 0}
-                className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 text-white rounded-xl font-bold disabled:opacity-40 hover:bg-indigo-700 transition-all">
+              <button
+                onClick={saveCurrentItem}
+                disabled={saving || annotations.length === 0}
+                className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 text-white rounded-xl font-bold disabled:opacity-40 hover:bg-indigo-700 transition-all"
+              >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Lưu ảnh này
               </button>
               <p className="text-[10px] text-gray-400 text-center mt-2">Hoặc bấm "Skip" nếu ảnh không phù hợp</p>
@@ -789,9 +952,14 @@ export default function AnnotatorTask() {
               <h3 className="text-lg font-bold text-gray-900">Bỏ qua ảnh này</h3>
               <button onClick={() => { setShowSkipModal(false); setSkipReason(''); }} className="p-1.5 hover:bg-gray-100 rounded-full"><X className="w-5 h-5 text-gray-400" /></button>
             </div>
-            <p className="text-sm text-gray-600 mb-4">Vui lòng nhập lý do bỏ qua (ví dụ: ảnh mờ, không có đối tượng cần gán nhãn...)</p>
-            <textarea value={skipReason} onChange={(e) => setSkipReason(e.target.value)} placeholder="Nhập lý do tại đây..."
-              className="w-full p-3 border border-gray-200 rounded-xl focus:border-indigo-400 outline-none resize-none h-28 text-sm" autoFocus />
+            <p className="text-sm text-gray-600 mb-4">Vui lòng nhập lý do bỏ qua</p>
+            <textarea
+              value={skipReason}
+              onChange={(e) => setSkipReason(e.target.value)}
+              placeholder="Nhập lý do tại đây..."
+              className="w-full p-3 border border-gray-200 rounded-xl focus:border-indigo-400 outline-none resize-none h-28 text-sm"
+              autoFocus
+            />
             <div className="flex gap-3 mt-4">
               <button onClick={() => { setShowSkipModal(false); setSkipReason(''); }} className="flex-1 py-2.5 border border-gray-200 text-gray-600 rounded-xl font-semibold hover:bg-gray-50">Hủy</button>
               <button onClick={confirmSkip} disabled={saving || !skipReason.trim()} className="flex-1 py-2.5 bg-amber-500 text-white rounded-xl font-semibold hover:bg-amber-600 disabled:opacity-50">
@@ -802,14 +970,16 @@ export default function AnnotatorTask() {
         </div>
       )}
 
-      {/* Submit Modal */}
+      {/* Submit Confirm Modal */}
       {showSubmitConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 text-center">
             <CheckCircle2 className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
             <h3 className="text-xl font-bold text-gray-900 mb-2">Nộp dự án?</h3>
             <p className="text-gray-600 mb-2">Bạn đã xử lý <strong>{processedCount}/{totalItems}</strong> ảnh.</p>
-            <p className="text-sm text-gray-500 mb-6">Sau khi nộp, dự án sẽ được chuyển đến <strong>Reviewer</strong> để kiểm duyệt.</p>
+            <p className="text-sm text-gray-500 mb-6">
+              Sau khi nộp, hệ thống sẽ tính toán đồng thuận với 2 annotator còn lại.
+            </p>
             <div className="flex gap-3">
               <button onClick={() => setShowSubmitConfirm(false)} className="flex-1 py-3 border border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50">Hủy</button>
               <button onClick={handleSubmit} disabled={submitting} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
@@ -818,6 +988,26 @@ export default function AnnotatorTask() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Waiting for others modal */}
+      {showWaiting && (
+        <WaitingModal
+          submittedCount={submittedCount}
+          onClose={() => {
+            setShowWaiting(false);
+            navigate('/annotator/tasks');
+          }}
+        />
+      )}
+
+      {/* Submission result modal (after all 3 submitted) */}
+      {submitResult && (
+        <SubmissionResultModal
+          result={submitResult}
+          onClose={handleSubmitResultClose}
+          onRework={handleRework}
+        />
       )}
     </div>
   );
