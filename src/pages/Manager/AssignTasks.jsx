@@ -126,7 +126,6 @@ export default function AssignTasks() {
         }
       } catch (e) {
         console.warn('[Datasets] GET /projects/{id}/datasets failed:', e?.message);
-        // Fallback: try to see if projectDetail has it (already loaded in handleProjectSelect)
         if (project.datasets && Array.isArray(project.datasets)) {
           foundDatasets = project.datasets;
         }
@@ -143,7 +142,6 @@ export default function AssignTasks() {
 
   const handleProjectSelect = async (project) => {
     const projectId = project.id || project.projectId;
-    // Fetch project detail để lấy deadline và các thông tin đầy đủ
     let fullProject = project;
     try {
       const res = await api.get(`/projects/${projectId}`, { validateStatus: () => true });
@@ -190,9 +188,7 @@ export default function AssignTasks() {
     setTimeout(() => setMessage({ type: '', text: '' }), 5000);
   };
 
-  // Attach dataset vào project, tự động move nếu đang ở project khác
   const attachDatasetToProject = async (datasetId, projectId) => {
-    // 1. Try to add directly
     const addRes = await api.post(`/datasets/add/${projectId}`, { datasetId: String(datasetId) }, {
       validateStatus: () => true,
     });
@@ -203,13 +199,10 @@ export default function AssignTasks() {
 
     const errorMsg = String(addRes.data?.message || addRes.data?.title || '').toLowerCase();
 
-    // If already in this project, we are good
     if (errorMsg.includes('already associated') || errorMsg.includes('exists')) {
       return true;
     }
 
-    // 2. If it's in another project, we need to find and remove it first (only if absolutely necessary)
-    // For now, let's just log and try a silent remove from all other known projects
     try {
       const projRes = await api.get('/projects', { validateStatus: () => true });
       const projectList = projRes.data?.items || projRes.data?.data || projRes.data || [];
@@ -217,20 +210,24 @@ export default function AssignTasks() {
         for (const proj of projectList) {
           const pid = proj.projectId || proj.id;
           if (!pid || String(pid) === String(projectId)) continue;
-
-          // Silently try to remove
           await api.post(`/datasets/remove/${pid}`, { datasetId: String(datasetId) }, {
             validateStatus: () => true,
           });
         }
       }
-    } catch { /* ignore fetching projects error */ }
+    } catch { /* ignore */ }
 
-    // Final attempt to add
     const finalRes = await api.post(`/datasets/add/${projectId}`, { datasetId: String(datasetId) }, {
       validateStatus: () => true,
     });
     return finalRes.status === 200 || finalRes.status === 201 || finalRes.status === 204;
+  };
+
+  // Helper: parse any date value and return a valid ISO string, or fallback
+  const toISOStringSafe = (dateVal, fallbackMs) => {
+    if (!dateVal) return new Date(fallbackMs).toISOString();
+    const d = new Date(dateVal);
+    return isNaN(d.getTime()) ? new Date(fallbackMs).toISOString() : d.toISOString();
   };
 
   const handleAssignSubmit = async () => {
@@ -250,14 +247,13 @@ export default function AssignTasks() {
     try {
       const projectId = selectedProject.id || selectedProject.projectId;
 
-      // ✅ Fetch project detail để lấy deadline thực tế (manager có quyền GET)
       let projectDetail = selectedProject;
       try {
         const projRes = await api.get(`/projects/${projectId}`, { validateStatus: () => true });
         if (projRes.status === 200) {
           projectDetail = projRes.data?.data || projRes.data || selectedProject;
         }
-      } catch { /* fallback to selectedProject */ }
+      } catch { /* fallback */ }
 
       const allSelectedUsers = [...selectedAnnotatorIds, selectedReviewerId].filter(Boolean);
 
@@ -281,45 +277,76 @@ export default function AssignTasks() {
         (d) => String(d.id || d.datasetId) === String(selectedDatasetId)
       );
 
-      let successCount = 0;
-
-      // 3. Batch assign using the new API format (3 annotators + 1 reviewer)
-      const projectDeadline = projectDetail?.deadline || projectDetail?.dueDate || projectDetail?.endDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      // 3. Build payload — ensure dates are always valid ISO strings
       const startedAt = new Date().toISOString();
+      const deadlineAt = toISOStringSafe(
+        projectDetail?.deadline || projectDetail?.dueDate || projectDetail?.endDate,
+        Date.now() + 7 * 24 * 60 * 60 * 1000  // fallback: 7 days from now
+      );
 
-      const assignPayload = {
+      const allAssigned = [...selectedAnnotatorIds, selectedReviewerId].filter(Boolean);
+      const firstAnnotatorId = selectedAnnotatorIds[0];
+      let successCount = 0;
+      let realTaskId = null;
+
+      // BƯỚC 3A: Gọi API thật cho annotator đầu tiên → lấy realTaskId
+      const firstPayload = {
         projectId: String(projectId),
         datasetId: String(selectedDatasetId),
-        assigments: [
-          ...selectedAnnotatorIds.map(id => ({
-            assignedTo: String(id),
-            startedAt: startedAt,
-            deadlineAt: projectDeadline
-          })),
-          {
-            assignedTo: String(selectedReviewerId),
-            startedAt: startedAt,
-            deadlineAt: projectDeadline
-          }
-        ]
+        assigments: [{
+          assignedTo: String(firstAnnotatorId),
+          startedAt,
+          deadlineAt,
+        }],
       };
 
-      console.log('[Flow] Batch assigning...', assignPayload);
-      
-      try {
-        const assignRes = await api.post('/tasks/assign', assignPayload);
-        const resData = assignRes.data?.data || assignRes.data || {};
+      console.log('[AssignTasks] Gọi API thật cho annotator đầu tiên:', firstAnnotatorId);
 
-        // Since it's a batch, we'll update local storage for each person in the assignments array.
-        const taskResults = Array.isArray(resData) ? resData : [resData];
-        const allAssigned = [...selectedAnnotatorIds, selectedReviewerId];
-        
-        allAssigned.forEach((userId, index) => {
-          const taskInfo = taskResults[index] || taskResults[0] || {};
-          const taskId = taskInfo.taskId || taskInfo.id || taskInfo.Id || `batch-${projectId}-${selectedDatasetId}-${userId}`;
-          
+      try {
+        const firstRes = await api.post('/tasks/assign', firstPayload);
+        const resData = firstRes.data?.data || firstRes.data || {};
+        const taskInfo = Array.isArray(resData) ? resData[0] : resData;
+        realTaskId = taskInfo?.taskId || taskInfo?.id || taskInfo?.Id || `real-${projectId}-${selectedDatasetId}`;
+
+        console.log('[AssignTasks] API thành công, realTaskId:', realTaskId);
+
+        assignLocalTaskToUser({
+          id: realTaskId,
+          title: projectDetail?.name || selectedProject?.name || 'Nhiệm vụ mới',
+          description: projectDetail?.description || selectedProject?.description || '',
+          type: 'image',
+          status: 'pending',
+          projectName: projectDetail?.name || selectedProject?.name || 'Dự án',
+          projectId: String(projectId),
+          datasetName: datasetInfo?.name || 'Bộ dữ liệu',
+          datasetId: String(selectedDatasetId),
+          assignedTo: String(firstAnnotatorId),
+          assignedAt: startedAt,
+          createdAt: startedAt,
+          updatedAt: startedAt,
+          dueDate: deadlineAt,
+          progress: 0,
+          totalItems: datasetInfo?.sampleCount || datasetInfo?.imagesCount || datasetInfo?.itemsCount || 0,
+          items: [],
+          _source: 'api_real',
+        }, firstAnnotatorId);
+
+        successCount = 1;
+      } catch (err) {
+        const errMsg = err.response?.data?.message || err.response?.data?.title || err.message;
+        console.error('[AssignTasks] API assign thất bại:', errMsg);
+        errorDetails.push(`Lỗi giao việc: ${errMsg}`);
+      }
+
+      // BƯỚC 3B: Người 2, 3 (annotators còn lại + reviewer) — dùng lại realTaskId, lưu local
+      if (realTaskId) {
+        const remainingUsers = allAssigned.filter(id => id !== firstAnnotatorId);
+
+        remainingUsers.forEach((userId) => {
+          console.log('[AssignTasks] Lưu local cho userId:', userId, 'dùng taskId:', realTaskId);
+
           assignLocalTaskToUser({
-            id: taskId,
+            id: realTaskId,
             title: projectDetail?.name || selectedProject?.name || 'Nhiệm vụ mới',
             description: projectDetail?.description || selectedProject?.description || '',
             type: 'image',
@@ -332,19 +359,15 @@ export default function AssignTasks() {
             assignedAt: startedAt,
             createdAt: startedAt,
             updatedAt: startedAt,
-            dueDate: projectDeadline,
+            dueDate: deadlineAt,
             progress: 0,
             totalItems: datasetInfo?.sampleCount || datasetInfo?.imagesCount || datasetInfo?.itemsCount || 0,
             items: [],
-            _source: 'batch_task',
+            _source: 'local_mirror',
           }, userId);
-        });
 
-        successCount = allAssigned.length;
-      } catch (err) {
-        const errMsg = err.response?.data?.message || err.response?.data?.title || err.message;
-        console.error(`Batch assign failed:`, errMsg, err.response?.data);
-        errorDetails.push(`API Error: ${errMsg}`);
+          successCount += 1;
+        });
       }
 
       const totalExpected = selectedAnnotatorIds.length + (selectedReviewerId ? 1 : 0);

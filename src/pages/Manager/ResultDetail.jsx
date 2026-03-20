@@ -328,11 +328,7 @@ export default function ManagerResultDetail() {
             </div>
           </div>
 
-          <div className="mt-auto bg-slate-900 rounded-[2rem] p-6 text-white text-center">
-            <p className="text-xs font-bold text-white/60 mb-2">Dataset đã hoàn thiện</p>
-            <p className="text-xs font-medium text-white/40 leading-relaxed mb-6">Bạn đang xem dữ liệu gán nhãn đã qua 3 lớp kiểm duyệt và đạt đồng thuận.</p>
-            <button className="w-full py-3 bg-white/10 hover:bg-white/20 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">Sổ tay hướng dẫn</button>
-          </div>
+
         </aside>
 
         {/* Main Gallery */}
