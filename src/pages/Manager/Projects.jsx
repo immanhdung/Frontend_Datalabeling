@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api, { labelAPI } from "../../config/api";
-import { useAuth } from "../../context/AuthContext";
 
 const toArray = (value) => {
   if (Array.isArray(value)) return value;
@@ -70,7 +69,6 @@ export default function ManagerProjects() {
   const [loadingDatasets, setLoadingDatasets] = useState(false);
 
   const navigate = useNavigate();
-  const { logout } = useAuth();
 
   const handleAssignDataset = async (datasetId) => {
     if (!selectedProject || !datasetId) return;
@@ -122,11 +120,6 @@ export default function ManagerProjects() {
       setCategories(serverCategories);
     } catch (err) {
       console.error("Fetch projects error:", err);
-      if (err.response?.status === 401) {
-        logout();
-        navigate("/login");
-        return;
-      }
       setError("Không tải được danh sách dự án");
     } finally {
       setLoading(false);

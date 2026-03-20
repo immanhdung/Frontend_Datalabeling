@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/common/Header';
 import { reviewAPI } from '../../config/api';
-import { mockReviewerInboxAnnotations } from '../../mock/taskInbox';
 import {
   Search,
   Clock,
@@ -35,6 +34,68 @@ const getDaysUntilDue = (dueDate) => {
   return Math.ceil((new Date(dueDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 };
 
+const resolveApiList = (response) => {
+  const root = response?.data?.data ?? response?.data ?? response;
+  if (Array.isArray(root)) return root;
+  if (Array.isArray(root?.items)) return root.items;
+  if (Array.isArray(root?.Items)) return root.Items;
+  if (Array.isArray(root?.results)) return root.results;
+  if (Array.isArray(root?.Results)) return root.Results;
+  if (Array.isArray(root?.tasks)) return root.tasks;
+  if (Array.isArray(root?.Tasks)) return root.Tasks;
+  if (Array.isArray(root?.data)) return root.data;
+  if (Array.isArray(root?.Data)) return root.Data;
+
+  if (root && typeof root === 'object') {
+    for (const value of Object.values(root)) {
+      if (Array.isArray(value)) return value;
+      if (value && typeof value === 'object') {
+        if (Array.isArray(value.items)) return value.items;
+        if (Array.isArray(value.Items)) return value.Items;
+        if (Array.isArray(value.results)) return value.results;
+        if (Array.isArray(value.Results)) return value.Results;
+        if (Array.isArray(value.data)) return value.data;
+        if (Array.isArray(value.Data)) return value.Data;
+      }
+    }
+  }
+
+  return [];
+};
+
+const normalizeReviewItem = (item) => {
+  const rawStatus = String(item?.status || item?.Status || '').toLowerCase();
+  const status =
+    rawStatus === 'opened' || rawStatus === 'open' || rawStatus === 'assigned' || rawStatus === 'pending'
+      ? 'pending_review'
+      : rawStatus === 'closed' || rawStatus === 'completed' || rawStatus === 'done'
+        ? 'approved'
+        : rawStatus === 'incompleted' || rawStatus === 'in_progress'
+          ? 'pending_review'
+          : rawStatus || 'pending_review';
+
+  const id =
+    item?.id ||
+    item?.taskId ||
+    item?.Id ||
+    item?.TaskId ||
+    item?._id ||
+    '';
+
+  return {
+    ...item,
+    id,
+    taskId: String(item?.taskId || item?.TaskId || id || ''),
+    taskTitle: item?.taskTitle || item?.title || item?.name || item?.Title || 'Task review',
+    projectName: item?.projectName || item?.ProjectName || item?.project?.name || 'Dự án',
+    annotatorName: item?.annotatorName || item?.assignedToName || item?.assignedTo || item?.assigneeName || 'N/A',
+    type: String(item?.type || item?.mediaType || item?.MediaType || 'image').toLowerCase(),
+    status,
+    dueDate: item?.dueDate || item?.deadline || item?.DueDate || item?.expiredAt || null,
+    createdAt: item?.createdAt || item?.CreatedAt || new Date().toISOString(),
+  };
+};
+
 export default function ReviewInbox() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -49,12 +110,11 @@ export default function ReviewInbox() {
         setLoading(true);
         setError('');
         const response = await reviewAPI.getPendingReviews();
-        const data = response?.data?.data || response?.data || [];
-        const normalized = Array.isArray(data) ? data : [];
-        setItems(normalized.length > 0 ? normalized : mockReviewerInboxAnnotations);
+        const normalized = resolveApiList(response);
+        setItems(normalized.map(normalizeReviewItem));
       } catch (err) {
-        setItems(mockReviewerInboxAnnotations);
-        setError(err?.response?.data?.message || 'Không thể tải task review từ API, đang dùng mock data.');
+        setItems([]);
+        setError(err?.response?.data?.message || 'Không thể tải task review từ API.');
       } finally {
         setLoading(false);
       }
@@ -214,7 +274,10 @@ export default function ReviewInbox() {
 
                   <div className="flex justify-end">
                     <button
-                      onClick={() => navigate(`/reviewer/task/${item.id}`)}
+                      onClick={() => {
+                        const targetTaskId = item.taskId || item.task?.id || item.id;
+                        navigate(`/reviewer/task/${targetTaskId}`);
+                      }}
                       className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 text-sm font-semibold"
                     >
                       <Eye className="w-4 h-4" />

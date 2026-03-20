@@ -90,6 +90,8 @@ export default function ManagerProjectDetail() {
   const [editingCategoryLabelId, setEditingCategoryLabelId] = useState("");
   const [editingCategoryLabelName, setEditingCategoryLabelName] = useState("");
   const [labelActionTargetId, setLabelActionTargetId] = useState("");
+  const [selectedLabelToAddId, setSelectedLabelToAddId] = useState("");
+  const [addingLabelToProject, setAddingLabelToProject] = useState(false);
   const [editForm, setEditForm] = useState({
     name: "",
     description: "",
@@ -450,6 +452,21 @@ export default function ManagerProjectDetail() {
     }));
   };
 
+  const handleAddLabelToProject = async () => {
+    if (!selectedLabelToAddId) { alert("Vui lòng chọn nhãn"); return; }
+    try {
+      setAddingLabelToProject(true);
+      await labelAPI.addToProject(id, selectedLabelToAddId);
+      alert("Gắt nhãn vào dự án thành công");
+      setSelectedLabelToAddId("");
+      await fetchProjectDetail();
+    } catch (err) {
+      alert(err?.response?.data?.message || err?.response?.data?.title || "Gắt nhãn thất bại");
+    } finally {
+      setAddingLabelToProject(false);
+    }
+  };
+
   const saveProject = async () => {
     try {
       setSaving(true);
@@ -619,6 +636,32 @@ export default function ManagerProjectDetail() {
                 </span>
               ))}
             </div>
+            {/* Gắt nhãn có sẵn vào dự án qua POST /api/labels/add/{projectId} */}
+            {categoryLabelItems.length > 0 && (
+              <div className="border-t pt-3 mt-1 space-y-2">
+                <p className="text-sm font-medium text-gray-700">Gắt nhãn có sẵn vào dự án</p>
+                <div className="flex gap-2">
+                  <select
+                    value={selectedLabelToAddId}
+                    onChange={(e) => setSelectedLabelToAddId(e.target.value)}
+                    className="flex-1 border rounded px-3 py-2 text-sm"
+                  >
+                    <option value="">-- Chọn nhãn --</option>
+                    {categoryLabelItems.map((label) => (
+                      <option key={label.id} value={String(label.id)}>{label.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleAddLabelToProject}
+                    disabled={addingLabelToProject || !selectedLabelToAddId}
+                    className="px-3 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 text-sm whitespace-nowrap"
+                  >
+                    {addingLabelToProject ? "Đang gắt..." : "Gắt vào dự án"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">

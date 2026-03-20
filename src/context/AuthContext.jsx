@@ -11,14 +11,22 @@ export function AuthProvider({ children }) {
         const savedUser = localStorage.getItem("user");
         const savedToken = localStorage.getItem("accessToken");
 
-        if (savedUser && savedToken) {
-            setUser(JSON.parse(savedUser));
-            setToken(savedToken);
+        try {
+            if (savedUser && savedToken) {
+                const parsedUser = JSON.parse(savedUser);
+                setUser(parsedUser);
+                setToken(savedToken);
+            }
+        } catch (error) {
+            // Corrupted local storage auth can lock protected routes in loading/null state.
+            console.error("Invalid auth data in localStorage, clearing session.", error);
+            localStorage.removeItem("user");
+            localStorage.removeItem("accessToken");
+            setUser(null);
+            setToken(null);
+        } finally {
             setLoading(false);
-            return;
         }
-
-        setLoading(false);
     }, []);
 
     const login = (userData, accessToken) => {

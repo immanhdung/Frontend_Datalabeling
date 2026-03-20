@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api, { categoryAPI, labelAPI } from "../../config/api";
+import { categoryAPI, labelAPI } from "../../config/api";
 import { Plus, Folder, ChevronRight, Tag, X, Layers3, Pencil, Trash2, Check } from "lucide-react";
 
 const readArray = (value) => {
@@ -147,36 +147,46 @@ export default function Categories() {
       const response = await categoryAPI.getAll();
       const rawCategories = readArray(response?.data);
 
-      let labelsByCategory = {};
-      try {
-        const labelsRes = await api.get("/labels");
-        const allLabels = readArray(labelsRes?.data);
-        labelsByCategory = allLabels.reduce((acc, label) => {
-          const categoryId = getLabelCategoryId(label);
-          if (!categoryId) return acc;
-
-          const key = String(categoryId);
-          if (!acc[key]) {
-            acc[key] = [];
-          }
-          acc[key].push(label);
-          return acc;
-        }, {});
-      } catch {
-        labelsByCategory = {};
-      }
-
+      // Render categories immediately without waiting for labels
       const nextCategories = rawCategories.map((category, index) =>
-        normalizeCategory(category, index, labelsByCategory)
+        normalizeCategory(category, index, {})
       );
       if (nextCategories.length > 0) {
         syncCategoriesState(nextCategories, preferredId || selectedCategoryId);
       } else {
         syncCategoriesState([], "");
       }
+      setLoading(false);
+
+      // Fetch all labels in one request then group by categoryId
+      try {
+        const labelsRes = await labelAPI.getAll();
+        const allLabels = readArray(labelsRes?.data);
+        const labelsByCategory = allLabels.reduce((acc, label) => {
+          const catId =
+            getCategoryIdValue(label) ||
+            label?.category?.id ||
+            null;
+          if (!catId) return acc;
+          const key = String(catId);
+          if (!acc[key]) acc[key] = [];
+          acc[key].push(label);
+          return acc;
+        }, {});
+
+        setCategories((prev) =>
+          prev.map((cat) => {
+            const catLabels = labelsByCategory[String(cat.id)] || [];
+            if (catLabels.length === 0) return cat;
+            const merged = normalizeCategory({ ...cat, labels: catLabels }, 0, {});
+            return { ...cat, labels: merged.labels, labelsCount: merged.labelsCount };
+          })
+        );
+      } catch {
+        // labels fetch failed silently, categories still shown
+      }
     } catch {
       alert("Không tải được danh sách category");
-    } finally {
       setLoading(false);
     }
   };
@@ -189,19 +199,8 @@ export default function Categories() {
 
     try {
       setFetchingProjects(true);
-      const response = await api.get("/projects");
-      const allProjects = readArray(response?.data);
-
-      const filtered = allProjects.filter((project) => {
-        const pid = String(categoryId);
-        return (
-          String(project?.categoryId ?? "") === pid ||
-          String(project?.category?.id ?? "") === pid ||
-          String(project?.category?.categoryId ?? "") === pid
-        );
-      });
-
-      setCategoryProjects(filtered);
+      const response = await categoryAPI.getProjects(categoryId);
+      setCategoryProjects(readArray(response?.data));
     } catch {
       setCategoryProjects([]);
     } finally {

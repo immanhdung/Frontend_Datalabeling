@@ -2,7 +2,6 @@ import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/common/Header';
 import useReviewHistory from '../../hooks/useReviewHistory';
-import { mockReviewerHistory } from '../../mock/taskInbox';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -28,7 +27,7 @@ import {
 const ReviewHistory = () => {
   const navigate = useNavigate();
   const { reviewHistory } = useReviewHistory();
-  const historySource = useMemo(() => (reviewHistory.length > 0 ? reviewHistory : mockReviewerHistory), [reviewHistory]);
+  const historySource = useMemo(() => reviewHistory, [reviewHistory]);
 
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');

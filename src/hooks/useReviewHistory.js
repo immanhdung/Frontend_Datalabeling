@@ -3,7 +3,9 @@ import { useEffect, useState } from 'react';
 const readReviewHistory = () => {
   try {
     const saved = localStorage.getItem('reviewHistory');
-    return saved ? JSON.parse(saved) : [];
+    if (!saved) return [];
+    const parsed = JSON.parse(saved);
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }

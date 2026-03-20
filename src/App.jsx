@@ -38,11 +38,16 @@ import ReviewInbox from "./pages/Reviewer/ReviewInbox";
 
 function ProtectedRoute({ children, allowRoles }) {
   const { user, loading } = useAuth();
+  const role = String(user?.role || "").toLowerCase();
 
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
 
-  if (allowRoles && !allowRoles.includes(user.role.toLowerCase())) {
+  if (!role) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (allowRoles && !allowRoles.includes(role)) {
     return <Navigate to="/" replace />;
   }
 
@@ -51,10 +56,11 @@ function ProtectedRoute({ children, allowRoles }) {
 
 function RoleRedirect() {
   const { user, loading } = useAuth();
+  const role = String(user?.role || "").toLowerCase();
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
 
-  switch (user.role.toLowerCase()) {
+  switch (role) {
     case "admin":
       return <Navigate to="/admin/dashboard" replace />;
     case "manager":
@@ -232,6 +238,10 @@ function App() {
         />
         <Route
           path="/reviewer/review"
+          element={<Navigate to="/reviewer/review/inbox" replace />}
+        />
+        <Route
+          path="/reviewer/review/inbox"
           element={
             <ProtectedRoute allowRoles={["reviewer"]}>
               <ReviewInbox />

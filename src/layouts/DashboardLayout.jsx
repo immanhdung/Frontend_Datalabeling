@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useLocation, useNavigate, Outlet } from "react-router-dom";
+import { useLocation, useNavigate, Outlet } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 import {
@@ -31,7 +31,7 @@ const roleNavItems = {
     manager: [
         { icon: LayoutDashboard, label: "Dashboard", path: "/manager/dashboard" },
         { icon: FolderKanban, label: "Quản lý dự án", path: "/manager/projects" },
-        { icon: FolderOpen, label: "Quản lý nhãn & ảnh", path: "/manager/categories" },
+        { icon: FolderOpen, label: "Quản lý nhãn", path: "/manager/categories" },
         { icon: Database, label: "Datasets", path: "/manager/datasets" },
         { icon: Users, label: "Giao việc", path: "/manager/assignments" },
         { icon: ClipboardCheck, label: "Duyệt dự án", path: "/manager/review" },
@@ -44,7 +44,7 @@ const roleNavItems = {
     ],
     reviewer: [
         { icon: LayoutDashboard, label: "Dashboard", path: "/reviewer/dashboard" },
-        { icon: FileCheck, label: "Kiểm duyệt", path: "/reviewer/review" },
+        { icon: FileCheck, label: "Kiểm duyệt", path: "/reviewer/review/inbox" },
         { icon: History, label: "Lịch sử review", path: "/reviewer/history" },
         { icon: Activity, label: "Thống kê", path: "/reviewer/analytics" },
     ],
@@ -55,8 +55,27 @@ export default function DashboardLayout() {
     const navigate = useNavigate();
     const { logout, user } = useAuth();
     const [sidebarOpen, setSidebarOpen] = useState(true);
-    const role = location.pathname.split("/")[1]?.toLowerCase();
+    const role = String(user?.role || location.pathname.split("/")[1] || "").toLowerCase();
     const navItems = roleNavItems[role] || [];
+
+    const handleNavClick = (path) => {
+        if (location.pathname === path) return;
+
+        // Reviewer routes can get stale in SPA navigation on some sessions.
+        // Force a hard navigation so the target page always renders immediately.
+        if (role === "reviewer") {
+            window.location.assign(path);
+            return;
+        }
+
+        navigate(path);
+
+        setTimeout(() => {
+            if (window.location.pathname !== path) {
+                window.location.assign(path);
+            }
+        }, 0);
+    };
 
     const handleLogout = () => {
         logout();
@@ -92,13 +111,14 @@ export default function DashboardLayout() {
                         const Icon = item.icon;
 
                         return (
-                            <Link
+                            <button
                                 key={item.path}
-                                to={item.path}
+                                type="button"
+                                onClick={() => handleNavClick(item.path)}
                                 className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-lg font-medium transition ${isActive
                                     ? "bg-indigo-600 text-white"
                                     : "text-gray-600 hover:bg-indigo-50 hover:text-indigo-600"
-                                    }`}
+                                    } w-full text-left`}
                             >
                                 <Icon className="h-5 w-5 shrink-0" />
                                 {sidebarOpen && (
@@ -107,7 +127,7 @@ export default function DashboardLayout() {
                                         {isActive && <ChevronRight className="h-4 w-4" />}
                                     </>
                                 )}
-                            </Link>
+                            </button>
                         );
                     })}
                 </nav>
