@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { reviewAPI } from '../../config/api';
 import Header from '../../components/common/Header';
@@ -144,19 +144,33 @@ const ReviewerDashboard = () => {
     };
   }, [reviewHistory.length]);
 
+  const combinedAnnotations = useMemo(() => {
+    const pending = annotations.map(a => ({ ...a, status: a.status || 'pending_review' }));
+    const history = reviewHistory.map(h => ({
+      ...h,
+      id: h.annotationId,
+      status: h.decision === 'approved' ? 'approved' : 'rejected',
+      isHistory: true, // Marker for history items
+      createdAt: h.reviewedAt, // Use reviewed time for sorting
+      itemCount: h.itemCount || 0
+    }));
+    return [...pending, ...history];
+  }, [annotations, reviewHistory]);
+
   const filteredAnnotations = useMemo(() => {
-    return annotations.filter((ann) => {
+    return combinedAnnotations.filter((ann) => {
       const matchesTab =
         activeTab === 'all' ||
         (activeTab === 'pending_review' && (ann.status === 'pending_review' || ann.status === 'pending')) ||
         ann.status === activeTab;
+        
       const matchesSearch =
         String(ann.taskTitle || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         String(ann.annotatorName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         String(ann.projectName || '').toLowerCase().includes(searchTerm.toLowerCase());
       return matchesTab && matchesSearch;
     }).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-  }, [annotations, activeTab, searchTerm]);
+  }, [combinedAnnotations, activeTab, searchTerm]);
 
   const handleApprove = async (ann) => {
     try {
@@ -286,7 +300,9 @@ const ReviewerDashboard = () => {
           <div className="flex items-center gap-2 p-1.5 bg-slate-100 rounded-2xl">
             {[
               { id: 'pending_review', label: 'Chờ duyệt', count: stats.pending },
-              { id: 'all', label: 'Tất cả', count: stats.total },
+              { id: 'approved', label: 'Đã Duyệt', count: stats.approved },
+              { id: 'rejected', label: 'Từ Chối', count: stats.rejected },
+              { id: 'all', label: 'Tất cả', count: stats.total + stats.approved + stats.rejected },
             ].map(t => (
               <button
                 key={t.id}

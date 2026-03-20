@@ -84,10 +84,10 @@ export default function ReviewInbox() {
           }
         } catch (e) {}
 
-        setItems(allFound.length > 0 ? allFound : mockReviewerInboxAnnotations);
+        setItems(allFound);
       } catch (err) {
-        setItems(mockReviewerInboxAnnotations);
-        setError(err?.response?.data?.message || 'Không thể tải task review từ API, đang dùng mock data.');
+        setItems([]);
+        setError(err?.response?.data?.message || 'Không thể tải task review từ API.');
       } finally {
         setLoading(false);
       }
