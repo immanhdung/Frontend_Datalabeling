@@ -93,15 +93,31 @@ function App() {
           }
         />
         <Route
-          path="/admin/settings"
+          path="/admin/projects"
           element={
             <ProtectedRoute allowRoles={["admin"]}>
-              <SystemSettings />
+              <ManagerProjects />
             </ProtectedRoute>
           }
         />
         <Route
-          path="/admin/logs"
+          path="/admin/categories"
+          element={
+            <ProtectedRoute allowRoles={["admin"]}>
+              <Categories />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/datasets"
+          element={
+            <ProtectedRoute allowRoles={["admin"]}>
+              <Datasets />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/activity"
           element={
             <ProtectedRoute allowRoles={["admin"]}>
               <ActivityLogs />

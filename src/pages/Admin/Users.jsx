@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import Header from "../../components/common/Header";
 import api from "../../config/api";
 import { useAuth } from "../../context/AuthContext";
@@ -10,6 +10,7 @@ import {
   X,
   ChevronUp,
   ChevronDown,
+  RotateCcw,
 } from "lucide-react";
 
 const Users = () => {
@@ -100,6 +101,7 @@ const Users = () => {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [filterRole, setFilterRole] = useState("all");
+  const [showInactive, setShowInactive] = useState(false); // Thêm filter ẩn/hiện user vô hiệu hóa
 
   const [sortField, setSortField] = useState("username");
   const [sortOrder, setSortOrder] = useState("asc");
@@ -191,6 +193,11 @@ const Users = () => {
       );
     }
 
+    // ✅ Hiển thị/Ẩn user bị vô hiệu hóa
+    if (!showInactive) {
+      result = result.filter((u) => u.isActive !== false && String(u.status || "").toLowerCase() !== "inactive");
+    }
+
     result.sort((a, b) => {
       let aVal = a[sortField] || "";
       let bVal = b[sortField] || "";
@@ -210,7 +217,7 @@ const Users = () => {
     });
 
     setFilteredUsers(result);
-  }, [users, searchTerm, filterRole, sortField, sortOrder]);
+  }, [users, searchTerm, filterRole, showInactive, sortField, sortOrder]);
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -364,32 +371,83 @@ const Users = () => {
   };
 
   const confirmDelete = async () => {
+    const targetId = userToDelete.userId || userToDelete.id || userToDelete._id;
+
     if (isDemoMode || isDevFallbackToken) {
-      const idToDelete = userToDelete.userId || userToDelete.id || userToDelete._id;
-      const nextUsers = users.filter((u) => (u.userId || u.id || u._id) !== idToDelete);
+      const nextUsers = users.map((u) => {
+        const uid = u.userId || u.id || u._id;
+        return uid === targetId ? { ...u, isActive: false, status: 'Inactive' } : u;
+      });
       setDevUsers(nextUsers);
       setUsers(nextUsers);
       setShowDeleteConfirm(false);
       setUserToDelete(null);
-      alert("Đã xóa người dùng demo!");
+      alert("Đã chuyển trạng thái người dùng demo sang Inactive!");
       return;
     }
 
     try {
-      await api.delete(`/users/${userToDelete.userId || userToDelete.id || userToDelete._id}`);
+      // ✅ Thực hiện SOFT DELETE bằng cách update isActive = false và status = 'Inactive'
+      const roleId = getRoleIdByName(userToDelete.roleName);
+      const payload = {
+        username: userToDelete.username,
+        displayName: userToDelete.displayName,
+        email: userToDelete.email,
+        phoneNumber: userToDelete.phoneNumber,
+        roleId: roleId,
+        isActive: false,
+        status: 'Inactive',
+      };
+
+      await api.put(`/users/${targetId}`, payload);
       await fetchUsers();
-      alert("Đã xóa người dùng!");
+      alert("Đã vô hiệu hóa người dùng thành công!");
     } catch (err) {
-      console.error("Delete user error:", err);
+      console.error("Soft delete user error:", err);
       if (isEndpointMissing(err)) {
         setIsDemoMode(true);
-        alert("Endpoint xóa user chưa có trên backend. Đã giữ chế độ demo.");
+        alert("Backend không hỗ trợ update status. Đã chuyển sang chế độ demo.");
       } else {
-        alert("Xóa thất bại!");
+        alert("Không thể vô hiệu hóa người dùng này.");
       }
     } finally {
       setShowDeleteConfirm(false);
       setUserToDelete(null);
+    }
+  };
+
+  const handleReactivate = async (user) => {
+    const targetId = user.userId || user.id || user._id;
+
+    if (isDemoMode || isDevFallbackToken) {
+      const nextUsers = users.map((u) => {
+        const uid = u.userId || u.id || u._id;
+        return uid === targetId ? { ...u, isActive: true, status: 'Active' } : u;
+      });
+      setDevUsers(nextUsers);
+      setUsers(nextUsers);
+      alert("Đã kích hoạt lại người dùng demo!");
+      return;
+    }
+
+    try {
+      const roleId = getRoleIdByName(user.roleName);
+      const payload = {
+        username: user.username,
+        displayName: user.displayName,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        roleId: roleId,
+        isActive: true,
+        status: 'Active',
+      };
+
+      await api.put(`/users/${targetId}`, payload);
+      await fetchUsers();
+      alert("Đã kích hoạt lại người dùng thành công!");
+    } catch (err) {
+      console.error("Reactivate user error:", err);
+      alert("Kích hoạt lại thất bại!");
     }
   };
 
@@ -459,6 +517,19 @@ const Users = () => {
             <option value="reviewer">Reviewer</option>
             <option value="annotator">Annotator</option>
           </select>
+
+          <div className="flex items-center gap-2 px-4">
+            <input 
+              type="checkbox" 
+              id="showInactive" 
+              checked={showInactive} 
+              onChange={e => setShowInactive(e.target.checked)}
+              className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
+            />
+            <label htmlFor="showInactive" className="text-sm font-medium text-slate-600 cursor-pointer">
+              Hiện user vô hiệu hóa
+            </label>
+          </div>
         </div>
 
         {/* TABLE */}
@@ -497,25 +568,42 @@ const Users = () => {
                         <div className="text-[11px] text-slate-400 font-medium">{u.phoneNumber || "---"}</div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide border ${getRoleBadgeColor(u.roleName)}`}>
-                          {u.roleName}
-                        </span>
+                        <div className="flex flex-col gap-1.5">
+                          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide border w-fit ${getRoleBadgeColor(u.roleName)}`}>
+                            {u.roleName}
+                          </span>
+                          {u.isActive === false && (
+                            <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide bg-slate-200 text-slate-500 border border-slate-300 w-fit">
+                              Vô hiệu hóa
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button onClick={() => openEditModal(u)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" title="Chỉnh sửa">
                             <Edit2 className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => {
-                              setUserToDelete(u);
-                              setShowDeleteConfirm(true);
-                            }}
-                            className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
-                            title="Xóa"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {u.isActive === false || String(u.status || "").toLowerCase() === "inactive" ? (
+                            <button
+                              onClick={() => handleReactivate(u)}
+                              className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                              title="Kích hoạt lại"
+                            >
+                              <RotateCcw className="w-4 h-4" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setUserToDelete(u);
+                                setShowDeleteConfirm(true);
+                              }}
+                              className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                              title="Vô hiệu hóa"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -659,9 +747,9 @@ const Users = () => {
             <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
               <Trash2 className="w-8 h-8" />
             </div>
-            <h3 className="text-xl font-bold text-slate-900 mb-2">Xác nhận xóa?</h3>
+            <h3 className="text-xl font-bold text-slate-900 mb-2">Vô hiệu hóa?</h3>
             <p className="text-slate-500 text-sm leading-relaxed mb-8 px-2">
-              Bạn có chắc chắn muốn xóa người dùng <span className="font-bold text-slate-900">@{userToDelete?.username}</span>? Hành động này không thể hoàn tác.
+              Bạn có chắc chắn muốn vô hiệu hóa tài khoản <span className="font-bold text-slate-900">@{userToDelete?.username}</span>? Tài khoản sẽ không thể đăng nhập cho đến khi được kích hoạt lại.
             </p>
             <div className="flex gap-3">
               <button
@@ -674,7 +762,7 @@ const Users = () => {
                 onClick={confirmDelete}
                 className="flex-1 px-4 py-3 bg-rose-600 text-white font-bold rounded-2xl hover:bg-rose-700 transition-all shadow-lg shadow-rose-200 text-sm"
               >
-                Xóa ngay
+                Xác nhận
               </button>
             </div>
           </div>

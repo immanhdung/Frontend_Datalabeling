@@ -5,7 +5,9 @@ const MENU_BY_ROLE = {
     admin: [
         { label: "Dashboard", path: "/admin/dashboard" },
         { label: "Quản lý người dùng", path: "/admin/users" },
-        { label: "Cấu hình hệ thống", path: "/admin/system" },
+        { label: "Quản lý dự án", path: "/admin/projects" },
+        { label: "Category & Nhãn", path: "/admin/categories" },
+        { label: "Quản lý Datasets", path: "/admin/datasets" },
         { label: "Nhật ký hoạt động", path: "/admin/activity" },
     ],
     manager: [

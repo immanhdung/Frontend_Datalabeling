@@ -25,8 +25,10 @@ const roleNavItems = {
     admin: [
         { icon: LayoutDashboard, label: "Dashboard", path: "/admin/dashboard" },
         { icon: Users, label: "Quản lý người dùng", path: "/admin/users" },
-        { icon: Settings, label: "Cấu hình hệ thống", path: "/admin/settings" },
-        { icon: Activity, label: "Nhật ký hoạt động", path: "/admin/logs" },
+        { icon: FolderKanban, label: "Quản lý dự án", path: "/admin/projects" },
+        { icon: FolderOpen, label: "Category & Nhãn", path: "/admin/categories" },
+        { icon: Database, label: "Datasets", path: "/admin/datasets" },
+        { icon: Activity, label: "Nhật ký hoạt động", path: "/admin/activity" },
     ],
     manager: [
         { icon: LayoutDashboard, label: "Dashboard", path: "/manager/dashboard" },

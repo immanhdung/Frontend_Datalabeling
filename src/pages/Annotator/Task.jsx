@@ -118,7 +118,7 @@ export default function AnnotatorTask() {
       // 1. Task
       let taskData = null;
       const isMockTask = String(taskId).startsWith('MOCK-TASK') || String(taskId).startsWith('OFFLINE');
-      
+
       try {
         if (!isMockTask) {
           const res = await taskAPI.getById(taskId);
@@ -128,7 +128,7 @@ export default function AnnotatorTask() {
       } catch (e) {
         console.warn('[Task] getById failed, checking local fallback:', e?.message);
       }
-      
+
       if (!taskData || isMockTask) {
         // Fallback: Tìm trong local storage của người dùng hiện tại
         const userId = getCurrentUserId();
@@ -139,7 +139,7 @@ export default function AnnotatorTask() {
           console.log('[Task] Loaded from local storage fallback');
         }
       }
-      
+
       if (!taskData) { setError('Không tìm thấy nhiệm vụ.'); return; }
 
       // 2. Items
@@ -152,19 +152,19 @@ export default function AnnotatorTask() {
       } catch (e) {
         console.warn('[Task] getItems failed:', e?.message);
       }
-      
+
       if (taskItems.length === 0 && taskData.items) {
         taskItems = taskData.items;
       }
 
       // If still no items, we might need to fetch samples from the dataset if it's a mock task
       if (taskItems.length === 0 && taskData.datasetId) {
-          try {
-              const dsItemsRes = await api.get(`/datasets/${taskData.datasetId}/items`).catch(() => api.get(`/Datasets/${taskData.datasetId}`));
-              taskItems = resolveApiData(dsItemsRes);
-          } catch (e) {
-              console.warn('[Task] Fallback fetch dataset items failed');
-          }
+        try {
+          const dsItemsRes = await api.get(`/datasets/${taskData.datasetId}/items`).catch(() => api.get(`/Datasets/${taskData.datasetId}`));
+          taskItems = resolveApiData(dsItemsRes);
+        } catch (e) {
+          console.warn('[Task] Fallback fetch dataset items failed');
+        }
       }
 
       // Normalize nested structure

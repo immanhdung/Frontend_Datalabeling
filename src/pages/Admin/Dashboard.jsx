@@ -1,5 +1,6 @@
 
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Users,
   FolderKanban,
@@ -27,6 +28,7 @@ import {
 } from "../../utils/projectDashboardHelpers";
 
 export default function AdminDashboard() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [dashboardStats, setDashboardStats] = useState({
     totalUsers: 0,
@@ -293,7 +295,10 @@ export default function AdminDashboard() {
                 ))}
               </div>
 
-              <button className="w-full mt-10 py-4.5 bg-slate-50 text-slate-600 rounded-2xl font-bold text-base hover:bg-blue-50 hover:text-blue-700 transition-all border border-transparent hover:border-blue-100 flex items-center justify-center gap-2">
+              <button 
+                onClick={() => navigate("/admin/projects")}
+                className="w-full mt-10 py-4.5 bg-slate-50 text-slate-600 rounded-2xl font-bold text-base hover:bg-blue-50 hover:text-blue-700 transition-all border border-transparent hover:border-blue-100 flex items-center justify-center gap-2"
+              >
                 Xem tất cả dự án
                 <ChevronRight className="w-5 h-5" />
               </button>
@@ -343,7 +348,10 @@ export default function AdminDashboard() {
               </div>
 
               <div className="mt-10 pt-8 border-t border-slate-50">
-                <button className="text-base font-bold text-blue-600 hover:text-blue-700 transition-colors flex items-center gap-1.5 mx-auto">
+                <button 
+                  onClick={() => navigate("/admin/activity")}
+                  className="text-base font-bold text-blue-600 hover:text-blue-700 transition-colors flex items-center gap-1.5 mx-auto"
+                >
                   Toàn bộ lịch sử
                   <ChevronRight className="w-5 h-5" />
                 </button>

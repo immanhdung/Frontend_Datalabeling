@@ -54,7 +54,7 @@ export default function AssignTasks() {
         api.get('/tasks').catch(() => api.get('/Tasks')),
         api.get('/reviews').catch(() => api.get('/Reviews')),
       ]);
-      
+
       const counts = {};
 
       if (projRes.status === 'fulfilled') {
@@ -297,13 +297,13 @@ export default function AssignTasks() {
 
           console.log(`[Flow] Assigning to ${annotatorId}...`);
           let currentTaskId = null;
-          
+
           try {
             // Thử gọi API gán việc
             const assignRes = await api.post('/tasks/assign', assignPayload);
             const resData = assignRes.data?.data || assignRes.data || {};
             currentTaskId = resData.taskId || resData.id || resData.Id;
-            
+
             // Lưu lại Task ID đầu tiên thành công để chia sẻ
             if (!sharedTaskId) sharedTaskId = currentTaskId;
           } catch (apiErr) {
@@ -349,7 +349,7 @@ export default function AssignTasks() {
 
       // 4. Note: Reviewer is already added to the project members in Step 1.
       if (selectedReviewerId) successCount++;
-      
+
       const totalExpected = selectedAnnotatorIds.length + (selectedReviewerId ? 1 : 0);
 
       if (successCount === totalExpected) {
@@ -587,7 +587,7 @@ export default function AssignTasks() {
               <div className="bg-white rounded-[3rem] border-2 border-slate-50 shadow-sm flex flex-col h-[700px]">
                 <div className="p-8 border-b-2 border-slate-50 flex items-center justify-between bg-emerald-50/30 rounded-t-[3rem]">
                   <div>
-                      <h3 className="text-xl font-black text-slate-900">Annotators</h3>
+                    <h3 className="text-xl font-black text-slate-900">Annotators</h3>
                     <p className={`text-[10px] font-black uppercase tracking-widest ${selectedAnnotatorIds.length === 3 ? 'text-emerald-600' : 'text-slate-400'}`}>
                       {selectedAnnotatorIds.length === 3 ? 'Đã lựa chọn đủ 3 annotator' : `Đã chọn ${selectedAnnotatorIds.length}/3 annotator`}
                     </p>
@@ -624,7 +624,7 @@ export default function AssignTasks() {
               <div className="bg-white rounded-[3rem] border-2 border-slate-50 shadow-sm flex flex-col h-[700px]">
                 <div className="p-8 border-b-2 border-slate-50 flex items-center justify-between bg-indigo-50/30 rounded-t-[3rem]">
                   <div>
-                      <h3 className="text-xl font-black text-slate-900">Reviewer</h3>
+                    <h3 className="text-xl font-black text-slate-900">Reviewer</h3>
                     <p className={`text-[10px] font-black uppercase tracking-widest ${selectedReviewerId ? 'text-indigo-600' : 'text-slate-400'}`}>
                       {selectedReviewerId ? "Đã lựa chọn Reviewer" : "Chọn duy nhất 1 người"}
                     </p>
