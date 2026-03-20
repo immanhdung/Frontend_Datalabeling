@@ -146,34 +146,28 @@ export default function Categories() {
       setLoading(true);
       const response = await categoryAPI.getAll();
       const rawCategories = readArray(response?.data);
-
-      let labelsByCategory = {};
-      try {
-        const labelsRes = await api.get("/labels");
-        const allLabels = readArray(labelsRes?.data);
-        labelsByCategory = allLabels.reduce((acc, label) => {
-          const categoryId = getLabelCategoryId(label);
-          if (!categoryId) return acc;
-
-          const key = String(categoryId);
-          if (!acc[key]) {
-            acc[key] = [];
-          }
-          acc[key].push(label);
-          return acc;
-        }, {});
-      } catch {
-        labelsByCategory = {};
-      }
-
-      const nextCategories = rawCategories.map((category, index) =>
-        normalizeCategory(category, index, labelsByCategory)
-      );
-      if (nextCategories.length > 0) {
-        syncCategoriesState(nextCategories, preferredId || selectedCategoryId);
-      } else {
+      if (rawCategories.length === 0) {
         syncCategoriesState([], "");
+        setLoading(false);
+        return;
       }
+
+      // ✅ Sử dụng API /api/categories/{id}/labels để lấy label cho từng category theo yêu cầu từ ảnh
+      const categoriesWithLabels = await Promise.all(rawCategories.map(async (cat, index) => {
+        const id = getCategoryIdValue(cat);
+        let labels = [];
+        if (id) {
+          try {
+            const labelsRes = await api.get(`/categories/${id}/labels`);
+            labels = asArray(labelsRes?.data);
+          } catch {
+            labels = [];
+          }
+        }
+        return normalizeCategory({ ...cat, labels }, index);
+      }));
+
+      syncCategoriesState(categoriesWithLabels, preferredId || selectedCategoryId);
     } catch {
       alert("Không tải được danh sách category");
     } finally {
@@ -216,6 +210,25 @@ export default function Categories() {
   useEffect(() => {
     if (!selectedCategoryId) return;
     fetchCategoryProjects(selectedCategoryId);
+    
+    // ✅ Luôn làm mới labels của category đang chọn bằng API yêu cầu: /api/categories/{id}/labels
+    const refreshLabels = async () => {
+      try {
+        const res = await api.get(`/categories/${selectedCategoryId}/labels`);
+        const fetchedLabels = asArray(res?.data);
+        setCategories(prev => prev.map(cat => {
+          if (String(cat.id) === String(selectedCategoryId)) {
+            const merged = { ...cat, labels: fetchedLabels };
+            const normalized = normalizeLabels(merged);
+            return { ...cat, labels: normalized, labelsCount: normalized.length };
+          }
+          return cat;
+        }));
+      } catch (err) {
+        console.error("Refresh labels failed", err);
+      }
+    };
+    refreshLabels();
   }, [selectedCategoryId]);
 
   const applyLabelToState = (categoryId, nextLabelName) => {

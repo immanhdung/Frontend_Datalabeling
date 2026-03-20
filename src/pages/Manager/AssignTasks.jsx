@@ -553,20 +553,42 @@ export default function AssignTasks() {
                 datasets.map((ds) => {
                   const dsId = ds.id || ds.datasetId;
                   const isSelected = selectedDatasetId === dsId;
+                  // ✅ Dataset nào đã giao (isActive = false) thì làm mờ và không cho chọn
+                  const isAlreadyAssigned = ds.isActive === false || ds.IsActive === false;
+                  
                   return (
                     <div
                       key={dsId}
-                      onClick={() => setSelectedDatasetId(dsId)}
-                      className={`p-8 rounded-[3rem] border-4 transition-all cursor-pointer relative ${isSelected ? 'border-indigo-600 bg-indigo-50/50 shadow-xl' : 'border-slate-50 bg-white hover:border-indigo-100 shadow-sm'}`}
+                      onClick={() => !isAlreadyAssigned && setSelectedDatasetId(dsId)}
+                      className={`p-8 rounded-[3rem] border-4 transition-all relative ${
+                        isAlreadyAssigned 
+                          ? 'border-slate-100 bg-slate-50 opacity-60 cursor-not-allowed' 
+                          : isSelected 
+                            ? 'border-indigo-600 bg-indigo-50/50 shadow-xl cursor-pointer' 
+                            : 'border-slate-50 bg-white hover:border-indigo-100 shadow-sm cursor-pointer'
+                      }`}
                     >
-                      <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mb-6 ${isSelected ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}>
+                      <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mb-6 ${
+                        isAlreadyAssigned ? 'bg-slate-200 text-slate-400' : isSelected ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'
+                      }`}>
                         <Database className="w-8 h-8" />
                       </div>
-                      <h4 className="font-black text-slate-900 text-xl mb-1">{ds.name}</h4>
-                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-6">
-                        {ds.sampleCount || ds.imagesCount || 0} ITEMS
-                      </p>
-                      {isSelected && (
+                      
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-black text-slate-900 text-xl mb-1 truncate max-w-[150px]">{ds.name}</h4>
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-6">
+                            {ds.sampleCount || ds.imagesCount || 0} ITEMS
+                          </p>
+                        </div>
+                        {isAlreadyAssigned && (
+                          <span className="px-3 py-1 bg-red-100 text-red-600 text-[10px] font-black rounded-full uppercase tracking-widest">
+                            Đã giao
+                          </span>
+                        )}
+                      </div>
+
+                      {isSelected && !isAlreadyAssigned && (
                         <div className="absolute top-6 right-8 w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center">
                           <CheckSquare className="w-5 h-5 text-white" />
                         </div>

@@ -32,7 +32,7 @@ const normalizeLabelNames = (project, labelSets) => {
   const fromProject = toArray(project?.labels || project?.labelNames || project?.labelList || project?.ProjectLabels)
     .map((item) => (typeof item === "string" ? item : item?.name ?? item?.labelName ?? item?.title))
     .filter(Boolean);
-  const fromLabelSets = labelSets.flatMap((set) => 
+  const fromLabelSets = labelSets.flatMap((set) =>
     toArray(set?.labels).map((item) => item?.name ?? item?.labelName ?? item?.title)
   ).filter(Boolean);
   return Array.from(new Set([...fromProject, ...fromLabelSets].map((item) => String(item).trim()).filter(Boolean)));
@@ -197,14 +197,14 @@ export default function ManagerProjectDetail() {
       setLoading(true);
       setError(null);
 
-      // ✅ Chỉ gọi các endpoint thực sự tồn tại
+      // ✅ Gọi các endpoint để lấy datasets và labels của dự án theo ảnh yêu cầu
       const [projectRes, categoriesRes, datasetsRes, projectDatasetsRes, tasksRes, projectLabelsRes, usersRes] = await Promise.all([
         api.get(`/projects/${id}`),
         api.get("/categories").catch(() => ({ data: [] })),
         api.get("/datasets").catch(() => ({ data: [] })),
-        api.get(`/datasets?ProjectId=${id}`).catch(() => ({ data: [] })),
+        api.get(`/projects/${id}/datasets`).catch(() => ({ data: [] })), // GET /api/projects/{id}/datasets
         api.get("/tasks").catch(() => ({ data: [] })),
-        api.get(`/labels?ProjectId=${id}`).catch(() => api.get(`/projects/${id}/labels`)).catch(() => ({ data: [] })),
+        api.get(`/projects/${id}/labels`).catch(() => api.get(`/labels?ProjectId=${id}`)).catch(() => ({ data: [] })), // GET /api/projects/{id}/labels
         api.get("/users").catch(() => ({ data: [] })),
       ]);
 
@@ -348,7 +348,7 @@ export default function ManagerProjectDetail() {
           // Map annotations vào từng item tương ứng
           const itemsWithAnnotations = taskItems.map(item => {
             const itemId = item.id || item.itemId;
-            const itemAnnos = taskAnnotations.filter(anno => 
+            const itemAnnos = taskAnnotations.filter(anno =>
               String(anno.itemId || anno.item_id) === String(itemId)
             );
             return {
@@ -591,7 +591,7 @@ export default function ManagerProjectDetail() {
           <p className="text-gray-500 mt-1">{project.description || "Chưa có mô tả cho dự án này."}</p>
         </div>
         <div className="flex gap-3">
-          <button 
+          <button
             disabled={saving}
             onClick={handleExportJson}
             className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50"
@@ -610,6 +610,7 @@ export default function ManagerProjectDetail() {
         {[
           { label: "Category", value: selectedCategoryName },
           { label: "Datasets", value: linkedDatasets.length },
+          { label: "Labels", value: allLabels.length }, // Thêm hiển thị số nhãn
           { label: "Members", value: projectMembers.length },
           { label: "Tasks", value: projectTasks.length },
         ].map(({ label, value }) => (

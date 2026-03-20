@@ -52,11 +52,12 @@ const normalizeCategoryLabels = (category) => {
 
   const byName = new Map();
   candidates.forEach((item, idx) => {
-    const name = typeof item === "string" ? item : item?.name ?? item?.labelName;
+    const name = typeof item === "string" ? item : item?.name ?? item?.labelName ?? item?.title;
     if (!name) return;
     const key = String(name).trim().toLowerCase();
     if (!key) return;
-    byName.set(key, { id: item?.id ?? `label-${idx}-${key}`, name: String(name).trim() });
+    const id = item?.id ?? item?.labelId ?? `label-${idx}-${key}`;
+    byName.set(key, { id, name: String(name).trim() });
   });
 
   return Array.from(byName.values());
@@ -153,12 +154,13 @@ export default function CreateProjectPage() {
 
         let fromApi = [];
         try {
-          const labelsRes = await api.get(`/labels?CategoryId=${selectedCategoryId}`).catch(() =>
-            api.get(`/categories/${selectedCategoryId}/labels`)
+          // ✅ Ưu tiên API lấy label của category theo yêu cầu từ ảnh: /api/categories/{id}/labels
+          const labelsRes = await api.get(`/categories/${selectedCategoryId}/labels`).catch(() =>
+            api.get(`/labels?CategoryId=${selectedCategoryId}`)
           );
           fromApi = toArray(labelsRes?.data).map((item, idx) => ({
-            id: item?.id ?? `api-label-${idx}`,
-            name: item?.name ?? item?.labelName,
+            id: item?.id ?? item?.labelId ?? `api-label-${idx}`,
+            name: item?.name ?? item?.labelName ?? item?.title,
           })).filter((item) => item.name);
         } catch {
           fromApi = [];
@@ -228,7 +230,7 @@ export default function CreateProjectPage() {
 
   // ✅ Fix label: lấy labelId từ API thay vì tạo mới nếu đã tồn tại
   const resolveOrCreateLabel = async (labelName, categoryId) => {
-    // Kiểm tra trong categoryLabels đã load
+    // 1. Kiểm tra trong categoryLabels đã load (ưu tiên real ID)
     const existing = categoryLabels.find(
       (l) => l.name.toLowerCase() === labelName.toLowerCase()
     );
@@ -236,28 +238,28 @@ export default function CreateProjectPage() {
       return String(existing.id);
     }
 
-    // Thử tìm từ API
+    // 2. Thử tìm từ API labels (search theo category)
     try {
       const searchRes = await api.get(`/labels?CategoryId=${categoryId}`, { validateStatus: () => true });
       const allLabels = toArray(searchRes?.data);
-      const found = allLabels.find((l) => String(l.name || '').toLowerCase() === labelName.toLowerCase());
-      if (found?.id) return String(found.id);
+      const found = allLabels.find((l) => String(l.name || l.labelName || '').toLowerCase() === labelName.toLowerCase());
+      if (found?.id || found?.labelId) return String(found.id || found.labelId);
     } catch { /* ignore */ }
 
-    // Tạo mới
+    // 3. Tạo mới nếu không tìm thấy
     try {
       const createRes = await api.post("/labels", { name: labelName, categoryId });
-      const newId = createRes.data?.id || createRes.data?.labelId || createRes.data?.data?.id;
+      const newId = createRes.data?.id || createRes.data?.labelId || createRes.data?.data?.id || createRes.data?.data?.labelId;
       if (newId) return String(newId);
     } catch (e) {
       const msg = String(e?.response?.data?.message || '');
-      // Nếu đã tồn tại → thử lấy lại
+      // Nếu đã tồn tại → thử tìm lại lần cuối
       if (msg.toLowerCase().includes('already') || msg.toLowerCase().includes('exist')) {
         try {
           const retryRes = await api.get(`/labels?CategoryId=${categoryId}`, { validateStatus: () => true });
           const retryLabels = toArray(retryRes?.data);
-          const retryFound = retryLabels.find((l) => String(l.name || '').toLowerCase() === labelName.toLowerCase());
-          if (retryFound?.id) return String(retryFound.id);
+          const retryFound = retryLabels.find((l) => String(l.name || l.labelName || '').toLowerCase() === labelName.toLowerCase());
+          if (retryFound?.id || retryFound?.labelId) return String(retryFound.id || retryFound.labelId);
         } catch { /* ignore */ }
       }
       console.warn(`Could not resolve label "${labelName}":`, msg);
@@ -555,15 +557,37 @@ export default function CreateProjectPage() {
                 {datasets.map((dataset, index) => {
                   const dsId = String(dataset.id || dataset.datasetId || `ds-${index}`);
                   const checked = selectedDatasetIds.includes(dsId);
+                  // ✅ Dataset nào đã giao (isActive = false) thì làm mờ và không cho chọn
+                  const isAlreadyAssigned = dataset.isActive === false || dataset.IsActive === false;
+
                   return (
-                    <label key={dsId} className={`p-3 rounded-lg border cursor-pointer ${checked ? "border-indigo-500 bg-indigo-50" : "border-gray-200"}`}>
-                      <div className="flex items-center gap-3">
-                        <input type="checkbox" checked={checked} onChange={() => toggleDataset(dsId)} />
+                    <label
+                      key={dsId}
+                      className={`p-3 rounded-lg border flex items-center justify-between transition-all ${isAlreadyAssigned
+                          ? "border-gray-100 bg-gray-50 opacity-60 cursor-not-allowed"
+                          : checked
+                            ? "border-indigo-500 bg-indigo-50 cursor-pointer shadow-sm"
+                            : "border-gray-200 hover:border-indigo-200 cursor-pointer"
+                        }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={isAlreadyAssigned}
+                          onChange={() => !isAlreadyAssigned && toggleDataset(dsId)}
+                        />
                         <div className="min-w-0">
-                          <p className="font-semibold truncate">{dataset.name || `Dataset ${index + 1}`}</p>
-                          <p className="text-xs text-gray-500">{dataset.sampleCount || dataset.itemsCount || dataset.totalItems || 0} files</p>
+                          <p className="font-semibold truncate text-sm">{dataset.name || `Dataset ${index + 1}`}</p>
+                          <p className="text-[10px] text-gray-500">{dataset.sampleCount || dataset.itemsCount || dataset.totalItems || 0} files</p>
                         </div>
                       </div>
+
+                      {isAlreadyAssigned && (
+                        <span className="shrink-0 px-2 py-0.5 bg-red-100 text-red-600 text-[10px] font-bold rounded uppercase">
+                          Đã giao
+                        </span>
+                      )}
                     </label>
                   );
                 })}
