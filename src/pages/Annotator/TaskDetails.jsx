@@ -16,7 +16,9 @@ import {
 import api, { taskAPI } from '../../config/api';
 import { 
   normalizeTask, 
-  resolveApiData 
+  resolveApiData,
+  getLocalAssignedTasksForUser,
+  getCurrentUserIdentifiers
 } from '../../utils/annotatorTaskHelpers';
 
 export default function TaskDetails() {
@@ -56,7 +58,45 @@ export default function TaskDetails() {
         setItems(Array.isArray(rawItems) ? rawItems : []);
       } catch (err) {
         console.error('Failed to load task details:', err);
-        setError('Không thể tải thông tin chi tiết nhiệm vụ.');
+        
+        // Final fallback: Check local storage and try to fetch items separately
+        const identifiers = getCurrentUserIdentifiers();
+        const localTasks = getLocalAssignedTasksForUser(identifiers);
+        const localMatch = localTasks.find(t => String(t.id) === String(taskId));
+        
+        if (localMatch) {
+          const normalized = normalizeTask(localMatch);
+          setTask(normalized);
+          
+          // Try to fetch items separately if getById failed
+          try {
+            const itemsRes = await taskAPI.getItems(taskId);
+            const rawItems = resolveApiData(itemsRes);
+            
+            const localItems = Array.isArray(normalized.items) ? normalized.items : [];
+            
+            if (rawItems && rawItems.length > 0) {
+              // Merge: favor local status if API says pending
+              const mergedItems = rawItems.map(apiItem => {
+                const apiId = apiItem?.taskItemId || apiItem?.id;
+                const localItem = localItems.find(li => (li?.taskItemId || li?.id) === apiId);
+                
+                if (localItem && localItem.status !== 'pending' && (!apiItem.status || apiItem.status.toLowerCase() === 'pending')) {
+                  return { ...apiItem, status: localItem.status };
+                }
+                return apiItem;
+              });
+              setItems(mergedItems);
+            } else {
+              setItems(localItems);
+            }
+          } catch (e) {
+            setItems(Array.isArray(normalized.items) ? normalized.items : []);
+          }
+          setError(null);
+        } else {
+          setError('Không thể tải thông tin chi tiết nhiệm vụ.');
+        }
       } finally {
         setLoading(false);
       }

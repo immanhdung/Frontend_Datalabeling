@@ -36,21 +36,26 @@ export default function AssignTasks() {
 
   const [users, setUsers] = useState([]);
   const [rolesMap, setRolesMap] = useState({});
-  const [selectedAnnotatorId, setSelectedAnnotatorId] = useState(null); // Changed from 3 to 1
-  const [selectedReviewerId, setSelectedReviewerId] = useState(null);     // 1 reviewer
+  const [selectedAnnotatorId, setSelectedAnnotatorId] = useState(null);
+  const [selectedReviewerIds, setSelectedReviewerIds] = useState([]); // Up to 3 reviewers
 
   // Searching
   const [searchProject, setSearchProject] = useState('');
+  const [userTaskCounts, setUserTaskCounts] = useState({});
 
   const fetchInitialData = async () => {
     try {
       setLoading(true);
 
-      const [projRes, usersRes, rolesRes] = await Promise.allSettled([
+      const [projRes, usersRes, rolesRes, tasksRes, reviewsRes] = await Promise.allSettled([
         api.get('/projects').catch(() => api.get('/Projects')),
         api.get('/users').catch(() => api.get('/Users')),
         api.get('/roles').catch(() => api.get('/Roles')),
+        api.get('/tasks').catch(() => api.get('/Tasks')),
+        api.get('/reviews').catch(() => api.get('/Reviews')),
       ]);
+      
+      const counts = {};
 
       if (projRes.status === 'fulfilled') {
         const pData = projRes.value.data?.data || projRes.value.data;
@@ -73,6 +78,29 @@ export default function AssignTasks() {
         });
         setRolesMap(nextRolesMap);
       }
+
+      if (tasksRes.status === 'fulfilled') {
+        const tData = tasksRes.value.data?.data || tasksRes.value.data?.items || tasksRes.value.data || [];
+        const taskList = Array.isArray(tData) ? tData : [];
+        taskList.forEach(t => {
+          const aid = t.assignedTo || t.annotatorId || t.assigneeId;
+          if (aid) {
+            counts[String(aid)] = (counts[String(aid)] || 0) + 1;
+          }
+        });
+      }
+
+      if (reviewsRes.status === 'fulfilled') {
+        const rData = reviewsRes.value.data?.data || reviewsRes.value.data?.items || reviewsRes.value.data || [];
+        const reviewList = Array.isArray(rData) ? rData : [];
+        reviewList.forEach(r => {
+          const rid = r.reviewedBy || r.reviewerId;
+          if (rid) {
+            counts[String(rid)] = (counts[String(rid)] || 0) + 1;
+          }
+        });
+      }
+      setUserTaskCounts(counts);
     } catch (err) {
       console.error('Lỗi khi tải dữ liệu khởi tạo:', err);
     } finally {
@@ -91,24 +119,16 @@ export default function AssignTasks() {
       let foundDatasets = [];
 
       try {
-        const res = await api.get(`/projects/${projectId}`);
-        const projectDetail = res.data?.data || res.data || {};
-        if (Array.isArray(projectDetail?.datasets) && projectDetail.datasets.length > 0) {
-          foundDatasets = projectDetail.datasets;
+        const res = await api.get(`/projects/${projectId}/datasets`);
+        const dData = res.data?.data || res.data?.items || res.data || [];
+        if (Array.isArray(dData)) {
+          foundDatasets = dData.map(ds => ({ ...ds, id: ds.id || ds.datasetId }));
         }
       } catch (e) {
-        console.warn('[Datasets] Could not fetch project detail:', e?.message);
-      }
-
-      if (foundDatasets.length === 0) {
-        try {
-          const dsRes = await api.get(`/datasets?ProjectId=${projectId}`);
-          const dsData = dsRes.data?.items || dsRes.data?.data || dsRes.data;
-          if (Array.isArray(dsData) && dsData.length > 0) {
-            foundDatasets = dsData.map(ds => ({ ...ds, id: ds.id || ds.datasetId }));
-          }
-        } catch (e) {
-          console.warn('[Datasets] Could not fetch datasets by projectId:', e?.message);
+        console.warn('[Datasets] GET /projects/{id}/datasets failed:', e?.message);
+        // Fallback: try to see if projectDetail has it (already loaded in handleProjectSelect)
+        if (project.datasets && Array.isArray(project.datasets)) {
+          foundDatasets = project.datasets;
         }
       }
 
@@ -132,7 +152,7 @@ export default function AssignTasks() {
       }
     } catch { /* use basic project info */ }
     setSelectedProject(fullProject);
-    fetchDatasetsForProject(project);
+    fetchDatasetsForProject(fullProject);
     setStep(2);
     setSelectedDatasetId(null);
   };
@@ -219,8 +239,13 @@ export default function AssignTasks() {
       showMessage('warning', 'Vui lòng chọn 1 Annotator.');
       return;
     }
-    if (!selectedReviewerId) {
-      showMessage('warning', 'Vui lòng chọn 1 Reviewer.');
+    if (!selectedReviewerIds || selectedReviewerIds.length !== 3) {
+      showMessage('warning', 'Vui lòng chọn ĐÚNG 3 Reviewer.');
+      return;
+    }
+
+    if (selectedReviewerIds.length > 3) {
+      showMessage('warning', 'Chỉ được chọn tối đa 3 Reviewer.');
       return;
     }
 
@@ -239,7 +264,7 @@ export default function AssignTasks() {
         }
       } catch { /* fallback to selectedProject */ }
 
-      const allSelectedUsers = [selectedAnnotatorId, selectedReviewerId].filter(Boolean);
+      const allSelectedUsers = [selectedAnnotatorId, ...selectedReviewerIds].filter(Boolean);
 
       // 1. Add all users to project as members (ignore errors)
       for (const userId of allSelectedUsers) {
@@ -304,8 +329,14 @@ export default function AssignTasks() {
       } catch (err) {
         const errMsg = err.response?.data?.message || err.response?.data?.title || err.message;
         console.error(`Assign failed for user ${selectedAnnotatorId}:`, errMsg, err.response?.data);
-        errorDetails.push(`User ${selectedAnnotatorId}: ${errMsg}`);
+        errorDetails.push(`User ${selectedAnnotatorId} (Annotator): ${errMsg}`);
       }
+
+      // 4. Note: Reviewers are already added to the project members in Step 1.
+      // We don't need to call /tasks/assign for them because that endpoint 
+      // is for item partitioning among annotators. Reviewers access tasks 
+      // via their project association.
+      successCount += selectedReviewerIds.length;
 
       if (successCount > 0) {
         showMessage('success', 'Giao việc thành công!');
@@ -315,7 +346,7 @@ export default function AssignTasks() {
           setSelectedProject(null);
           setSelectedDatasetId(null);
           setSelectedAnnotatorId(null);
-          setSelectedReviewerId(null);
+          setSelectedReviewerIds([]);
         }, 3000);
       } else {
         const finalError = errorDetails.length > 0 ? errorDetails.join(' | ') : 'Lỗi không xác định';
@@ -348,6 +379,12 @@ export default function AssignTasks() {
         <div className="flex-1 min-w-0">
           <h4 className="font-black text-slate-900 text-sm truncate">{u.username || u.displayName}</h4>
           <p className="text-[10px] font-bold text-slate-400 truncate">{u.email || u.displayName}</p>
+        </div>
+        <div className="text-right shrink-0">
+          <p className={`text-xs font-black ${userTaskCounts[String(uid)] > 5 ? 'text-red-500' : 'text-slate-600'}`}>
+            {userTaskCounts[String(uid)] || 0} tasks
+          </p>
+          <p className="text-[9px] font-bold text-slate-400 tracking-tighter uppercase">Đang đảm nhận</p>
         </div>
         {isSelected && <CheckCircle2 className={`w-5 h-5 text-${themeColor}-600 shrink-0`} />}
       </div>
@@ -523,7 +560,7 @@ export default function AssignTasks() {
               </div>
               <button
                 onClick={handleAssignSubmit}
-                disabled={assigning || !selectedAnnotatorId || !selectedReviewerId}
+                disabled={assigning || !selectedAnnotatorId || selectedReviewerIds.length !== 3}
                 className="bg-slate-900 text-white px-12 py-5 rounded-3xl font-black shadow-2xl hover:bg-black transition-all disabled:opacity-20 flex items-center gap-4 border-2 border-slate-800"
               >
                 {assigning ? <Loader2 className="w-6 h-6 animate-spin" /> : <UserCheck className="w-6 h-6" />}
@@ -565,8 +602,8 @@ export default function AssignTasks() {
                 <div className="p-8 border-b-2 border-slate-50 flex items-center justify-between bg-indigo-50/30 rounded-t-[3rem]">
                   <div>
                     <h3 className="text-xl font-black text-slate-900">Reviewer</h3>
-                    <p className={`text-[10px] font-black uppercase tracking-widest ${selectedReviewerId ? 'text-indigo-600' : 'text-slate-400'}`}>
-                      {selectedReviewerId ? 'Đã lựa chọn 1 reviewer' : 'Chọn duy nhất 1 người'}
+                    <p className={`text-[10px] font-black uppercase tracking-widest ${selectedReviewerIds.length === 3 ? 'text-indigo-600' : 'text-slate-400'}`}>
+                      {selectedReviewerIds.length === 3 ? "Đã đủ 3/3 reviewer" : `Đã chọn ${selectedReviewerIds.length}/3 reviewer`}
                     </p>
                   </div>
                   <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${selectedReviewerId ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-300'}`}>
@@ -579,8 +616,19 @@ export default function AssignTasks() {
                   ) : (
                     reviewers.map(u => {
                       const uid = u.id || u.userId;
-                      const isSelected = selectedReviewerId === uid;
-                      return renderSimpleUserCard(u, isSelected, () => setSelectedReviewerId(isSelected ? null : uid), 'reviewer');
+                      const isSelected = selectedReviewerIds.includes(uid);
+                      const handleToggle = () => {
+                        if (isSelected) {
+                          setSelectedReviewerIds(prev => prev.filter(id => id !== uid));
+                        } else {
+                          if (selectedReviewerIds.length >= 3) {
+                            showMessage('warning', 'Chỉ được chọn tối đa 3 Reviewer.');
+                            return;
+                          }
+                          setSelectedReviewerIds(prev => [...prev, uid]);
+                        }
+                      };
+                      return renderSimpleUserCard(u, isSelected, handleToggle, 'reviewer');
                     })
                   )}
                 </div>

@@ -90,12 +90,20 @@ export const normalizeTask = (task, assignedUserId = undefined) => {
 
   const rawStatus = String(task?.status || task?.Status || '').toLowerCase();
   let normalizedStatus = rawStatus;
-  if (rawStatus === 'assigned' || rawStatus === 'unassigned' || rawStatus === 'opened' || rawStatus === 'open') {
+  
+  if (['assigned', 'unassigned', 'opened', 'open', 'new', 'todo'].includes(rawStatus)) {
     normalizedStatus = 'pending';
-  } else if (rawStatus === 'incompleted' || rawStatus === 'in_progress' || rawStatus === 'incomplete' || rawStatus === 'inprogress') {
+    // ✅ If progress > 0, it should be in "Đang làm" (in_progress)
+    const progressVal = Number(task?.progress ?? task?.Progress ?? 0);
+    if (progressVal > 0) {
+      normalizedStatus = 'in_progress';
+    }
+  } else if (['in_progress', 'inprogress', 'incomplete', 'incompleted', 'doing', 'working'].includes(rawStatus)) {
     normalizedStatus = 'in_progress';
-  } else if (rawStatus === 'completed' || rawStatus === 'closed' || rawStatus === 'done') {
-    normalizedStatus = 'completed';
+  } else if (['completed', 'closed', 'done', 'submitted', 'pending_review', 'reviewing', 'finished', 'resolved'].includes(rawStatus)) {
+    normalizedStatus = 'completed'; // Unified as "waiting for approval" / "finished"
+  } else if (['rejected', 'failed', 'rework', 'needs_correction'].includes(rawStatus)) {
+    normalizedStatus = 'in_progress'; // Send back to in_progress if rejected
   } else if (!rawStatus) {
     normalizedStatus = 'pending';
   }

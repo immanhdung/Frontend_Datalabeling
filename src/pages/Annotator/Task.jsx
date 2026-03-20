@@ -5,6 +5,7 @@ import {
   normalizeTask,
   resolveApiData,
   getCurrentUserId,
+  upsertLocalAssignedTask,
 } from '../../utils/annotatorTaskHelpers';
 import {
   ArrowLeft, ArrowRight, Save, Send, Trash2, Tag, AlertCircle,
@@ -311,6 +312,29 @@ export default function AnnotatorTask() {
       }
 
       updateItemState(currentItemId, { status: 'done' });
+
+      // 5. Update local task items and progress for dashboard/details
+      const nextProcessedCount = Object.values({
+        ...itemStates,
+        [currentItemId]: { ...(itemStates[currentItemId] || {}), status: 'done' }
+      }).filter((s) => s.status === 'done' || s.status === 'skipped').length;
+
+      const newProgress = Math.round((nextProcessedCount / totalItems) * 100);
+
+      // Update items array in local task
+      const updatedItems = items.map(it => {
+        const id = it?.taskItemId || it?.id;
+        if (id === currentItemId) return { ...it, status: 'done' };
+        return it;
+      });
+
+      upsertLocalAssignedTask({
+        ...task,
+        progress: newProgress,
+        items: updatedItems,
+        totalItems: items.length
+      }, getCurrentUserId());
+
       return true;
     } catch (err) {
       alert('Lưu thất bại: ' + (err?.response?.data?.message || err?.message));
@@ -333,6 +357,29 @@ export default function AnnotatorTask() {
     try {
       await annotationAPI.skip({ taskItemId: currentItemId, note: skipReason });
       updateItemState(currentItemId, { status: 'skipped', skipReason, annotations: [] });
+
+      // Update local task progress for dashboard/details
+      const nextProcessedCount = Object.values({
+        ...itemStates,
+        [currentItemId]: { ...(itemStates[currentItemId] || {}), status: 'skipped' }
+      }).filter((s) => s.status === 'done' || s.status === 'skipped').length;
+
+      const newProgress = Math.round((nextProcessedCount / totalItems) * 100);
+
+      // Update items array in local task
+      const updatedItems = items.map(it => {
+        const id = it?.taskItemId || it?.id;
+        if (id === currentItemId) return { ...it, status: 'skipped' };
+        return it;
+      });
+
+      upsertLocalAssignedTask({
+        ...task,
+        progress: newProgress,
+        items: updatedItems,
+        totalItems: items.length
+      }, getCurrentUserId());
+
       setShowSkipModal(false); setSkipReason('');
       if (currentIndex < totalItems - 1) setCurrentIndex((i) => i + 1);
     } catch (err) { alert('Skip thất bại: ' + (err?.response?.data?.message || err?.message)); }

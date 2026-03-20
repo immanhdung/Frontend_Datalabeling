@@ -67,7 +67,7 @@ export default function AnnotatorTasks() {
           map.set(String(t.id), { ...ex, ...t, items: t.items?.length > 0 ? t.items : ex?.items || [] });
         }
       });
-      const finalTasks = Array.from(map.values());
+      const finalTasks = normalizeTasks(Array.from(map.values()), uid);
       setTasks(finalTasks);
 
       // Fetch project name + deadline (annotator có thể bị 403)
@@ -130,7 +130,9 @@ export default function AnnotatorTasks() {
     .sort((a, b) => {
       if (sortBy === 'priority') { const o = { high: 0, medium: 1, low: 2 }; return (o[a.priority] ?? 1) - (o[b.priority] ?? 1); }
       if (sortBy === 'dueDate') return new Date(a.dueDate) - new Date(b.dueDate);
-      return new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt);
+      const dateA = new Date(a.assignedAt || a.updatedAt || a.createdAt);
+      const dateB = new Date(b.assignedAt || b.updatedAt || b.createdAt);
+      return dateB - dateA; // Default: Recent assigned on top
     }), [tasks, activeTab, searchTerm, sortBy]);
 
   const handleStart = (task) => navigate(`/annotator/tasks/${task.id}`, { state: { task } });

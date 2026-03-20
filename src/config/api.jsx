@@ -68,6 +68,7 @@ export const reviewAPI = {
 
 export const projectAPI = {
   getById: (id) => api.get(`/projects/${id}`),
+  getDatasets: (id) => api.get(`/projects/${id}/datasets`),
 };
 
 export const taskAPI = {

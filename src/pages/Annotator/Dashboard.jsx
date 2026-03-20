@@ -83,7 +83,7 @@ export default function AnnotatorDashboard() {
           }
         });
 
-        const finalTasks = Array.from(mergedMap.values());
+        const finalTasks = normalizeTasks(Array.from(mergedMap.values()), currentUserId);
         setTasks(finalTasks);
       } catch (loadError) {
         console.error('Failed to load tasks:', loadError);
@@ -112,18 +112,24 @@ export default function AnnotatorDashboard() {
   }, [tasks]);
 
   const filteredTasks = useMemo(() => {
-    return tasks.filter((task) => {
-      const matchesTab = activeTab === 'all' || task.status === activeTab;
-      return matchesTab;
-    });
+    return tasks
+      .filter((task) => {
+        const matchesTab = activeTab === 'all' || task.status === activeTab;
+        return matchesTab;
+      })
+      .sort((a, b) => {
+        const dateA = new Date(a.assignedAt || a.updatedAt || a.createdAt);
+        const dateB = new Date(b.assignedAt || b.updatedAt || b.createdAt);
+        return dateB - dateA; // Mới nhất trên đầu
+      });
   }, [tasks, activeTab]);
 
   const handleRefresh = () => {
     window.location.reload();
   };
 
-  const handleStartTask = (taskId) => {
-    navigate(`/annotator/tasks/${taskId}`);
+  const handleStartTask = (task) => {
+    navigate(`/annotator/tasks/${task.id}`, { state: { task } });
   };
 
   return (
@@ -142,7 +148,7 @@ export default function AnnotatorDashboard() {
           {[
             { key: "pending", label: "Chờ làm", icon: Clock },
             { key: "in_progress", label: "Đang làm", icon: Zap },
-            { key: "completed", label: "Hoàn thành", icon: CheckCircle2 },
+            { key: "completed", label: "Chờ duyệt", icon: CheckCircle2 },
             { key: "all", label: "Tất cả", icon: Folder },
           ].map((tab) => {
             const Icon = tab.icon;
@@ -297,7 +303,7 @@ export default function AnnotatorDashboard() {
                       <div className="flex gap-2">
                         {task.status === 'pending' && (
                           <button
-                            onClick={() => handleStartTask(task.id)}
+                            onClick={() => handleStartTask(task)}
                             className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-100 font-bold transition-all flex items-center justify-center gap-2"
                           >
                             <Play className="w-4 h-4 fill-current" />
@@ -306,7 +312,7 @@ export default function AnnotatorDashboard() {
                         )}
                         {task.status === 'in_progress' && (
                           <button
-                            onClick={() => handleStartTask(task.id)}
+                            onClick={() => handleStartTask(task)}
                             className="flex-1 px-6 py-3 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 shadow-lg shadow-indigo-100 font-bold transition-all"
                           >
                             Tiếp tục làm
@@ -314,7 +320,7 @@ export default function AnnotatorDashboard() {
                         )}
                         {task.status === 'completed' && (
                           <button
-                            onClick={() => handleStartTask(task.id)}
+                            onClick={() => handleStartTask(task)}
                             className="flex-1 px-6 py-3 bg-slate-100 text-slate-600 rounded-2xl hover:bg-slate-200 font-bold transition-all"
                           >
                             {task.reviewStatus === 'rejected' ? 'Sửa lại nhiệm vụ' : 'Xem chi tiết'}
