@@ -283,72 +283,69 @@ export default function AssignTasks() {
 
       let successCount = 0;
 
-      // 3. Assign cho 3 annotators (Dùng chung Task ID nếu Backend giới hạn)
-      let sharedTaskId = null;
+      // 3. Batch assign using the new API format (3 annotators + 1 reviewer)
+      const projectDeadline = projectDetail?.deadline || projectDetail?.dueDate || projectDetail?.endDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const startedAt = new Date().toISOString();
 
-      for (const annotatorId of selectedAnnotatorIds) {
-        try {
-          const assignPayload = {
-            assignedTo: String(annotatorId),
+      const assignPayload = {
+        projectId: String(projectId),
+        datasetId: String(selectedDatasetId),
+        assigments: [
+          ...selectedAnnotatorIds.map(id => ({
+            assignedTo: String(id),
+            startedAt: startedAt,
+            deadlineAt: projectDeadline
+          })),
+          {
+            assignedTo: String(selectedReviewerId),
+            startedAt: startedAt,
+            deadlineAt: projectDeadline
+          }
+        ]
+      };
+
+      console.log('[Flow] Batch assigning...', assignPayload);
+      
+      try {
+        const assignRes = await api.post('/tasks/assign', assignPayload);
+        const resData = assignRes.data?.data || assignRes.data || {};
+
+        // Since it's a batch, we'll update local storage for each person in the assignments array.
+        const taskResults = Array.isArray(resData) ? resData : [resData];
+        const allAssigned = [...selectedAnnotatorIds, selectedReviewerId];
+        
+        allAssigned.forEach((userId, index) => {
+          const taskInfo = taskResults[index] || taskResults[0] || {};
+          const taskId = taskInfo.taskId || taskInfo.id || taskInfo.Id || `batch-${projectId}-${selectedDatasetId}-${userId}`;
+          
+          assignLocalTaskToUser({
+            id: taskId,
+            title: projectDetail?.name || selectedProject?.name || 'Nhiệm vụ mới',
+            description: projectDetail?.description || selectedProject?.description || '',
+            type: 'image',
+            status: 'pending',
+            projectName: projectDetail?.name || selectedProject?.name || 'Dự án',
             projectId: String(projectId),
+            datasetName: datasetInfo?.name || 'Bộ dữ liệu',
             datasetId: String(selectedDatasetId),
-            timeLimitMinutes: 60,
-          };
+            assignedTo: String(userId),
+            assignedAt: startedAt,
+            createdAt: startedAt,
+            updatedAt: startedAt,
+            dueDate: projectDeadline,
+            progress: 0,
+            totalItems: datasetInfo?.sampleCount || datasetInfo?.imagesCount || datasetInfo?.itemsCount || 0,
+            items: [],
+            _source: 'batch_task',
+          }, userId);
+        });
 
-          console.log(`[Flow] Assigning to ${annotatorId}...`);
-          let currentTaskId = null;
-
-          try {
-            // Thử gọi API gán việc
-            const assignRes = await api.post('/tasks/assign', assignPayload);
-            const resData = assignRes.data?.data || assignRes.data || {};
-            currentTaskId = resData.taskId || resData.id || resData.Id;
-
-            // Lưu lại Task ID đầu tiên thành công để chia sẻ
-            if (!sharedTaskId) sharedTaskId = currentTaskId;
-          } catch (apiErr) {
-            // Nếu lỗi 400 (đã gán) và chúng ta đã có sharedTaskId từ người trước
-            if (sharedTaskId && (apiErr.response?.status === 400)) {
-              console.warn(`[Flow] Server already assigned dataset, sharing Task ID ${sharedTaskId} with ${annotatorId}`);
-              currentTaskId = sharedTaskId;
-            } else {
-              throw apiErr;
-            }
-          }
-
-          if (currentTaskId) {
-            const projectDeadline = projectDetail?.deadline || projectDetail?.dueDate || projectDetail?.endDate;
-            assignLocalTaskToUser({
-              id: currentTaskId,
-              title: projectDetail?.name || selectedProject?.name || 'Nhiệm vụ mới',
-              description: projectDetail?.description || selectedProject?.description || '',
-              type: 'image',
-              status: 'pending',
-              projectName: projectDetail?.name || selectedProject?.name || 'Dự án',
-              projectId: String(projectId),
-              datasetName: datasetInfo?.name || 'Bộ dữ liệu',
-              datasetId: String(selectedDatasetId),
-              assignedTo: String(annotatorId),
-              assignedAt: new Date().toISOString(),
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              dueDate: projectDeadline || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-              progress: 0,
-              totalItems: datasetInfo?.sampleCount || datasetInfo?.imagesCount || datasetInfo?.itemsCount || 0,
-              items: [],
-              _source: 'shared_task',
-            }, annotatorId);
-            successCount++;
-          }
-        } catch (err) {
-          const errMsg = err.response?.data?.message || err.response?.data?.title || err.message;
-          console.error(`Assign failed for user ${annotatorId}:`, errMsg, err.response?.data);
-          errorDetails.push(`Annotator ${annotatorId}: ${errMsg}`);
-        }
+        successCount = allAssigned.length;
+      } catch (err) {
+        const errMsg = err.response?.data?.message || err.response?.data?.title || err.message;
+        console.error(`Batch assign failed:`, errMsg, err.response?.data);
+        errorDetails.push(`API Error: ${errMsg}`);
       }
-
-      // 4. Note: Reviewer is already added to the project members in Step 1.
-      if (selectedReviewerId) successCount++;
 
       const totalExpected = selectedAnnotatorIds.length + (selectedReviewerId ? 1 : 0);
 
