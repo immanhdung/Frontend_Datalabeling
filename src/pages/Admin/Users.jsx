@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect } from "react";
 import Header from "../../components/common/Header";
 import api from "../../config/api";
 import { useAuth } from "../../context/AuthContext";
@@ -193,7 +193,7 @@ const Users = () => {
       );
     }
 
-    // ✅ Hiển thị/Ẩn user bị vô hiệu hóa
+
     if (!showInactive) {
       result = result.filter((u) => u.isActive !== false && String(u.status || "").toLowerCase() !== "inactive");
     }
@@ -519,10 +519,10 @@ const Users = () => {
           </select>
 
           <div className="flex items-center gap-2 px-4">
-            <input 
-              type="checkbox" 
-              id="showInactive" 
-              checked={showInactive} 
+            <input
+              type="checkbox"
+              id="showInactive"
+              checked={showInactive}
               onChange={e => setShowInactive(e.target.checked)}
               className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
             />

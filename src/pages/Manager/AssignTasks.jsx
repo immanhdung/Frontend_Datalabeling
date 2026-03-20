@@ -42,6 +42,7 @@ export default function AssignTasks() {
   // Searching
   const [searchProject, setSearchProject] = useState('');
   const [userTaskCounts, setUserTaskCounts] = useState({});
+  const [deadline, setDeadline] = useState('');
 
   const fetchInitialData = async () => {
     try {
@@ -279,10 +280,7 @@ export default function AssignTasks() {
 
       // 3. Build payload — ensure dates are always valid ISO strings
       const startedAt = new Date().toISOString();
-      const deadlineAt = toISOStringSafe(
-        projectDetail?.deadline || projectDetail?.dueDate || projectDetail?.endDate,
-        Date.now() + 7 * 24 * 60 * 60 * 1000  // fallback: 7 days from now
-      );
+      const deadlineAt = deadline ? new Date(deadline).toISOString() : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
       const allAssigned = [...selectedAnnotatorIds, selectedReviewerId].filter(Boolean);
       const firstAnnotatorId = selectedAnnotatorIds[0];
@@ -555,25 +553,23 @@ export default function AssignTasks() {
                   const isSelected = selectedDatasetId === dsId;
                   // ✅ Dataset nào đã giao (isActive = false) thì làm mờ và không cho chọn
                   const isAlreadyAssigned = ds.isActive === false || ds.IsActive === false;
-                  
+
                   return (
                     <div
                       key={dsId}
                       onClick={() => !isAlreadyAssigned && setSelectedDatasetId(dsId)}
-                      className={`p-8 rounded-[3rem] border-4 transition-all relative ${
-                        isAlreadyAssigned 
-                          ? 'border-slate-100 bg-slate-50 opacity-60 cursor-not-allowed' 
-                          : isSelected 
-                            ? 'border-indigo-600 bg-indigo-50/50 shadow-xl cursor-pointer' 
+                      className={`p-8 rounded-[3rem] border-4 transition-all relative ${isAlreadyAssigned
+                          ? 'border-slate-100 bg-slate-50 opacity-60 cursor-not-allowed'
+                          : isSelected
+                            ? 'border-indigo-600 bg-indigo-50/50 shadow-xl cursor-pointer'
                             : 'border-slate-50 bg-white hover:border-indigo-100 shadow-sm cursor-pointer'
-                      }`}
+                        }`}
                     >
-                      <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mb-6 ${
-                        isAlreadyAssigned ? 'bg-slate-200 text-slate-400' : isSelected ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'
-                      }`}>
+                      <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mb-6 ${isAlreadyAssigned ? 'bg-slate-200 text-slate-400' : isSelected ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'
+                        }`}>
                         <Database className="w-8 h-8" />
                       </div>
-                      
+
                       <div className="flex justify-between items-start">
                         <div>
                           <h4 className="font-black text-slate-900 text-xl mb-1 truncate max-w-[150px]">{ds.name}</h4>
@@ -614,9 +610,27 @@ export default function AssignTasks() {
                   <p className="text-xs font-black text-emerald-600 uppercase tracking-widest">Dataset: {datasets.find(d => (d.id || d.datasetId) === selectedDatasetId)?.name}</p>
                 </div>
               </div>
+
+              {/* ✅ Chọn Deadline cho Task */}
+              <div className="bg-slate-50 px-6 py-4 rounded-3xl border-2 border-slate-100 flex flex-col md:flex-row md:items-center gap-4">
+                <div className="flex items-center gap-3 shrink-0">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                    <Database className="w-5 h-5" />
+                  </div>
+                  <span className="text-sm font-black text-slate-700 uppercase tracking-tighter">Task Deadline:</span>
+                </div>
+                <input
+                  type="datetime-local"
+                  value={deadline}
+                  onChange={(e) => setDeadline(e.target.value)}
+                  min={new Date().toISOString().slice(0, 16)}
+                  className="flex-1 bg-white border-2 border-slate-200 rounded-2xl px-4 py-2.5 font-bold text-slate-900 focus:border-indigo-500 transition-colors"
+                />
+              </div>
+
               <button
                 onClick={handleAssignSubmit}
-                disabled={assigning || selectedAnnotatorIds.length !== 3 || !selectedReviewerId}
+                disabled={assigning || selectedAnnotatorIds.length !== 3 || !selectedReviewerId || !deadline}
                 className="bg-slate-900 text-white px-12 py-5 rounded-3xl font-black shadow-2xl hover:bg-black transition-all disabled:opacity-20 flex items-center gap-4 border-2 border-slate-800"
               >
                 {assigning ? <Loader2 className="w-6 h-6 animate-spin" /> : <UserCheck className="w-6 h-6" />}
