@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { reviewAPI } from '../../config/api';
+import { consensusAPI, reviewAPI, taskAPI } from '../../config/api';
 import Header from '../../components/common/Header';
 import { processTaskConsensus } from '../../utils/annotatorTaskHelpers';
 import {
@@ -191,96 +191,73 @@ const ReviewerTask = () => {
       setLoading(true);
       setError(null);
 
-      let allFoundAnns = [];
-      let taskMeta = null;
+      // 1. Get task items
+      const itemsRes = await taskAPI.getItems(taskId);
+      const taskItems = itemsRes?.data?.items || [];
 
-      // 1. Try API
-      try {
-        const response = await reviewAPI.getAnnotationForReview(taskId);
-        const data = response.data.data || response.data;
-        allFoundAnns = Array.isArray(data) ? data : (data.annotations || [data]);
-        if (data.task) taskMeta = data.task;
-      } catch (err) {
-        console.warn('[ReviewerTask] API failed, using localStorage');
-      }
-
-      // 2. Discover from localStorage
-      try {
-        const rawMap = localStorage.getItem('assignedTasksByUser');
-        if (rawMap) {
-          const map = JSON.parse(rawMap);
-          const rawSubmissions = [];
-
-          Object.entries(map).forEach(([uid, userTasks]) => {
-            if (!Array.isArray(userTasks)) return;
-            const mt = userTasks.find(t => String(t.id) === String(taskId));
-            if (mt && ['completed', 'pending_review', 'done', 'submitted'].includes(mt.status)) {
-              rawSubmissions.push({ uid, task: mt });
-            }
-          });
-
-          // Re-trigger consensus if needed
-          if (rawSubmissions.length === 3 && !rawSubmissions.some(s => s.task.isConsensusWinner)) {
-            processTaskConsensus(taskId);
-            const updatedMap = JSON.parse(localStorage.getItem('assignedTasksByUser') || '{}');
-            rawSubmissions.forEach(rs => {
-              const uTasks = updatedMap[rs.uid] || [];
-              const updated = uTasks.find(it => String(it.id) === String(taskId));
-              if (updated) rs.task = updated;
-            });
-          }
-
-          // Prefer consensus winner
-          let targetSubmissions = rawSubmissions;
-          const winner = rawSubmissions.find(s => s.task.isConsensusWinner);
-          if (winner) targetSubmissions = [winner];
-
-          let collectedItems = [];
-          const discoveredAnns = [];
-
-          targetSubmissions.forEach(({ uid, task: matchedTask }) => {
-            if (Array.isArray(matchedTask.items)) {
-              collectedItems = matchedTask.items;
-            }
-            discoveredAnns.push({
-              id: `ANN-${uid}-${taskId}`,
-              annotatorName: `Annotator ${uid.slice(0, 4)}`,
-              isConsensusWinner: matchedTask.isConsensusWinner,
-              rawItems: matchedTask.items || [],
-              status: 'pending_review',
-              createdAt: matchedTask.updatedAt || new Date().toISOString(),
-            });
-            if (!taskMeta) taskMeta = matchedTask;
-          });
-
-          setItems(collectedItems);
-
-          discoveredAnns.forEach(da => {
-            if (!allFoundAnns.some(aa => String(aa.id) === String(da.id))) {
-              allFoundAnns.push(da);
-            }
-          });
-        }
-      } catch (e) { console.error('Local discovery error', e); }
-
-      if (allFoundAnns.length === 0) {
-        setError('Không tìm thấy dữ liệu gán nhãn nào cho nhiệm vụ này.');
+      if (!Array.isArray(taskItems) || taskItems.length === 0) {
+        setError('Task này không có item nào.');
         return;
       }
 
-      setAnnotations(allFoundAnns);
-      if (taskMeta) {
-        setTask({
-          id: taskMeta.id,
-          title: taskMeta.title || taskMeta.name || `Nhiệm vụ #${String(taskId).slice(0, 8)}`,
-          type: taskMeta.type || 'image',
-          status: 'pending_review',
-          projectName: taskMeta.projectName || 'Dự án Hệ thống',
-          deadline: taskMeta.dueDate || taskMeta.deadline,
-        });
-      }
+      // 2. Fetch consensus for each item
+      const enrichedItems = await Promise.all(
+        taskItems.map(async (item) => {
+          const taskItemId = item.taskItemId;
+
+          console.log('Fetching consensus for:', taskItemId);
+
+          try {
+            const consRes = await consensusAPI.getByTaskItem(taskItemId);
+            const consData = consRes?.data?.data || consRes?.data || {};
+            const bboxes = consData?.payload?.bboxes || [];
+            
+            return {
+              ...item,
+              taskItemId: taskItemId,
+              consensusId: consData?.consensusId,
+              annotations: bboxes.map((b, idx) => ({
+                x: b.X,
+                y: b.Y,
+                width: b.Width,
+                height: b.Height,
+                label: b.Label,
+                color: getLabelColor(b.Label, idx),
+              })),
+            };
+          } catch (err) {
+            console.warn(`Consensus failed for item ${taskItemId}`);
+            return {
+              ...item,
+              annotations: [],
+            };
+          }
+        })
+      );
+
+      // 3. Set items directly (IMPORTANT)
+      setItems(enrichedItems);
+
+      // 4. Set fake annotation wrapper (to keep UI working)
+      setAnnotations([
+        {
+          id: `CONSENSUS-${taskId}`,
+          annotatorName: 'Consensus',
+          rawItems: enrichedItems,
+        },
+      ]);
+
+      // 5. Optional: set task meta
+      setTask(prev => ({
+        ...prev,
+        id: taskId,
+        title: `Task #${taskId}`,
+        projectName: enrichedItems[0]?.projectName || 'Project',
+      }));
+
     } catch (err) {
-      setError(err.message || 'Không thể tải dữ liệu review');
+      console.error(err);
+      setError('Không thể tải dữ liệu từ API');
     } finally {
       setLoading(false);
     }
@@ -339,46 +316,42 @@ const ReviewerTask = () => {
 
   const handleSubmitReview = async () => {
     try {
-      if (actionType === 'reject' && !reviewData.feedback.trim() && reviewData.issues.length === 0) {
+      if (
+        actionType === 'reject' &&
+        !reviewData.feedback.trim() &&
+        reviewData.issues.length === 0
+      ) {
         alert('Vui lòng cung cấp feedback hoặc chọn vấn đề trước khi từ chối');
         return;
       }
 
-      const payload = {
-        feedback: reviewData.feedback,
-        issues: reviewData.issues,
-        reviewedAt: new Date().toISOString(),
-        action: actionType,
-      };
+      const result = actionType === 'approve' ? 'Approved' : 'Rejected';
 
-      try {
-        if (actionType === 'approve') await reviewAPI.approve(taskId, payload);
-        else if (actionType === 'reject') await reviewAPI.reject(taskId, payload);
-      } catch (e) { /* offline ok */ }
+      // 🚨 IMPORTANT: loop all items
+      const requests = items.map((item) => {
+        if (!item.taskItemId || !item.consensusId) return null;
 
-      // Sync to localStorage
-      try {
-        const rawMap = localStorage.getItem('assignedTasksByUser');
-        if (rawMap) {
-          const map = JSON.parse(rawMap);
-          const newStatus = actionType === 'approve' ? 'approved' : 'rejected';
-          Object.keys(map).forEach(uid => {
-            if (Array.isArray(map[uid])) {
-              map[uid] = map[uid].map(t =>
-                String(t.id) === String(taskId)
-                  ? { ...t, status: newStatus, feedback: reviewData.feedback || undefined }
-                  : t
-              );
-            }
-          });
-          localStorage.setItem('assignedTasksByUser', JSON.stringify(map));
-        }
-      } catch (e) { /* ignore */ }
+        return reviewAPI.approve({
+          taskItemId: item.taskItemId,
+          consensusId: item.consensusId,
+          result,
+          feedback: reviewData.feedback,
+          issues: reviewData.issues,
+        });
+      }).filter(Boolean);
 
-      const msg = actionType === 'approve' ? 'Đã duyệt thành công!' : 'Đã từ chối và gửi feedback!';
-      alert(msg);
+      await Promise.all(requests);
+
+      alert(
+        actionType === 'approve'
+          ? 'Đã duyệt thành công!'
+          : 'Đã từ chối và gửi feedback!'
+      );
+
       navigate('/reviewer/dashboard');
+
     } catch (err) {
+      console.error(err);
       alert(err.response?.data?.message || 'Không thể thực hiện yêu cầu');
     }
   };

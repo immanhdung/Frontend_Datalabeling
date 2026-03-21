@@ -278,111 +278,60 @@ export default function AssignTasks() {
         (d) => String(d.id || d.datasetId) === String(selectedDatasetId)
       );
 
-      // 3. Build payload — ensure dates are always valid ISO strings
+      // 3. Build payload
       const startedAt = new Date().toISOString();
-      const deadlineAt = deadline ? new Date(deadline).toISOString() : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const deadlineAt = deadline
+        ? new Date(deadline).toISOString()
+        : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
       const allAssigned = [...selectedAnnotatorIds, selectedReviewerId].filter(Boolean);
-      const firstAnnotatorId = selectedAnnotatorIds[0];
-      let successCount = 0;
-      let realTaskId = null;
 
-      // BƯỚC 3A: Gọi API thật cho annotator đầu tiên → lấy realTaskId
-      const firstPayload = {
+      // Build MULTIPLE assignments
+      const payload = {
         projectId: String(projectId),
         datasetId: String(selectedDatasetId),
-        assigments: [{
-          assignedTo: String(firstAnnotatorId),
+        assigments: allAssigned.map(userId => ({
+          assignedTo: String(userId),
           startedAt,
           deadlineAt,
-        }],
+        })),
       };
 
-      console.log('[AssignTasks] Gọi API thật cho annotator đầu tiên:', firstAnnotatorId);
+      console.log('[AssignTasks] Payload multi assign:', payload);
+
+      let successCount = 0;
 
       try {
-        const firstRes = await api.post('/tasks/assign', firstPayload);
-        const resData = firstRes.data?.data || firstRes.data || {};
-        const taskInfo = Array.isArray(resData) ? resData[0] : resData;
-        realTaskId = taskInfo?.taskId || taskInfo?.id || taskInfo?.Id || `real-${projectId}-${selectedDatasetId}`;
+        const res = await api.post('/tasks/assign', payload);
 
-        console.log('[AssignTasks] API thành công, realTaskId:', realTaskId);
+        const resData = res.data?.assignments || [];
+        const createdAssignments = Array.isArray(resData) ? resData : [resData];
 
-        assignLocalTaskToUser({
-          id: realTaskId,
-          title: projectDetail?.name || selectedProject?.name || 'Nhiệm vụ mới',
-          description: projectDetail?.description || selectedProject?.description || '',
-          type: 'image',
-          status: 'pending',
-          projectName: projectDetail?.name || selectedProject?.name || 'Dự án',
-          projectId: String(projectId),
-          datasetName: datasetInfo?.name || 'Bộ dữ liệu',
-          datasetId: String(selectedDatasetId),
-          assignedTo: String(firstAnnotatorId),
-          assignedAt: startedAt,
-          createdAt: startedAt,
-          updatedAt: startedAt,
-          dueDate: deadlineAt,
-          progress: 0,
-          totalItems: datasetInfo?.sampleCount || datasetInfo?.imagesCount || datasetInfo?.itemsCount || 0,
-          items: [],
-          _source: 'api_real',
-        }, firstAnnotatorId);
+        successCount = createdAssignments.length;
 
-        successCount = 1;
+        console.log('[AssignTasks] Created tasks:', createdAssignments);
+
       } catch (err) {
-        const errMsg = err.response?.data?.message || err.response?.data?.title || err.message;
-        console.error('[AssignTasks] API assign thất bại:', errMsg);
-        errorDetails.push(`Lỗi giao việc: ${errMsg}`);
+        const errMsg =
+          err.response?.data?.message ||
+          err.response?.data?.title ||
+          err.message;
+
+        console.error('[AssignTasks] API assign failed:', errMsg);
+        errorDetails.push(errMsg);
       }
 
-      // BƯỚC 3B: Người 2, 3 (annotators còn lại + reviewer) — dùng lại realTaskId, lưu local
-      if (realTaskId) {
-        const remainingUsers = allAssigned.filter(id => id !== firstAnnotatorId);
-
-        remainingUsers.forEach((userId) => {
-          console.log('[AssignTasks] Lưu local cho userId:', userId, 'dùng taskId:', realTaskId);
-
-          assignLocalTaskToUser({
-            id: realTaskId,
-            title: projectDetail?.name || selectedProject?.name || 'Nhiệm vụ mới',
-            description: projectDetail?.description || selectedProject?.description || '',
-            type: 'image',
-            status: 'pending',
-            projectName: projectDetail?.name || selectedProject?.name || 'Dự án',
-            projectId: String(projectId),
-            datasetName: datasetInfo?.name || 'Bộ dữ liệu',
-            datasetId: String(selectedDatasetId),
-            assignedTo: String(userId),
-            assignedAt: startedAt,
-            createdAt: startedAt,
-            updatedAt: startedAt,
-            dueDate: deadlineAt,
-            progress: 0,
-            totalItems: datasetInfo?.sampleCount || datasetInfo?.imagesCount || datasetInfo?.itemsCount || 0,
-            items: [],
-            _source: 'local_mirror',
-          }, userId);
-
-          successCount += 1;
-        });
-      }
-
-      const totalExpected = selectedAnnotatorIds.length + (selectedReviewerId ? 1 : 0);
+      const totalExpected = allAssigned.length;
 
       if (successCount === totalExpected) {
-        showMessage('success', 'Giao việc thành công cho cả 3 Annotator và 1 Reviewer!');
-        setTimeout(() => {
-          setStep(1);
-          setSelectedProject(null);
-          setSelectedDatasetId(null);
-          setSelectedAnnotatorIds([]);
-          setSelectedReviewerId(null);
-        }, 3000);
+        showMessage('success', 'Giao việc thành công cho tất cả người dùng!');
       } else if (successCount > 0) {
-        showMessage('warning', `Giao việc thành công một phần (${successCount}/${totalExpected}). Lỗi: ${errorDetails.join('; ')}`);
+        showMessage(
+          'warning',
+          `Giao việc một phần (${successCount}/${totalExpected})`
+        );
       } else {
-        showMessage('error', 'Giao việc thất bại hoàn toàn: ' + errorDetails.join(' | '));
+        showMessage('error', 'Giao việc thất bại: ' + errorDetails.join(' | '));
       }
     } catch (err) {
       console.error('Assignment workflow error:', err);

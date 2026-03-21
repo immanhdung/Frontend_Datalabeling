@@ -60,8 +60,20 @@ export const reviewAPI = {
   getPendingReviews: (params) => api.get("/reviews", { params: { Status: "Pending", ...params } }),
   getAnnotationForReview: (taskId) => api.get(`/tasks/${taskId}/reviews`),
   submit: (payload) => api.post("/reviews", payload), 
-  approve: (taskId, payload) => api.post("/reviews", { taskId, status: "Approved", ...payload }),
-  reject: (taskId, payload) => api.post("/reviews", { taskId, status: "Rejected", ...payload }),
+  approve: (payload) =>
+    api.post("/reviews", {
+      taskItemId: payload.taskItemId,
+      consensusId: payload.consensusId,
+      result: "Approved",
+      feedback: "",
+    }),
+  reject: (payload) =>
+    api.post("/reviews", {
+      taskItemId: payload.taskItemId,
+      consensusId: payload.consensusId,
+      result: "Rejected",
+      feedback: payload.feedback,
+    }),
   getAll: (params) => api.get("/reviews", { params }),
 };
 
