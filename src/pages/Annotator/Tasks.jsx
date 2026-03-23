@@ -249,9 +249,9 @@ export default function AnnotatorTasks() {
               const TypeIcon = TYPE_ICONS[task.type] || ImageIcon;
               const typeColor = TYPE_COLORS[task.type] || 'bg-slate-50 text-slate-600';
               const pInfo = projectsCache[String(task.projectId)] || {};
-              // ✅ Tên project thực tế
+              //  Tên project thực tế
               const displayName = pInfo.name || task.projectName || 'Dự án';
-              // ✅ Deadline project thực tế (manager đặt khi tạo project)
+              //  Deadline project thực tế (manager đặt khi tạo project)
               const displayDeadline = pInfo.deadline || task.dueDate;
               const days = getDaysUntilDue(displayDeadline);
               const urgency = days !== null && days <= 3 ? 'text-red-500' : 'text-amber-500';
@@ -274,7 +274,7 @@ export default function AnnotatorTasks() {
                   </div>
 
                   <div className="flex-1">
-                    {/* ✅ Ưu tiên hiển thị tên Project làm tiêu đề chính */}
+                    {/*  Ưu tiên hiển thị tên Project làm tiêu đề chính */}
                     <h3 className="font-bold text-slate-900 text-xl mb-1 line-clamp-1 group-hover:text-blue-600 transition-colors">
                       {displayName}
                     </h3>

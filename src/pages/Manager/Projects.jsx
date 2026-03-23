@@ -14,6 +14,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import api, { labelAPI } from "../../config/api";
 import { useAuth } from "../../context/AuthContext";
+import Pagination from "../../components/common/Pagination";
 
 const toArray = (value) => {
   if (Array.isArray(value)) return value;
@@ -72,6 +73,11 @@ export default function ManagerProjects() {
   const navigate = useNavigate();
   const { logout } = useAuth();
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(6);
+  const [searchTerm, setSearchTerm] = useState("");
+
   const handleAssignDataset = async (datasetId) => {
     if (!selectedProject || !datasetId) return;
     try {
@@ -111,7 +117,7 @@ export default function ManagerProjects() {
       setError(null);
 
       const [projRes, catRes] = await Promise.all([
-        api.get("/projects"),
+        api.get("/projects", { params: { pageSize: 100, page: 1 } }),
         api.get("/categories").catch(() => ({ data: [] })),
       ]);
 
@@ -119,6 +125,8 @@ export default function ManagerProjects() {
       const serverCategories = toArray(catRes.data);
 
       setProjects(serverProjects);
+      // Reset to page 1 when data is fetched
+      setCurrentPage(1);
       setCategories(serverCategories);
     } catch (err) {
       console.error("Fetch projects error:", err);
@@ -263,6 +271,11 @@ export default function ManagerProjects() {
           <input
             type="text"
             placeholder="Tìm kiếm dự án..."
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1); // Reset to page 1 on search
+            }}
             className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </div>
@@ -437,94 +450,107 @@ export default function ManagerProjects() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {projects.map((p) => {
-          const id = getProjectId(p);
-          const displayStatus = normalizeVietnameseProjectText(p.status, "Đang hoạt động");
-          const displayType = normalizeVietnameseProjectText(p.type, "Chưa xác định");
-          return (
-            <div key={id} className="bg-white border rounded-xl shadow-sm p-5 space-y-4">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <h3 className="font-semibold text-gray-900 line-clamp-1">
-                    {p.name || "Chưa có tên"}
-                  </h3>
-                  <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
-                    {displayStatus}
-                  </span>
+        {projects
+          .filter((p) => p.name?.toLowerCase().includes(searchTerm.toLowerCase()))
+          .slice((currentPage - 1) * pageSize, currentPage * pageSize)
+          .map((p) => {
+            const id = getProjectId(p);
+            const displayStatus = normalizeVietnameseProjectText(p.status, "Đang hoạt động");
+            const displayType = normalizeVietnameseProjectText(p.type, "Chưa xác định");
+            return (
+              <div key={id} className="bg-white border rounded-xl shadow-sm p-5 space-y-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-gray-900 line-clamp-1">
+                      {p.name || "Chưa có tên"}
+                    </h3>
+                    <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                      {displayStatus}
+                    </span>
+                  </div>
+
+                  <div className="relative">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenMenuId(openMenuId === id ? null : id);
+                      }}
+                      className="p-1 hover:bg-gray-100 rounded"
+                    >
+                      <MoreHorizontal className="w-5 h-5 text-gray-500" />
+                    </button>
+
+                    {openMenuId === id && (
+                      <div className="absolute right-0 mt-2 w-48 bg-white border rounded-xl shadow-xl z-20 py-2">
+                        <button
+                          onClick={() => navigate(`/manager/projects/${id}`)}
+                          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          <Eye className="w-4 h-4 text-blue-500" />
+                          Xem chi tiết
+                        </button>
+                        <button
+                          onClick={() => {
+                            navigate(`/manager/projects/${id}`);
+                          }}
+                          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-indigo-600 hover:bg-indigo-50"
+                        >
+                          <Image className="w-4 h-4" />
+                          Quản lý trong chi tiết
+                        </button>
+                        <button
+                          onClick={() => handleDelete(id)}
+                          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Xóa dự án
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <div className="relative">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setOpenMenuId(openMenuId === id ? null : id);
-                    }}
-                    className="p-1 hover:bg-gray-100 rounded"
-                  >
-                    <MoreHorizontal className="w-5 h-5 text-gray-500" />
-                  </button>
+                <p className="text-sm text-gray-500">{p.description || "Chưa có mô tả"}</p>
 
-                  {openMenuId === id && (
-                    <div className="absolute right-0 mt-2 w-48 bg-white border rounded-xl shadow-xl z-20 py-2">
-                      <button
-                        onClick={() => navigate(`/manager/projects/${id}`)}
-                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                      >
-                        <Eye className="w-4 h-4 text-blue-500" />
-                        Xem chi tiết
-                      </button>
-                      <button
-                        onClick={() => {
-                          navigate(`/manager/projects/${id}`);
-                        }}
-                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-indigo-600 hover:bg-indigo-50"
-                      >
-                        <Image className="w-4 h-4" />
-                        Quản lý trong chi tiết
-                      </button>
-                      <button
-                        onClick={() => handleDelete(id)}
-                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        Xóa dự án
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <p className="text-sm text-gray-500">{p.description || "Chưa có mô tả"}</p>
-
-              <div className="flex items-center gap-2 text-sm text-indigo-600">
-                <Tag className="w-4 h-4" />
-                {displayType}
-              </div>
-
-              <div className="flex items-center justify-between text-sm text-gray-600 pt-2 border-t">
-                <div className="flex items-center gap-1">
-                  <Image className="w-4 h-4" />
-                  {p.imagesCount ?? 0} ảnh
-                </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-2 text-sm text-indigo-600">
                   <Tag className="w-4 h-4" />
-                  {p.labelsCount ?? 0} nhãn
+                  {displayType}
                 </div>
-              </div>
 
-              <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t">
-                <span>
-                  {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : ""}
-                </span>
-                <div className="flex items-center gap-1">
-                  <Users className="w-4 h-4" />
-                  {p.membersCount ?? 0} người
+                <div className="flex items-center justify-between text-sm text-gray-600 pt-2 border-t">
+                  <div className="flex items-center gap-1">
+                    <Image className="w-4 h-4" />
+                    {p.imagesCount ?? 0} ảnh
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Tag className="w-4 h-4" />
+                    {p.labelsCount ?? 0} nhãn
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t">
+                  <span>
+                    {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : ""}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Users className="w-4 h-4" />
+                    {p.membersCount ?? 0} người
+                  </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
       </div>
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={Math.ceil(projects.filter(p => !searchTerm || p.name?.toLowerCase().includes(searchTerm.toLowerCase())).length / pageSize)}
+        onPageChange={setCurrentPage}
+        pageSize={pageSize}
+        onPageSizeChange={setPageSize}
+        pageSizeOptions={[6, 12, 24, 48]}
+        totalItems={projects.filter(p => !searchTerm || p.name?.toLowerCase().includes(searchTerm.toLowerCase())).length}
+      />
     </div>
   );
 }
