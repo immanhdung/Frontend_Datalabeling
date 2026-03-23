@@ -224,6 +224,7 @@ export default function AnnotatorTask() {
   const [skipReason, setSkipReason] = useState('');
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [isExpired, setIsExpired] = useState(false);
+  const [pendingBox, setPendingBox] = useState(null);
 
   const currentItem = items[currentIndex] || null;
   const currentItemId = currentItem?.taskItemId || currentItem?.id || `item-${currentIndex}`;
@@ -295,12 +296,13 @@ export default function AnnotatorTask() {
         const baseItem = item?.taskItemId && item?.datasetItem
           ? {
             ...item.datasetItem,
+            ...localMeta,
             taskItemId: item.taskItemId,
             id: item.taskItemId,
             isConflict: !!(item.isConflict || localMeta.isConflict),
             _raw: item
           }
-          : { ...item, isConflict: !!(item.isConflict || localMeta.isConflict) };
+          : { ...item, ...localMeta, isConflict: !!(item.isConflict || localMeta.isConflict) };
         return baseItem;
       });
 
@@ -342,13 +344,36 @@ export default function AnnotatorTask() {
           });
         }
 
+        const isReviewRework = taskItems.some(it => {
+          const s = String(it.status || '').toLowerCase();
+          return s === 'rejected' || s === 'completed' || s === 'approved';
+        });
+
         const conflictedCount = taskItems.filter(it => it.isConflict).length;
-        if (conflictedCount === 0) {
+        if (conflictedCount === 0 && !isReviewRework) {
           taskItems = taskItems.map(it => ({ ...it, isConflict: true }));
         }
       }
 
       setItems(taskItems);
+
+      // Deep Sync: Fetch all task annotations at once to link IDs correctly
+      let allTaskAnns = [];
+      try {
+        const resAnns = await annotationAPI.getByTask(taskId);
+        const rawAnns = resolveApiData(resAnns);
+        if (Array.isArray(rawAnns)) {
+           allTaskAnns = rawAnns;
+        } else if (rawAnns && typeof rawAnns === 'object') {
+           // Handle nested objects or maps. Flatten if it contains arrays.
+           const values = Object.values(rawAnns);
+           if (values.some(v => Array.isArray(v))) {
+              allTaskAnns = values.flat().filter(v => v && typeof v === 'object');
+           } else {
+              allTaskAnns = values;
+           }
+        }
+      } catch (e) { console.warn('[Task] Pre-fetch anns failed'); }
 
       if (taskData.dueDate && new Date(taskData.dueDate) < new Date()) {
         setIsExpired(true);
@@ -361,41 +386,70 @@ export default function AnnotatorTask() {
       setCurrentIndex(firstUnprocessed >= 0 ? firstUnprocessed : 0);
 
       const initialStates = {};
+      const myUserId = getCurrentUserId();
+
       for (const item of taskItems) {
-        const itemId = item?.taskItemId || item?.id || item?.itemId;
+        const itemId = String(item?.taskItemId || item?.id || item?.itemId || '');
         const itemStatus = String(item?.status || '').toLowerCase();
         const isConflictItem = item.isConflict && isRework;
+        // Universal Case-Insensitive Matching
+        const datasetItemId = String(item?.datasetItemId || item?.dataset_item_id || item?.datasetItem?.id || '');
+        
+        const matchedAnn = allTaskAnns.find(a => {
+           const aKeys = Object.keys(a);
+           // Try common keys first
+           if (String(a.taskItemId || a.task_item_id || a.TaskItemId || a.itemId || a.item_id || '') === itemId) return true;
+           if (String(a.datasetItemId || a.dataset_item_id || a._datasetItemId || '') === datasetItemId) return true;
+           
+           // Extreme Fallback: Match by value against any property that looks like a UUID
+           return aKeys.some(k => {
+              const val = String(a[k] || '');
+              return val === itemId || val === datasetItemId;
+           });
+        });
+
+        // Extract embedded ID if available
+        let embeddedAnnId = null;
+        const rawAnns = item.annotations || item.Annotations || item.boundingBoxes || item.labels || [];
+        if (Array.isArray(rawAnns) && rawAnns.length > 0) {
+           embeddedAnnId = rawAnns[0].id || rawAnns[0]._id || rawAnns[0].AnnotationId;
+        }
 
         initialStates[itemId] = {
           annotations: [],
-          status: isConflictItem ? 'pending' : (itemStatus === 'completed' || itemStatus === 'done' ? 'done' : itemStatus === 'skipped' ? 'skipped' : 'pending'),
+          annotationId: matchedAnn?.id || matchedAnn?._id || matchedAnn?.AnnotationId || item.annotationId || embeddedAnnId || null,
+          status: isConflictItem 
+            ? 'pending' 
+            : (itemStatus === 'completed' || itemStatus === 'done' || itemStatus === 'approved') 
+              ? 'done' 
+              : (itemStatus === 'skipped') 
+                ? 'skipped' 
+                : (itemStatus === 'rejected')
+                  ? 'rejected'
+                  : 'pending',
           skipReason: '',
         };
 
-        if (itemId) {
-          try {
-            const annRes = await annotationAPI.getByItem(itemId);
-            const data = resolveApiData(annRes);
-            const anns = Array.isArray(data) ? data : [];
-            if (anns.length > 0) {
-              const latestAnn = anns[anns.length - 1];
-              const bboxes = latestAnn?.payload?.bboxes || [];
-              initialStates[itemId].annotationId = latestAnn.id;
-              initialStates[itemId].annotations = bboxes.map((b, idx) => ({
-                id: b.id || `ann-${idx}`,
-                label: b.label,
-                x: b.x, y: b.y, width: b.width, height: b.height,
-                color: getLabelColor(b.label, idx),
-              }));
-              if (!isConflictItem) initialStates[itemId].status = 'done';
-              else {
-                initialStates[itemId].annotations = [];
-                initialStates[itemId].status = 'pending';
-              }
-            }
-          } catch (e) {
-            console.warn(`[Task] Failed to fetch annotations for item ${itemId}:`, e?.message);
-          }
+        // Load existing labels if available
+        if (matchedAnn) {
+           const bboxes = matchedAnn.payload?.bboxes || matchedAnn.payload?.boundingBoxes || [];
+           initialStates[itemId].annotations = bboxes.map((b, idx) => ({
+             id: b.id || `ann-${idx}`,
+             label: b.label, x: b.x, y: b.y, width: b.width, height: b.height,
+             color: getLabelColor(b.label, idx),
+           }));
+           
+           const isDone = itemStatus === 'completed' || itemStatus === 'done' || itemStatus === 'approved';
+           const isRejected = itemStatus === 'rejected';
+
+           if (isDone && !isConflictItem && !isRejected) {
+             initialStates[itemId].status = 'done';
+           } else if (isRejected) {
+             initialStates[itemId].status = 'rejected';
+             initialStates[itemId].annotations = []; // Clear per user request for rejected
+           } else if (isConflictItem) {
+             initialStates[itemId].annotations = [];
+           }
         }
       }
       setItemStates(initialStates);
@@ -427,7 +481,6 @@ export default function AnnotatorTask() {
 
   function handleCanvasMouseDown(e) {
     if (isExpired) return;
-    if (!selectedLabel) { alert('Vui lòng chọn nhãn trước khi vẽ bounding box!'); return; }
     setIsDrawing(true); setStartPoint(getCanvasCoords(e)); setPreviewBox(null);
   }
 
@@ -449,15 +502,8 @@ export default function AnnotatorTask() {
     };
     setIsDrawing(false); setStartPoint(null); setPreviewBox(null);
     if (box.width > 8 && box.height > 8) {
-      updateItemState(currentItemId, {
-        annotations: [...annotations, {
-          id: `ann-${Date.now()}`,
-          label: selectedLabel,
-          color: getLabelColor(selectedLabel, labels.indexOf(selectedLabel)),
-          ...box
-        }],
-        status: 'pending',
-      });
+      setPendingBox(box);
+      setSelectedLabel(''); // Reset selected label to prompt choice
     }
   }
 
@@ -476,14 +522,18 @@ export default function AnnotatorTask() {
       ctx.fillStyle = color; ctx.fillRect(bx, by, bw, bh);
       ctx.fillStyle = '#fff'; ctx.fillText(ann.label, bx + 5, by + 13);
     });
-    if (previewBox && selectedLabel) {
-      const color = getLabelColor(selectedLabel, labels.indexOf(selectedLabel));
-      ctx.fillStyle = color + '22'; ctx.fillRect(previewBox.x, previewBox.y, previewBox.width, previewBox.height);
-      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([6, 3]);
+    if (previewBox) {
+      ctx.strokeStyle = '#6366f1'; ctx.lineWidth = 2; ctx.setLineDash([6, 3]);
       ctx.strokeRect(previewBox.x, previewBox.y, previewBox.width, previewBox.height);
       ctx.setLineDash([]);
     }
-  }, [annotations, previewBox, selectedLabel, labels, currentIndex]);
+    if (pendingBox) {
+      ctx.strokeStyle = '#6366f1'; ctx.lineWidth = 3;
+      ctx.strokeRect(pendingBox.x, pendingBox.y, pendingBox.width, pendingBox.height);
+      ctx.fillStyle = 'rgba(99, 102, 241, 0.1)';
+      ctx.fillRect(pendingBox.x, pendingBox.y, pendingBox.width, pendingBox.height);
+    }
+  }, [annotations, previewBox, pendingBox, selectedLabel, labels, currentIndex]);
 
   // ── Actions ─────────────────────────────────────────────────
   async function saveCurrentItem() {
@@ -496,14 +546,79 @@ export default function AnnotatorTask() {
         width: Math.round(a.width), height: Math.round(a.height)
       }));
 
-      const existingAnnId = itemStates[currentItemId]?.annotationId;
-      if (existingAnnId) {
-        await annotationAPI.update(existingAnnId, { payload: { bboxes } });
-      } else {
-        await annotationAPI.submit([{ taskItemId: currentItemId, payload: { bboxes } }]);
+      let existingAnnId = itemStates[currentItemId]?.annotationId;
+      
+      try {
+        if (existingAnnId) {
+          await annotationAPI.update(existingAnnId, { payload: { bboxes } });
+        } else {
+          try {
+            const res = await annotationAPI.submit([{ taskItemId: currentItemId, payload: { bboxes } }]);
+            const resData = resolveApiData(res);
+            const firstRes = Array.isArray(resData) ? resData[0] : (resData?.id || resData?._id ? resData : null);
+            if (firstRes?.id || firstRes?._id) {
+               existingAnnId = firstRes.id || firstRes._id;
+            }
+          } catch (err) {
+            // Ultimate healing: if 400, try every possible way to find the existing ID
+            if (err.response?.status === 400 || err.response?.status === 409) {
+               const myUserId = getCurrentUserId();
+               const datasetItemId = currentItem?.datasetItem?.id || currentItem?.datasetItemId || currentItem?.dataset_item_id;
+               
+               // Try getByItem with currentItemId AND datasetItemId as fallback
+               const idsToTry = [currentItemId, datasetItemId].filter(Boolean);
+               let anns = [];
+               for (const idToTry of idsToTry) {
+                  try {
+                    const findRes = await annotationAPI.getByItem(idToTry);
+                    const findData = resolveApiData(findRes);
+                    const batch = Array.isArray(findData) ? findData : (findData?.id || findData?._id ? [findData] : []);
+                    anns = [...anns, ...batch];
+                  } catch (e) {}
+               }
+               
+               // Try to match by my userId first
+               let existing = anns.find(a => String(a.userId || a.annotatorId || a.annotator_id || '') === String(myUserId)) || anns[0];
+               
+               // If still not found, try exhaustive getByTask search
+               if (!existing?.id && !existing?._id) {
+                  try {
+                    const taskAnnsRes = await annotationAPI.getByTask(taskId);
+                    const taskAnns = resolveApiData(taskAnnsRes);
+                    const annList = Array.isArray(taskAnns) ? taskAnns : (taskAnns && typeof taskAnns === 'object' ? Object.values(taskAnns) : []);
+                    
+                    existing = annList.find(a => 
+                       String(a.taskItemId || a.task_item_id || a.itemId || a.item_id || a.taskItem || '') === String(currentItemId) ||
+                       String(a.datasetItemId || a.dataset_item_id || a.datasetItem || '') === String(datasetItemId)
+                    );
+                    
+                    // Final desperate owner check in task-wide list
+                    if (!existing) {
+                       existing = annList.find(a => 
+                          String(a.userId || a.annotatorId || a.annotator_id || '') === String(myUserId) && 
+                          (String(a.taskItemId || a.itemId || '') === String(currentItemId) || String(a.datasetItemId || '') === String(datasetItemId))
+                       );
+                    }
+                  } catch (e2) {}
+               }
+
+               if (existing?.id || existing?._id) {
+                  existingAnnId = existing.id || existing._id;
+                  await annotationAPI.update(existingAnnId, { payload: { bboxes } });
+               } else { throw err; }
+            } else { throw err; }
+          }
+        }
+      } catch (err) {
+        alert('Lưu thất bại: Code 400 (Already Exists). Vui lòng F5 hoặc liên hệ quản trị viên.');
+        return false;
       }
 
-      updateItemState(currentItemId, { status: 'done' });
+      updateItemState(currentItemId, { 
+        status: 'done', 
+        annotationId: existingAnnId,
+        annotations: annotations
+      });
 
       const nextProcessedCount = Object.values({
         ...itemStates,
@@ -763,9 +878,10 @@ export default function AnnotatorTask() {
                   key={id}
                   onClick={() => setCurrentIndex(idx)}
                   className={`w-full rounded-xl border-2 overflow-hidden transition-all relative ${isActive ? 'border-indigo-500 shadow-md' :
-                      state.status === 'done' ? 'border-emerald-300 opacity-80' :
+                      (state.status === 'done' || state.status === 'completed') ? 'border-emerald-300 opacity-80' :
                         state.status === 'skipped' ? 'border-amber-300 opacity-70' :
-                          'border-transparent hover:border-slate-300'
+                          state.status === 'rejected' ? 'border-rose-400 bg-rose-50/50' :
+                            'border-transparent hover:border-slate-300'
                     }`}
                 >
                   {url
@@ -778,8 +894,9 @@ export default function AnnotatorTask() {
                         <AlertCircle className="w-3 h-3" />
                       </span>
                     )}
-                    {state.status === 'done' && <span className="bg-emerald-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md"><Check className="w-3 h-3" /></span>}
+                    {(state.status === 'done' || state.status === 'completed') && <span className="bg-emerald-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md"><Check className="w-3 h-3" /></span>}
                     {state.status === 'skipped' && <span className="bg-amber-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md"><SkipForward className="w-3 h-3" /></span>}
+                    {state.status === 'rejected' && <span className="bg-rose-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md"><X className="w-3 h-3" /></span>}
                   </div>
                   <div className="absolute bottom-0 left-0 right-0 bg-black/40 text-white text-[9px] font-bold px-1 py-0.5 text-center">{idx + 1}</div>
                 </button>
@@ -858,32 +975,61 @@ export default function AnnotatorTask() {
         <div className="w-64 bg-white border-l border-gray-200 flex flex-col overflow-hidden shrink-0">
           <div className="p-4 border-b border-gray-100">
             <h3 className="text-sm font-black uppercase text-gray-500 tracking-wider mb-3 flex items-center gap-2">
-              <Tag className="w-4 h-4" /> Chọn nhãn
+              <Tag className="w-4 h-4" /> {pendingBox ? 'Gán nhãn cho vùng chọn' : 'Chọn nhãn'}
             </h3>
-            <div className="space-y-1.5 max-h-52 overflow-y-auto">
-              {labels.length === 0 ? (
-                <div className="text-center py-4 text-gray-400">
-                  <Tag className="w-6 h-6 mx-auto mb-1 opacity-40" />
-                  <p className="text-xs">Không có nhãn trong dự án</p>
-                </div>
-              ) : labels.map((label, idx) => {
-                const color = getLabelColor(label, idx);
-                const isSelected = selectedLabel === label;
-                return (
-                  <button
-                    key={label}
-                    onClick={() => setSelectedLabel(isSelected ? '' : label)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left font-semibold text-sm transition-all ${isSelected ? 'text-white shadow-md' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'}`}
-                    style={isSelected ? { backgroundColor: color } : {}}
+            
+            {pendingBox ? (
+              <div className="space-y-3">
+                <div className="relative">
+                  <select
+                    className="w-full appearance-none bg-indigo-50 border-2 border-indigo-200 text-indigo-900 px-4 py-3 rounded-xl font-bold text-sm focus:border-indigo-500 outline-none pr-10"
+                    value={selectedLabel}
+                    onChange={(e) => {
+                      const label = e.target.value;
+                      if (!label) return;
+                      updateItemState(currentItemId, {
+                        annotations: [...annotations, {
+                          id: `ann-${Date.now()}`,
+                          label: label,
+                          color: getLabelColor(label, labels.indexOf(label)),
+                          ...pendingBox
+                        }],
+                        status: 'pending',
+                      });
+                      setPendingBox(null);
+                      setSelectedLabel('');
+                    }}
                   >
-                    <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                    {label}
-                    {isSelected && <Check className="w-4 h-4 ml-auto" />}
-                  </button>
-                );
-              })}
-            </div>
-            {!selectedLabel && labels.length > 0 && <p className="text-xs text-amber-600 mt-2 font-medium">↑ Chọn nhãn, rồi kéo trên ảnh để vẽ</p>}
+                    <option value="">-- Chọn nhãn --</option>
+                    {labels.map((l) => (
+                      <option key={l} value={l}>{l}</option>
+                    ))}
+                  </select>
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <Tag className="w-4 h-4 text-indigo-400" />
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setPendingBox(null)}
+                  className="w-full py-2 text-xs font-bold text-gray-400 hover:text-red-500 transition-colors"
+                >
+                  Hủy vùng chọn này
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-1.5 max-h-52 overflow-y-auto">
+                {labels.length === 0 ? (
+                  <div className="text-center py-4 text-gray-400">
+                    <Tag className="w-6 h-6 mx-auto mb-1 opacity-40" />
+                    <p className="text-xs">Không có nhãn trong dự án</p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-indigo-600 mb-2 font-bold animate-pulse">
+                    ↑ Kéo chuột trên ảnh để khoanh vùng
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto p-4">
@@ -905,15 +1051,40 @@ export default function AnnotatorTask() {
               <div className="space-y-2">
                 {annotations.map((ann) => (
                   <div key={ann.id} className="flex items-center justify-between gap-2 p-2.5 bg-gray-50 rounded-xl border border-gray-100">
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
                       <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: ann.color }} />
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-gray-900 truncate">{ann.label}</p>
-                        <p className="text-[10px] text-gray-400">{Math.round(ann.width)}×{Math.round(ann.height)}</p>
+                      <div className="flex-1 min-w-0">
+                        {currentState.status !== 'done' ? (
+                          <select
+                            className="w-full text-sm font-black text-slate-900 bg-white/50 border border-slate-200 rounded-lg px-2 py-0.5 outline-none cursor-pointer hover:border-indigo-300 transition-all appearance-none"
+                            value={ann.label}
+                            onChange={(e) => {
+                              const newLabel = e.target.value;
+                              const updatedAnns = annotations.map(a => 
+                                a.id === ann.id ? { 
+                                  ...a, 
+                                  label: newLabel, 
+                                  color: getLabelColor(newLabel, labels.indexOf(newLabel)) 
+                                } : a
+                              );
+                              updateItemState(currentItemId, { annotations: updatedAnns });
+                            }}
+                          >
+                            {labels.map(l => (
+                              <option key={l} value={l}>{l}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <p className="text-sm font-bold text-gray-900 truncate">{ann.label}</p>
+                        )}
+                        <p className="text-[10px] text-gray-400 mt-0.5">{Math.round(ann.width)}×{Math.round(ann.height)} pixels</p>
                       </div>
                     </div>
                     {currentState.status !== 'done' && (
-                      <button onClick={() => updateItemState(currentItemId, { annotations: annotations.filter((a) => a.id !== ann.id) })} className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all shrink-0">
+                      <button 
+                        onClick={() => updateItemState(currentItemId, { annotations: annotations.filter((a) => a.id !== ann.id) })} 
+                        className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all shrink-0"
+                      >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     )}

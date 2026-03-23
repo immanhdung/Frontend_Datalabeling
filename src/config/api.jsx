@@ -71,6 +71,7 @@ export const projectAPI = {
   getDatasets: (id) => api.get(`/projects/${id}/datasets`),
   getStats: (id) => api.get(`/statistics/projects/${id}/overview`),
   getAgreementStats: (id) => api.get(`/statistics/projects/${id}/agreement`),
+  getTaskItems: (id) => api.get(`/projects/${id}/task-items`),
 };
 
 export const consensusAPI = {

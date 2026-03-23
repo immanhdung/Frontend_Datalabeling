@@ -18,6 +18,26 @@ export const resolveApiData = (response) => {
   return root || [];
 };
 
+export const resolveImageUrl = (item) => {
+  if (!item) return '';
+  const nested = item?.datasetItem || item?.DatasetItem;
+  if (nested) { const u = resolveImageUrl(nested); if (u) return u; }
+  const candidate =
+    item?.storageUri || item?.StorageUri ||
+    item?.thumbnailUrl || item?.previewUrl ||
+    item?.imageUrl || item?.ImageUrl ||
+    item?.url || item?.Url ||
+    item?.path || item?.Path ||
+    item?.filePath || item?.mediaUrl || '';
+  if (!candidate) { 
+    if (item?.data && typeof item.data === 'object') return resolveImageUrl(item.data); 
+    return ''; 
+  }
+  if (/^(https?:|data:|blob:)/i.test(candidate)) return candidate;
+  const base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/api$/i, '').replace(/\/$/, '');
+  return candidate.startsWith('/') ? `${base}${candidate}` : `${base}/${candidate}`;
+};
+
 export const getCurrentUser = () => readJsonStorage('user', null);
 
 export const getCurrentUserId = () => {
@@ -125,6 +145,15 @@ export const normalizeTask = (task, assignedUserId = undefined) => {
     totalItems:
       task?.totalItems ?? task?.TotalItems ?? task?.total_items ??
       task?.items?.length ?? 0,
+    processedCount:
+      task?.processedCount ??
+      (Array.isArray(task?.items || task?.Items)
+        ? (task?.items || task?.Items).filter((it) =>
+            ['done', 'completed', 'skipped', 'submitted', 'hoan thanh', 'hoàn thành'].includes(
+              String(it.status || '').toLowerCase()
+            )
+          ).length
+        : Math.round(((task?.progress ?? task?.Progress ?? 0) * (task?.totalItems ?? 0)) / 100)),
     reviewStatus: task?.reviewStatus ?? task?.ReviewStatus ?? task?.review_status,
     feedback: task?.feedback ?? task?.Feedback,
     items: task?.items ?? task?.Items ?? [],

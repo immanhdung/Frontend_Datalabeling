@@ -438,9 +438,9 @@ export default function ManagerProjects() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {projects.map((p) => {
-            const id = getProjectId(p);
-            const displayStatus = normalizeVietnameseProjectText(p.status, "Đang hoạt động");
-            const displayType = normalizeVietnameseProjectText(p.type, "Chưa xác định");
+          const id = getProjectId(p);
+          const displayStatus = normalizeVietnameseProjectText(p.status, "Đang hoạt động");
+          const displayType = normalizeVietnameseProjectText(p.type, "Chưa xác định");
           return (
             <div key={id} className="bg-white border rounded-xl shadow-sm p-5 space-y-4">
               <div className="flex items-start justify-between">
