@@ -46,8 +46,18 @@ export default function TaskDetails() {
               const p = projRes.data?.data || projRes.data || {};
               normalized.projectName = p.name || p.projectName || normalized.projectName;
               normalized.dueDate = p.deadline || p.dueDate || normalized.dueDate;
+              normalized.guideline = p.guideline || "";
             }
           } catch {}
+        }
+
+        // Always try to fetch guideline if missing
+        if (!normalized.guideline) {
+           try {
+              const guideRes = await api.get(`/guidelines/projects/${normalized.projectId}`).catch(() => ({ data: null }));
+              const gRaw = guideRes?.data?.data || guideRes?.data;
+              normalized.guideline = (typeof gRaw === 'string' ? gRaw : gRaw?.content || gRaw?.guideline || gRaw?.text) || "";
+           } catch {}
         }
 
         setTask(normalized);
@@ -210,6 +220,18 @@ export default function TaskDetails() {
             </div>
           </div>
         </div>
+
+        {/* Guideline Section */}
+        {task.guideline && (
+          <div className="bg-indigo-50/50 border border-indigo-100 rounded-[3rem] p-10 mb-12">
+            <h2 className="flex items-center gap-3 text-2xl font-black text-indigo-900 mb-4">
+               <Database className="w-6 h-6" /> Hướng dẫn gán nhãn
+            </h2>
+            <div className="bg-white/60 backdrop-blur-sm rounded-3xl p-8 text-indigo-900/80 font-medium whitespace-pre-line leading-relaxed border border-white/50">
+               {task.guideline}
+            </div>
+          </div>
+        )}
 
         {/* Image Grid Section */}
         <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden mb-12">

@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import Header from "../../components/common/Header";
 import api from "../../config/api";
 import { useAuth } from "../../context/AuthContext";
@@ -11,6 +11,8 @@ import {
   ChevronUp,
   ChevronDown,
   RotateCcw,
+  ArrowLeft,
+  ArrowRight,
 } from "lucide-react";
 
 const Users = () => {
@@ -106,6 +108,11 @@ const Users = () => {
   const [sortField, setSortField] = useState("username");
   const [sortOrder, setSortOrder] = useState("asc");
 
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState("add");
   const [currentUser, setCurrentUser] = useState(null);
@@ -135,8 +142,22 @@ const Users = () => {
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      const res = await api.get("/users");
-      setUsers(toArrayData(res.data));
+      const res = await api.get("/users", {
+        params: {
+          page,
+          pageSize,
+          Role: filterRole === "all" ? undefined : filterRole,
+          Search: searchTerm || undefined,
+        }
+      });
+      const raw = res.data;
+      const data = toArrayData(raw);
+      setUsers(data);
+
+      const itemsCount = raw?.totalCount ?? raw?.total ?? raw?.count ?? data.length;
+      setTotalCount(itemsCount);
+      setTotalPages(raw?.totalPages ?? Math.ceil(itemsCount / pageSize) ?? 1);
+      
       setIsDemoMode(false);
     } catch (err) {
       console.error("Fetch users error:", err);
@@ -171,9 +192,14 @@ const Users = () => {
   };
 
   useEffect(() => {
-    fetchUsers();
+    if (!isDemoMode) {
+      fetchUsers();
+    }
     fetchRoles();
-  }, []);
+  }, [page, pageSize, filterRole, searchTerm]);
+
+  // Keep fetchUsers for non-paginated actions if needed, or update call sites
+  const refreshUsers = () => fetchUsers();
 
   useEffect(() => {
     let result = Array.isArray(users) ? [...users] : [];
@@ -618,6 +644,73 @@ const Users = () => {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination UI */}
+          {!loading && !isDemoMode && (
+            <div className="px-6 py-4 bg-slate-50/30 border-t border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <span className="text-xs text-slate-500 font-medium whitespace-nowrap">
+                  Hiển thị {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, totalCount)} của {totalCount}
+                </span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setPage(1);
+                  }}
+                  className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                >
+                  {[5, 10, 20, 50].map(size => (
+                    <option key={size} value={size}>{size} dòng / trang</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={page <= 1}
+                  onClick={() => setPage(page - 1)}
+                  className="p-2 rounded-lg hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 text-slate-400 disabled:opacity-30 transition-all"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                
+                <div className="flex items-center gap-1">
+                  {[...Array(totalPages)].map((_, i) => {
+                    const p = i + 1;
+                    // Limit show pages if too many
+                    if (totalPages > 7) {
+                      if (p !== 1 && p !== totalPages && (p < page - 1 || p > page + 1)) {
+                        if (p === 2 || p === totalPages - 1) return <span key={p} className="text-slate-300 px-1">...</span>;
+                        return null;
+                      }
+                    }
+                    return (
+                      <button
+                        key={p}
+                        onClick={() => setPage(p)}
+                        className={`w-8 h-8 rounded-lg text-xs font-bold transition-all ${
+                          page === p 
+                            ? "bg-indigo-600 text-white shadow-md shadow-indigo-100" 
+                            : "text-slate-500 hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200"
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button
+                  disabled={page >= totalPages}
+                  onClick={() => setPage(page + 1)}
+                  className="p-2 rounded-lg hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 text-slate-400 disabled:opacity-30 transition-all"
+                >
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </main>
 

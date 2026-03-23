@@ -89,6 +89,7 @@ export default function ManagerProjectDetail() {
   const [assigningTask, setAssigningTask] = useState(false);
 
   const [isEditMode, setIsEditMode] = useState(false);
+  const [guidelineId, setGuidelineId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [customLabelInput, setCustomLabelInput] = useState("");
   const [editingCategoryLabelId, setEditingCategoryLabelId] = useState("");
@@ -198,7 +199,7 @@ export default function ManagerProjectDetail() {
       setError(null);
 
       // ✅ Gọi các endpoint để lấy datasets và labels của dự án theo ảnh yêu cầu
-      const [projectRes, categoriesRes, datasetsRes, projectDatasetsRes, tasksRes, projectLabelsRes, usersRes] = await Promise.all([
+      const [projectRes, categoriesRes, datasetsRes, projectDatasetsRes, tasksRes, projectLabelsRes, usersRes, guidelineRes] = await Promise.all([
         api.get(`/projects/${id}`),
         api.get("/categories").catch(() => ({ data: [] })),
         api.get("/datasets").catch(() => ({ data: [] })),
@@ -206,6 +207,7 @@ export default function ManagerProjectDetail() {
         api.get("/tasks").catch(() => ({ data: [] })),
         api.get(`/projects/${id}/labels`).catch(() => api.get(`/labels?ProjectId=${id}`)).catch(() => ({ data: [] })), // GET /api/projects/{id}/labels
         api.get("/users").catch(() => ({ data: [] })),
+        api.get(`/projects/${id}/guideline`).catch(() => ({ data: null })), // CORRECT Path based on swagger
       ]);
 
       const fetchedProject =
@@ -213,9 +215,29 @@ export default function ManagerProjectDetail() {
         toObject(projectRes?.data?.project) ||
         projectRes?.data;
 
+      // Extract content from separate guideline if found
+      const guidelineRaw = guidelineRes?.data?.data || guidelineRes?.data;
+      let guidelineContent = "";
+      let foundId = null;
+
+      if (typeof guidelineRaw === 'string') {
+        guidelineContent = guidelineRaw;
+      } else if (guidelineRaw && typeof guidelineRaw === 'object') {
+        guidelineContent = guidelineRaw.content || guidelineRaw.guideline || guidelineRaw.text || "";
+        foundId = guidelineRaw.id || guidelineRaw.guidelineId;
+      }
+
+      setGuidelineId(foundId);
+
+      if (guidelineContent) {
+        fetchedProject.guideline = guidelineContent;
+      } else {
+        // Fallback to project guideline if separate fetch yielded nothing
+        fetchedProject.guideline = fetchedProject.guideline || "";
+      }
+
       // Lấy members từ project detail (nếu có) hoặc từ allUsers filter
-      // ❌ Bỏ /projects/{id}/members vì 400
-      // ❌ Bỏ /projects/{id}/label-sets vì 404
+
       let fetchedMembers = [];
       const membersFromProject = toArray(fetchedProject?.members);
       if (membersFromProject.length > 0) {
@@ -529,18 +551,38 @@ export default function ManagerProjectDetail() {
   const saveProject = async () => {
     try {
       setSaving(true);
-      await api.put(`/projects/${id}`, {
-        name: editForm.name.trim(),
+      const updatePayload = {
         description: editForm.description.trim(),
         isActive: String(editForm.status || "").toLowerCase() !== "inactive",
-        guideline: editForm.guideline,
-        categoryId: editForm.categoryId || null,
-        status: editForm.status,
-        type: editForm.type,
-        deadline: null,
-        labels: editForm.labels,
-        labelNames: editForm.labels,
-      });
+      };
+
+      // Only include name if it actually changed
+      if (editForm.name.trim() !== project.name) {
+        updatePayload.name = editForm.name.trim();
+      }
+
+      await api.put(`/projects/${id}`, updatePayload);
+
+      // ✅ Update guideline separately as requested
+      try {
+        if (guidelineId) {
+          // Use PUT /api/guidelines/{id}
+          await api.put(`/guidelines/${guidelineId}`, {
+            content: editForm.guideline || ""
+          });
+        } else {
+          // POST to create new
+          await api.post("/guidelines", {
+            projectId: id,
+            content: editForm.guideline || ""
+          });
+          // Refresh after save to get new guideline ID
+          setTimeout(fetchProjectDetail, 1000);
+        }
+      } catch (e) {
+        console.warn("Could not update/create guideline via /guidelines.");
+      }
+
       if (editForm.datasetIds.length > 0) {
         await Promise.allSettled(
           editForm.datasetIds.map((datasetId) => api.post(`/datasets/add/${id}`, { datasetId }, { validateStatus: () => true }))

@@ -118,8 +118,14 @@ export const annotationAPI = {
 };
 
 export const userAPI = {
-  getAll: () => api.get("/users"),
+  getAll: (params) => api.get("/users", { params }),
   getById: (id) => api.get(`/users/${id}`),
+};
+
+export const guidelineAPI = {
+  create: (payload) => api.post("/guidelines", payload),
+  update: (id, payload) => api.put(`/guidelines/${id}`, payload),
+  getByProjectId: (projectId) => api.get(`/projects/${projectId}/guideline`),
 };
 
 export const roleAPI = {

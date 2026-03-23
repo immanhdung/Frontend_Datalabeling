@@ -310,7 +310,17 @@ export default function CreateProjectPage() {
 
       if (!projectId) throw new Error("Tạo dự án xong nhưng không lấy được projectId");
 
-      // Cập nhật guideline + deadline nếu API tạo project chưa nhận
+      // ✅ Create guideline separately as requested
+      try {
+        await api.post("/guidelines", {
+          projectId: projectId,
+          content: guidelines.trim() || ""
+        });
+      } catch (e) {
+        console.warn("Could not create guideline via /guidelines. Attempting fallback in project PUT.");
+      }
+
+      // Cập nhật guideline + deadline nếu API tạo project chưa nhận (Fallback)
       try {
         await api.put(`/projects/${projectId}`, {
           name: projectName.trim(),
