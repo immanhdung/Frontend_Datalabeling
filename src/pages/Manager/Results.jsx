@@ -76,7 +76,9 @@ export default function ManagerResults() {
       const enhanced = projectsList.map(p => {
         const pid = String(p.id || p.projectId || '');
         const projectTasks = allLocalTasks.filter(t => String(t.projectId || t.project?.id || '') === pid);
-        const approvedTasks = projectTasks.filter(t => 
+        
+        const totalTasks = projectTasks.length;
+        const approvedCount = projectTasks.filter(t => 
            ['approved', 'completed', 'done'].includes(String(t.status || "").toLowerCase())
         ).length;
         
@@ -123,9 +125,19 @@ export default function ManagerResults() {
     fetchProjects();
   }, []);
 
-  const filteredProjects = projects.filter(p =>
-    p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.description?.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredProjects = projects.filter(
+    (p) => {
+      // Show project if it has any approved tasks OR if the project itself is marked as done
+      const isActuallyDone = 
+        p.approvedTasks > 0 || 
+        ['done', 'completed', 'finished', 'hoàn thành'].includes(String(p.status || "").toLowerCase());
+      
+      const matchesSearch = 
+        p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        String(p.id).includes(searchTerm);
+
+      return isActuallyDone && matchesSearch;
+    }
   );
 
   return (
