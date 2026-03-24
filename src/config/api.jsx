@@ -187,4 +187,8 @@ export const labelAPI = {
     ]),
 };
 
+export const exportAPI = {
+  exportProject: (projectId, payload) => api.post(`/exports/${projectId}`, payload),
+};
+
 export default api;

@@ -67,7 +67,7 @@ async function fetchProjectLabels(projectId) {
 }
 
 // ── Submission Result Modal ───────────────────────────────────
-// ── Submission Result Modal ───────────────────────────────────
+// FIX #1: Đổi onClick={handleRework} → onClick={onRework} (prop đúng)
 function SubmissionResultModal({ result, onClose, onRework, totalAnnotators = 3 }) {
   const { hasConflict, conflictCount, totalItems, nonConflictCount } = result;
 
@@ -138,8 +138,9 @@ function SubmissionResultModal({ result, onClose, onRework, totalAnnotators = 3 
           >
             Về danh sách
           </button>
+          {/* FIX #1: onClick={onRework} thay vì onClick={handleRework} (handleRework không tồn tại trong scope này) */}
           <button
-            onClick={handleRework}
+            onClick={onRework}
             className="flex-1 py-3 bg-amber-600 text-white rounded-2xl font-bold hover:bg-amber-700 transition-all text-sm shadow-lg shadow-amber-100"
           >
             Làm lại ảnh conflict
@@ -150,7 +151,6 @@ function SubmissionResultModal({ result, onClose, onRework, totalAnnotators = 3 
   );
 }
 
-// ── Waiting for other annotators modal ───────────────────────
 // ── Waiting for other annotators modal ───────────────────────
 function WaitingModal({ submittedCount, onClose, totalAnnotators = 3 }) {
   return (
@@ -168,8 +168,8 @@ function WaitingModal({ submittedCount, onClose, totalAnnotators = 3 }) {
             <div
               key={n}
               className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-sm border-2 ${n <= submittedCount
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-slate-100 text-slate-300 border-slate-200'
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-slate-100 text-slate-300 border-slate-200'
                 }`}
             >
               {n <= submittedCount ? <Check className="w-5 h-5" /> : n}
@@ -210,7 +210,7 @@ export default function AnnotatorTask() {
   const [itemStates, setItemStates] = useState({});
 
   // Post-submit result
-  const [submitResult, setSubmitResult] = useState(null); // { hasConflict, conflictCount, totalItems, nonConflictCount }
+  const [submitResult, setSubmitResult] = useState(null);
   const [submittedCount, setSubmittedCount] = useState(0);
   const [showWaiting, setShowWaiting] = useState(false);
 
@@ -365,15 +365,14 @@ export default function AnnotatorTask() {
         const resAnns = await annotationAPI.getByTask(taskId);
         const rawAnns = resolveApiData(resAnns);
         if (Array.isArray(rawAnns)) {
-           allTaskAnns = rawAnns;
+          allTaskAnns = rawAnns;
         } else if (rawAnns && typeof rawAnns === 'object') {
-           // Handle nested objects or maps. Flatten if it contains arrays.
-           const values = Object.values(rawAnns);
-           if (values.some(v => Array.isArray(v))) {
-              allTaskAnns = values.flat().filter(v => v && typeof v === 'object');
-           } else {
-              allTaskAnns = values;
-           }
+          const values = Object.values(rawAnns);
+          if (values.some(v => Array.isArray(v))) {
+            allTaskAnns = values.flat().filter(v => v && typeof v === 'object');
+          } else {
+            allTaskAnns = values;
+          }
         }
       } catch (e) { console.warn('[Task] Pre-fetch anns failed'); }
 
@@ -388,70 +387,76 @@ export default function AnnotatorTask() {
       setCurrentIndex(firstUnprocessed >= 0 ? firstUnprocessed : 0);
 
       const initialStates = {};
-      const myUserId = getCurrentUserId();
 
       for (const item of taskItems) {
         const itemId = String(item?.taskItemId || item?.id || item?.itemId || '');
         const itemStatus = String(item?.status || '').toLowerCase();
         const isConflictItem = item.isConflict && isRework;
-        // Universal Case-Insensitive Matching
         const datasetItemId = String(item?.datasetItemId || item?.dataset_item_id || item?.datasetItem?.id || '');
-        
+
         const matchedAnn = allTaskAnns.find(a => {
-           const aKeys = Object.keys(a);
-           // Try common keys first
-           if (String(a.taskItemId || a.task_item_id || a.TaskItemId || a.itemId || a.item_id || '') === itemId) return true;
-           if (String(a.datasetItemId || a.dataset_item_id || a._datasetItemId || '') === datasetItemId) return true;
-           
-           // Extreme Fallback: Match by value against any property that looks like a UUID
-           return aKeys.some(k => {
-              const val = String(a[k] || '');
-              return val === itemId || val === datasetItemId;
-           });
+          const aKeys = Object.keys(a);
+          if (String(a.taskItemId || a.task_item_id || a.TaskItemId || a.itemId || a.item_id || '') === itemId) return true;
+          if (String(a.datasetItemId || a.dataset_item_id || a._datasetItemId || '') === datasetItemId) return true;
+          return aKeys.some(k => {
+            const val = String(a[k] || '');
+            return val === itemId || val === datasetItemId;
+          });
         });
 
-        // Extract embedded ID if available
         let embeddedAnnId = null;
         const rawAnns = item.annotations || item.Annotations || item.boundingBoxes || item.labels || [];
         if (Array.isArray(rawAnns) && rawAnns.length > 0) {
-           embeddedAnnId = rawAnns[0].id || rawAnns[0]._id || rawAnns[0].AnnotationId;
+          embeddedAnnId = rawAnns[0].id || rawAnns[0]._id || rawAnns[0].AnnotationId;
         }
+
+        const isDone = itemStatus === 'completed' || itemStatus === 'done' || itemStatus === 'approved';
+        const isRejected = itemStatus === 'rejected';
 
         initialStates[itemId] = {
           annotations: [],
-          annotationId: matchedAnn?.id || matchedAnn?._id || matchedAnn?.AnnotationId || item.annotationId || embeddedAnnId || null,
-          status: isConflictItem 
-            ? 'pending' 
-            : (itemStatus === 'completed' || itemStatus === 'done' || itemStatus === 'approved') 
-              ? 'done' 
-              : (itemStatus === 'skipped') 
-                ? 'skipped' 
-                : (itemStatus === 'rejected')
+          // FIX #2: annotationId chỉ set khi item KHÔNG bị rejected và KHÔNG phải conflict rework
+          // Nếu rejected hoặc conflict → reset null để tránh PUT nhầm vào annotation cũ
+          annotationId: (isRejected || isConflictItem)
+            ? null
+            : (matchedAnn?.id || matchedAnn?._id || matchedAnn?.AnnotationId || item.annotationId || embeddedAnnId || null),
+          status: isConflictItem
+            ? 'pending'
+            : isDone
+              ? 'done'
+              : (itemStatus === 'skipped')
+                ? 'skipped'
+                : isRejected
                   ? 'rejected'
                   : 'pending',
           skipReason: '',
         };
 
-        // Load existing labels if available
-        if (matchedAnn) {
-           const bboxes = matchedAnn.payload?.bboxes || matchedAnn.payload?.boundingBoxes || [];
-           initialStates[itemId].annotations = bboxes.map((b, idx) => ({
-             id: b.id || `ann-${idx}`,
-             label: b.label, x: b.x, y: b.y, width: b.width, height: b.height,
-             color: getLabelColor(b.label, idx),
-           }));
-           
-           const isDone = itemStatus === 'completed' || itemStatus === 'done' || itemStatus === 'approved';
-           const isRejected = itemStatus === 'rejected';
+        // Load existing labels nếu có (chỉ khi không bị rejected và không phải conflict rework)
+        if (matchedAnn && !isRejected && !isConflictItem) {
+          const bboxes = matchedAnn.payload?.bboxes || matchedAnn.payload?.boundingBoxes || [];
+          initialStates[itemId].annotations = bboxes.map((b, idx) => ({
+            id: b.id || `ann-${idx}`,
+            label: b.label, x: b.x, y: b.y, width: b.width, height: b.height,
+            color: getLabelColor(b.label, idx),
+          }));
 
-           if (isDone && !isConflictItem && !isRejected) {
-             initialStates[itemId].status = 'done';
-           } else if (isRejected) {
-             initialStates[itemId].status = 'rejected';
-             initialStates[itemId].annotations = []; // Clear per user request for rejected
-           } else if (isConflictItem) {
-             initialStates[itemId].annotations = [];
-           }
+          if (isDone) {
+            initialStates[itemId].status = 'done';
+          }
+        }
+
+        // FIX #2 (bổ sung): Đảm bảo rejected item luôn có annotations rỗng và annotationId null
+        if (isRejected) {
+          initialStates[itemId].status = 'rejected';
+          initialStates[itemId].annotations = [];
+          initialStates[itemId].annotationId = null;
+        }
+
+        // FIX #3: Conflict rework cũng reset annotationId để tránh PUT nhầm
+        if (isConflictItem) {
+          initialStates[itemId].annotations = [];
+          initialStates[itemId].annotationId = null;
         }
       }
       setItemStates(initialStates);
@@ -505,7 +510,7 @@ export default function AnnotatorTask() {
     setIsDrawing(false); setStartPoint(null); setPreviewBox(null);
     if (box.width > 8 && box.height > 8) {
       setPendingBox(box);
-      setSelectedLabel(''); // Reset selected label to prompt choice
+      setSelectedLabel('');
     }
   }
 
@@ -549,91 +554,116 @@ export default function AnnotatorTask() {
       }));
 
       let existingAnnId = itemStates[currentItemId]?.annotationId;
-      
+
+      // FIX #4: Với item bị rejected, luôn kiểm tra annotation còn tồn tại trên backend không
+      // trước khi quyết định PUT hay POST mới
+      const itemStatus = String(currentItem?.status || currentState?.status || '').toLowerCase();
+      const isRejectedItem = itemStatus === 'rejected';
+
+      if (isRejectedItem && existingAnnId) {
+        try {
+          await annotationAPI.getById(existingAnnId);
+          // Nếu GET thành công → annotation vẫn còn, dùng PUT để update
+        } catch (e) {
+          // Annotation đã bị xóa phía backend khi reject → reset về null để POST mới
+          console.warn('[SaveItem] Rejected annotation no longer exists on server, will create new.');
+          existingAnnId = null;
+          updateItemState(currentItemId, { annotationId: null });
+        }
+      }
+
       try {
         if (existingAnnId) {
+          // Annotation còn tồn tại → UPDATE
           await annotationAPI.update(existingAnnId, { payload: { bboxes } });
         } else {
+          // Chưa có annotation → CREATE mới
           try {
             const res = await annotationAPI.submit([{ taskItemId: currentItemId, payload: { bboxes } }]);
             const resData = resolveApiData(res);
             const firstRes = Array.isArray(resData) ? resData[0] : (resData?.id || resData?._id ? resData : null);
             if (firstRes?.id || firstRes?._id) {
-               existingAnnId = firstRes.id || firstRes._id;
+              existingAnnId = firstRes.id || firstRes._id;
             }
           } catch (err) {
-            // Ultimate healing: if 400/409, try every possible way to find the existing ID
-            if (err.response?.status === 400 || err.response?.status === 409 || String(err.response?.data?.message).toLowerCase().includes('already exists')) {
-               console.warn('[Healing] "Already Exists" detected. Exhaustive search for existing annotation ID...');
-               const myUserId = getCurrentUserId();
-               const datasetItemId = currentItem?.datasetItem?.id || currentItem?.datasetItemId || currentItem?.dataset_item_id || currentItem?.dataset_item?.id;
-               const taskIdFromTask = task?.id || taskId;
+            // Healing: nếu 400/409 "Already Exists" → tìm annotation ID cũ và update
+            const isAlreadyExists =
+              err.response?.status === 400 ||
+              err.response?.status === 409 ||
+              String(err.response?.data?.message || '').toLowerCase().includes('already exists');
 
-               let anns = [];
-               
-               // 1. Try getByItem for both currentItemId and datasetItemId
-               const idsToTry = [currentItemId, datasetItemId].filter(Boolean);
-               for (const idToTry of idsToTry) {
-                  try {
-                    const findRes = await annotationAPI.getByItem(idToTry);
-                    const findData = resolveApiData(findRes);
-                    if (Array.isArray(findData)) anns = [...anns, ...findData];
-                    else if (findData?.id || findData?._id) anns.push(findData);
-                  } catch (e) {}
-               }
-               
-               // 2. Try exhaustive getByTask search
-               try {
-                  const taskAnnsRes = await annotationAPI.getByTask(taskIdFromTask);
-                  const taskAnnsData = resolveApiData(taskAnnsRes);
-                  const annList = Array.isArray(taskAnnsData) ? taskAnnsData : (taskAnnsData && typeof taskAnnsData === 'object' ? Object.values(taskAnnsData) : []);
-                  if (Array.isArray(annList)) {
-                     const flatL = annList.flat();
-                     anns = [...anns, ...flatL];
-                  }
-               } catch (e2) {}
-               
-               // Filter and prioritize
-               const uniqueAnns = anns.filter((v, i, a) => v && (v.id || v._id) && a.findIndex(t => (t.id || t._id) === (v.id || v._id)) === i);
-               
-               // Match conditions: ID match (taskItemId or datasetItemId) AND preferably userID match
-               let existing = uniqueAnns.find(a => 
-                  String(a.userId || a.annotatorId || a.annotator_id || '') === String(myUserId) && 
-                  (String(a.taskItemId || a.taskItem || a.itemId || '') === String(currentItemId) || 
-                   String(a.datasetItemId || a.datasetItem || '') === String(datasetItemId))
-               );
-               
-               if (!existing) {
-                  // Fallback: match by ID only (ignore user for now if we're desperate)
-                  existing = uniqueAnns.find(a => 
-                     String(a.taskItemId || a.taskItem || a.itemId || '') === String(currentItemId) || 
-                     String(a.datasetItemId || a.datasetItem || '') === String(datasetItemId)
-                  );
-               }
+            if (isAlreadyExists) {
+              console.warn('[Healing] "Already Exists" detected. Exhaustive search for existing annotation ID...');
+              const myUserId = getCurrentUserId();
+              const datasetItemId = currentItem?.datasetItem?.id || currentItem?.datasetItemId || currentItem?.dataset_item_id || currentItem?.dataset_item?.id;
+              const taskIdFromTask = task?.id || taskId;
 
-               if (!existing) {
-                  // Final fallback: any annotation for this user in this task
-                  existing = uniqueAnns.find(a => String(a.userId || a.annotatorId || '') === String(myUserId));
-               }
+              let anns = [];
 
-               if (existing?.id || existing?._id) {
-                  existingAnnId = existing.id || existing._id;
-                  console.log('[Healing] Found existing ID:', existingAnnId);
-                  await annotationAPI.update(existingAnnId, { payload: { bboxes } });
-               } else { 
-                  console.error('[Healing] Could not resolve existing annotation ID.');
-                  throw err; 
-               }
-            } else { throw err; }
+              // 1. Try getByItem cho cả currentItemId và datasetItemId
+              const idsToTry = [currentItemId, datasetItemId].filter(Boolean);
+              for (const idToTry of idsToTry) {
+                try {
+                  const findRes = await annotationAPI.getByItem(idToTry);
+                  const findData = resolveApiData(findRes);
+                  if (Array.isArray(findData)) anns = [...anns, ...findData];
+                  else if (findData?.id || findData?._id) anns.push(findData);
+                } catch (e) { }
+              }
+
+              // 2. Try getByTask search toàn bộ
+              try {
+                const taskAnnsRes = await annotationAPI.getByTask(taskIdFromTask);
+                const taskAnnsData = resolveApiData(taskAnnsRes);
+                const annList = Array.isArray(taskAnnsData) ? taskAnnsData : (taskAnnsData && typeof taskAnnsData === 'object' ? Object.values(taskAnnsData) : []);
+                if (Array.isArray(annList)) {
+                  anns = [...anns, ...annList.flat()];
+                }
+              } catch (e2) { }
+
+              // Deduplicate
+              const uniqueAnns = anns.filter((v, i, a) => v && (v.id || v._id) && a.findIndex(t => (t.id || t._id) === (v.id || v._id)) === i);
+
+              // Match theo userId + itemId
+              let existing = uniqueAnns.find(a =>
+                String(a.userId || a.annotatorId || a.annotator_id || '') === String(myUserId) &&
+                (String(a.taskItemId || a.taskItem || a.itemId || '') === String(currentItemId) ||
+                  String(a.datasetItemId || a.datasetItem || '') === String(datasetItemId))
+              );
+
+              if (!existing) {
+                // Fallback: match theo itemId (bỏ qua userId)
+                existing = uniqueAnns.find(a =>
+                  String(a.taskItemId || a.taskItem || a.itemId || '') === String(currentItemId) ||
+                  String(a.datasetItemId || a.datasetItem || '') === String(datasetItemId)
+                );
+              }
+
+              if (!existing) {
+                // Final fallback: bất kỳ annotation nào của user này trong task này
+                existing = uniqueAnns.find(a => String(a.userId || a.annotatorId || '') === String(myUserId));
+              }
+
+              if (existing?.id || existing?._id) {
+                existingAnnId = existing.id || existing._id;
+                console.log('[Healing] Found existing ID:', existingAnnId);
+                await annotationAPI.update(existingAnnId, { payload: { bboxes } });
+              } else {
+                console.error('[Healing] Could not resolve existing annotation ID.');
+                throw err;
+              }
+            } else {
+              throw err;
+            }
           }
         }
       } catch (err) {
-        alert('Lưu thất bại: Code 400 (Already Exists). Vui lòng F5 hoặc liên hệ quản trị viên.');
+        alert('Lưu thất bại: ' + (err?.response?.data?.message || err?.message || 'Lỗi không xác định'));
         return false;
       }
 
-      updateItemState(currentItemId, { 
-        status: 'done', 
+      updateItemState(currentItemId, {
+        status: 'done',
         annotationId: existingAnnId,
         annotations: annotations
       });
@@ -720,7 +750,6 @@ export default function AnnotatorTask() {
     const currentUserId = getCurrentUserId();
 
     try {
-      // Build updated task with all items
       const updatedTask = {
         ...task,
         status: 'completed',
@@ -740,30 +769,24 @@ export default function AnnotatorTask() {
         })
       };
 
-      // Submit to API
       try {
         await taskAPI.submit(taskId, { items: updatedTask.items });
       } catch (e) {
         console.warn('[Task] submit API failed:', e?.message);
       }
 
-      // Save to local storage
       upsertLocalAssignedTask(updatedTask, currentUserId);
 
-      // Check how many have submitted so far (including this one)
       const currentCount = getSubmissionCount(taskId);
       setSubmittedCount(currentCount);
 
-      // Process consensus
       const consensusResult = processTaskConsensus(taskId);
 
       setShowSubmitConfirm(false);
 
       if (!consensusResult.ready) {
-        // Not all 3 have submitted yet
         setShowWaiting(true);
       } else {
-        // All 3 submitted, show result
         setSubmitResult(consensusResult);
       }
     } catch (err) {
@@ -866,8 +889,8 @@ export default function AnnotatorTask() {
               }}
               disabled={submitting || isExpired}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-md ${canSubmit && !isExpired
-                  ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'
-                  : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'
+                : 'bg-gray-200 text-gray-500 cursor-not-allowed'
                 }`}
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -896,10 +919,10 @@ export default function AnnotatorTask() {
                   key={id}
                   onClick={() => setCurrentIndex(idx)}
                   className={`w-full rounded-xl border-2 overflow-hidden transition-all relative ${isActive ? 'border-indigo-500 shadow-md' :
-                      (state.status === 'done' || state.status === 'completed') ? 'border-emerald-300 opacity-80' :
-                        state.status === 'skipped' ? 'border-amber-300 opacity-70' :
-                          state.status === 'rejected' ? 'border-rose-400 bg-rose-50/50' :
-                            'border-transparent hover:border-slate-300'
+                    (state.status === 'done' || state.status === 'completed') ? 'border-emerald-300 opacity-80' :
+                      state.status === 'skipped' ? 'border-amber-300 opacity-70' :
+                        state.status === 'rejected' ? 'border-rose-400 bg-rose-50/50' :
+                          'border-transparent hover:border-slate-300'
                     }`}
                 >
                   {url
@@ -995,7 +1018,7 @@ export default function AnnotatorTask() {
             <h3 className="text-sm font-black uppercase text-gray-500 tracking-wider mb-3 flex items-center gap-2">
               <Tag className="w-4 h-4" /> {pendingBox ? 'Gán nhãn cho vùng chọn' : 'Chọn nhãn'}
             </h3>
-            
+
             {pendingBox ? (
               <div className="space-y-3">
                 <div className="relative">
@@ -1027,7 +1050,7 @@ export default function AnnotatorTask() {
                     <Tag className="w-4 h-4 text-indigo-400" />
                   </div>
                 </div>
-                <button 
+                <button
                   onClick={() => setPendingBox(null)}
                   className="w-full py-2 text-xs font-bold text-gray-400 hover:text-red-500 transition-colors"
                 >
@@ -1078,11 +1101,11 @@ export default function AnnotatorTask() {
                             value={ann.label}
                             onChange={(e) => {
                               const newLabel = e.target.value;
-                              const updatedAnns = annotations.map(a => 
-                                a.id === ann.id ? { 
-                                  ...a, 
-                                  label: newLabel, 
-                                  color: getLabelColor(newLabel, labels.indexOf(newLabel)) 
+                              const updatedAnns = annotations.map(a =>
+                                a.id === ann.id ? {
+                                  ...a,
+                                  label: newLabel,
+                                  color: getLabelColor(newLabel, labels.indexOf(newLabel))
                                 } : a
                               );
                               updateItemState(currentItemId, { annotations: updatedAnns });
@@ -1099,8 +1122,8 @@ export default function AnnotatorTask() {
                       </div>
                     </div>
                     {currentState.status !== 'done' && (
-                      <button 
-                        onClick={() => updateItemState(currentItemId, { annotations: annotations.filter((a) => a.id !== ann.id) })} 
+                      <button
+                        onClick={() => updateItemState(currentItemId, { annotations: annotations.filter((a) => a.id !== ann.id) })}
                         className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all shrink-0"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
