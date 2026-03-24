@@ -296,8 +296,9 @@ const ReviewerTask = () => {
 
   const handleRejectItem = () => {
     setItemStatuses(prev => ({ ...prev, [selectedItemIndex]: 'rejected' }));
-    setActionType('reject');
-    setShowFeedbackModal(true);
+    if (selectedItemIndex < items.length - 1) {
+      setSelectedItemIndex(i => i + 1);
+    }
   };
 
   const handleOpenFeedbackModal = (type) => {
@@ -425,19 +426,7 @@ const ReviewerTask = () => {
             </div>
 
             {/* Consensus */}
-            <div className="bg-slate-900 rounded-2xl p-5 text-white">
-              <p className="text-[8px] font-black uppercase text-slate-500 mb-3 tracking-widest">Trạng thái đồng thuận</p>
-              <div className="flex items-center gap-2 text-emerald-400">
-                <CheckCircle2 className="w-4 h-4" />
-                <span className="font-black text-[10px] uppercase">ĐỒNG THUẬN ({consensus.count}/3)</span>
-              </div>
-              <div className="mt-4 pt-4 border-t border-slate-800">
-                <p className="text-[8px] font-black uppercase text-slate-500 mb-2">Đang xem nhóm</p>
-                <p className="text-xs font-black text-blue-400 font-mono tracking-tighter truncate">
-                  {annotations[0]?.annotatorName || 'Annotator'}
-                </p>
-              </div>
-            </div>
+
           </div>
 
           {/* ── Center: Image Viewer ──────────────────────────────── */}
@@ -500,12 +489,24 @@ const ReviewerTask = () => {
               <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   {currentItemStatus === 'approved' ? (
-                    <div className="flex items-center gap-2 px-6 py-3 bg-emerald-50 text-emerald-600 rounded-2xl font-black shadow-sm">
-                      <CheckCircle2 className="w-5 h-5" /> ĐÃ DUYỆT ẢNH NÀY
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2 px-6 py-3 bg-emerald-50 text-emerald-600 rounded-2xl font-black shadow-sm">
+                        <CheckCircle2 className="w-5 h-5" /> ĐÃ DUYỆT ẢNH NÀY
+                      </div>
+                      <button 
+                        onClick={() => setItemStatuses(prev => { const n = {...prev}; delete n[selectedItemIndex]; return n; })}
+                        className="text-[10px] font-black uppercase text-slate-400 hover:text-blue-500 underline"
+                      > Thay đổi quyết định </button>
                     </div>
                   ) : currentItemStatus === 'rejected' ? (
-                    <div className="flex items-center gap-2 px-6 py-3 bg-rose-50 text-rose-600 rounded-2xl font-black shadow-sm">
-                      <AlertCircle className="w-5 h-5" /> ĐÃ TỪ CHỐI ẢNH NÀY
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2 px-6 py-3 bg-rose-50 text-rose-600 rounded-2xl font-black shadow-sm">
+                        <AlertCircle className="w-5 h-5" /> ĐÃ TỪ CHỐI ẢNH NÀY
+                      </div>
+                      <button 
+                        onClick={() => setItemStatuses(prev => { const n = {...prev}; delete n[selectedItemIndex]; return n; })}
+                        className="text-[10px] font-black uppercase text-slate-400 hover:text-blue-500 underline"
+                      > Thay đổi quyết định </button>
                     </div>
                   ) : (
                     <div className="flex items-center gap-3">

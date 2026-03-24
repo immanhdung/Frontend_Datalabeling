@@ -76,10 +76,18 @@ export default function AnnotatorDashboard() {
           if (task.id) {
             const ex = mergedMap.get(String(task.id));
             const localIsAdv = ex && ['completed', 'approved', 'rejected', 'expired'].includes(ex.status);
+            const localProgress = ex?.progress || 0;
+            const apiProgress = task.progress || 0;
+
             mergedMap.set(String(task.id), {
               ...ex,
               ...task,
-              ...(localIsAdv ? { status: ex.status, progress: ex.progress } : {}),
+              // Ưu tiên progress lớn hơn
+              progress: localIsAdv ? ex.progress : Math.max(localProgress, apiProgress),
+              // Giữ status tiên tiến hơn
+              status: localIsAdv ? ex.status : (localProgress > apiProgress ? 'in_progress' : task.status),
+              // Quan trọng: Phải giữ totalItems từ local nếu API trả về 0
+              totalItems: task.totalItems || ex?.totalItems || 0,
               items: task.items?.length > 0 ? task.items : (ex?.items || []),
             });
           }

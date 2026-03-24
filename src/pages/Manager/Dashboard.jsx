@@ -13,11 +13,12 @@ import {
     Calendar,
     Image as ImageIcon
 } from "lucide-react";
-import api from "../../config/api";
+import api, { statisticsAPI } from "../../config/api";
 import {
     toArrayData,
     isActiveProject,
     isCompletedProject,
+    normalizeProjectStatus,
     getProjectStatusMeta,
     getProjectItemCount,
     getProjectTypeLabel,
@@ -25,88 +26,177 @@ import {
     getProjectUpdatedAt,
     formatRelativeDateVi,
 } from "../../utils/projectDashboardHelpers";
+import { resolveApiData as resolveHelperData, getAssignedTasksByUserMap } from "../../utils/annotatorTaskHelpers";
 
 export default function ManagerDashboard() {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     const [projectList, setProjectList] = useState([]);
     const [taskStats, setTaskStats] = useState([]);
+    const [recentActivity, setRecentActivity] = useState([]);
     const [statsData, setStatsData] = useState({
         totalProjects: 0,
         activeProjects: 0,
         completedProjects: 0,
         annotators: 0,
+        todayLabels: 0,
+        efficiency: "0%"
     });
 
     useEffect(() => {
         const loadDashboardData = async () => {
             try {
                 setLoading(true);
-                const [projectsRes, usersRes, rolesRes, tasksRes] = await Promise.allSettled([
-                    api.get("/projects"),
-                    api.get("/users"),
-                    api.get("/roles"),
-                    api.get("/tasks"),
+
+                // 1. Fetch System Overview + Base Data
+                // Use PageSize=1000 to ensure we get all data (backend defaults to small pages)
+                const results = await Promise.allSettled([
+                    statisticsAPI.getSystemOverview(),
+                    api.get("/projects", { params: { PageSize: 1000, pageSize: 1000 } }),
+                    statisticsAPI.getSystemActivity(),
+                    api.get("/users", { params: { PageSize: 1000, pageSize: 1000 } }),
+                    api.get("/roles", { params: { PageSize: 1000, pageSize: 1000 } })
                 ]);
 
-                const projects = projectsRes.status === "fulfilled" ? toArrayData(projectsRes.value?.data) : [];
-                const users = usersRes.status === "fulfilled" ? toArrayData(usersRes.value?.data) : [];
-                const roles = rolesRes.status === "fulfilled" ? toArrayData(rolesRes.value?.data) : [];
-                const tasks = tasksRes.status === "fulfilled" ? toArrayData(tasksRes.value?.data) : [];
+                // Destructure with safety
+                const sysRes = results[0];
+                const projRes = results[1];
+                const actRes = results[2];
+                const usrRes = results[3];
+                const roleRes = results[4];
 
-                setProjectList(projects);
+                const sysOverview = sysRes.status === "fulfilled" ? resolveHelperData(sysRes.value) : null;
+                const apiProjects = projRes.status === "fulfilled" ? toArrayData(projRes.value?.data) : [];
+                const activity = actRes.status === "fulfilled" ? resolveHelperData(actRes.value) : [];
+                const users = usrRes.status === "fulfilled" ? toArrayData(usrRes.value?.data) : [];
+                const roles = roleRes.status === "fulfilled" ? toArrayData(roleRes.value?.data) : [];
 
-                // 1. Role mapping for annotator count
-                const roleMap = {};
-                roles.forEach((role) => {
-                    const id = role?.id ?? role?.roleId;
-                    const name = role?.roleName ?? role?.name;
-                    if (id && name) roleMap[String(id)] = String(name).toLowerCase();
+                // ── Deep Sync with Local Data (Crucial for Managers) ──────────────
+                const localTasksMap = getAssignedTasksByUserMap();
+                const allLocalTasks = Object.values(localTasksMap).flat();
+
+                // Extract unique projects from local tasks
+                const localProjects = [];
+                const seenPids = new Set(apiProjects.map(p => String(p.id || p.projectId)));
+
+                allLocalTasks.forEach(t => {
+                    const pid = String(t.projectId || t.project?.id || "");
+                    if (pid && !seenPids.has(pid)) {
+                        localProjects.push({
+                            id: pid,
+                            name: t.project?.name || `Project ${pid}`,
+                            status: t.project?.status || 'Active',
+                            type: t.project?.type || 'Image',
+                            itemCount: t.items?.length || 0,
+                            updatedAt: t.updatedAt
+                        });
+                        seenPids.add(pid);
+                    }
                 });
 
-                const annotatorCount = users.filter((u) => {
-                    const rId = String(u?.roleId ?? u?.role?.id ?? "");
-                    const rName = String(u?.roleName ?? u?.role?.name ?? u?.role ?? "").toLowerCase();
-                    return rName === "annotator" || roleMap[rId] === "annotator";
+                const projects = [...apiProjects, ...localProjects];
+                setProjectList(projects);
+                setRecentActivity(Array.isArray(activity) ? activity.slice(0, 5) : []);
+
+                // Helper to find key regardless of case
+                const getVal = (obj, keys, fallback = 0) => {
+                    if (!obj) return fallback;
+                    for (const k of keys) {
+                        const val = obj[k];
+                        if (val !== undefined && val !== null && val !== 0) return val;
+                        // Try case insensitive
+                        const lowerK = k.toLowerCase();
+                        const match = Object.keys(obj).find(ok => ok.toLowerCase() === lowerK);
+                        if (match !== undefined && obj[match] !== 0) return obj[match];
+                    }
+                    return fallback;
+                };
+
+                // Annotator calculation strictly from users/roles (as requested)
+                const roleMap = {};
+                roles.forEach(r => {
+                    const id = String(r.id || r.roleId || "");
+                    const name = String(r.name || r.roleName || "").toLowerCase();
+                    if (id && name) roleMap[id] = name;
+                });
+
+                const annotatorsList = users.filter(u => {
+                    const rName = String(u.roleName || u.role?.name || "").toLowerCase();
+                    const rId = String(u.roleId || u.role?.id || "");
+                    // Match by name 'annotator' or check mapped role ID
+                    return rName === "annotator" || rName === "người gán nhãn" || roleMap[rId] === "annotator" || roleMap[rId] === "người gán nhãn";
+                });
+
+                // Active projects: Count EVERYTHING that is not completed
+                const calcCompleted = projects.filter(p => {
+                    const pid = String(p.id || p.projectId || '');
+                    const projectTasks = allLocalTasks.filter(t => String(t.projectId || t.project?.id || '') === pid);
+                    const approvedTasksCount = projectTasks.filter(t =>
+                        ['approved', 'completed', 'done'].includes(String(t.status || "").toLowerCase())
+                    ).length;
+
+                    const statusVal = normalizeProjectStatus(p.status);
+                    const isStatusDone = statusVal === "completed" || statusVal === "done" || statusVal === "approved" || statusVal === "hoàn thành";
+
+                    return approvedTasksCount > 0 || isStatusDone;
                 }).length;
 
-                // 2. Project stats
-                const activeCount = projects.filter(isActiveProject).length;
-                const completedCount = projects.filter(isCompletedProject).length;
+                // Active = Everything NOT completed and NOT deleted/cancelled
+                const calcActive = projects.filter(p => {
+                    const statusVal = normalizeProjectStatus(p.status);
+                    const isDone = calcCompleted > 0 && (allLocalTasks.some(t => String(t.projectId || t.project?.id || "") === String(p.id || p.projectId) && ['approved', 'completed', 'done'].includes(String(t.status || "").toLowerCase())) || ["completed", "done", "approved", "hoàn thành"].includes(statusVal));
 
+                    if (isDone) return false;
+
+                    // Exclude only explicitly cancelled/archived if you want, but user wants it to add up to 28
+                    // So we count everything else as "Active/Pending"
+                    return statusVal !== "deleted" && statusVal !== "archived" && statusVal !== "cancelled";
+                }).length;
+
+                // Sync counts and set state
                 setStatsData({
                     totalProjects: projects.length,
-                    activeProjects: activeCount,
-                    completedProjects: completedCount,
-                    annotators: annotatorCount,
+                    activeProjects: calcActive,
+                    completedProjects: calcCompleted,
+                    annotators: annotatorsList.length,
+                    todayLabels: getVal(sysOverview, ['todayLabels', 'labelsToday', 'newLabelsTotal'], 0),
+                    efficiency: getVal(sysOverview, ['efficiency', 'performance', 'systemEfficiency'], "0%")
                 });
 
-                // 3. Project Progress calculation
-                const projectProgressMap = projects.slice(0, 3).map(proj => {
-                    const pid = String(proj.id || proj.projectId);
-                    const projTasks = tasks.filter(t => String(t.projectId || t.project?.id || "") === pid);
-                    
-                    const total = projTasks.length;
-                    const done = projTasks.filter(t => 
-                        ['completed', 'submitted', 'done', 'hoàn thành'].includes(String(t.status || "").toLowerCase())
-                    ).length;
-                    
-                    const percent = total > 0 ? Math.round((done / total) * 100) : 0;
-                    
-                    return {
-                        name: proj.name || "Dự án không tên",
-                        done,
-                        total,
-                        percent,
-                        status: percent === 100 ? "Đã xong" : percent > 0 ? "Đang thực hiện" : "Chờ xử lý",
-                        color: percent === 100 ? "bg-emerald-500" : percent > 0 ? "bg-blue-500" : "bg-slate-300"
-                    };
-                });
-                
-                setTaskStats(projectProgressMap);
+                // 2. Project Progress (Top 3)
+                const topProjects = sortProjectsByNewest(projects).slice(0, 3);
+
+                // Only if project stats API is working, otherwise we could do manual task scan fallback
+                if (topProjects.length > 0) {
+                    const progressData = await Promise.all(topProjects.map(async (proj) => {
+                        try {
+                            const pid = String(proj.id || proj.projectId);
+                            const statsRes = await statisticsAPI.getProjectOverview(pid);
+                            const stats = resolveHelperData(statsRes);
+
+                            if (stats) {
+                                const percent = stats.completionRate || 0;
+                                return {
+                                    name: proj.name || "Dự án không tên",
+                                    done: stats.completedTasks || stats.approvedTasks || 0,
+                                    total: stats.totalTasks || 1,
+                                    percent: Math.round(percent),
+                                    status: percent === 100 ? "Đã xong" : percent > 0 ? "Đang thực hiện" : "Chờ xử lý",
+                                    color: percent === 100 ? "bg-emerald-500" : percent > 0 ? "bg-blue-500" : "bg-slate-300"
+                                };
+                            }
+                        } catch (e) { /* ignore individual project stats failure */ }
+                        return null;
+                    }));
+
+                    const validProgress = progressData.filter(Boolean);
+                    if (validProgress.length > 0) {
+                        setTaskStats(validProgress);
+                    }
+                }
 
             } catch (err) {
-                console.error("Manager Dashboard data load error:", err);
+                console.error("Manager Dashboard critical load error:", err);
             } finally {
                 setLoading(false);
             }
@@ -115,6 +205,7 @@ export default function ManagerDashboard() {
         loadDashboardData();
     }, []);
 
+
     const statsUI = [
         {
             label: "Tổng dự án",
@@ -122,15 +213,15 @@ export default function ManagerDashboard() {
             icon: FolderOpen,
             color: "text-blue-600",
             bgColor: "bg-blue-50",
-            trend: "Dữ liệu thực tế"
+
         },
         {
-            label: "Đang hoạt động",
+            label: "Chưa hoàn thành",
             value: statsData.activeProjects,
             icon: Clock,
             color: "text-amber-600",
             bgColor: "bg-amber-50",
-            trend: "Dữ liệu thực tế"
+
         },
         {
             label: "Hoàn thành",
@@ -138,7 +229,7 @@ export default function ManagerDashboard() {
             icon: CheckCircle2,
             color: "text-emerald-600",
             bgColor: "bg-emerald-50",
-            trend: "Dữ liệu thực tế"
+
         },
         {
             label: "Annotators",
@@ -146,7 +237,7 @@ export default function ManagerDashboard() {
             icon: Users,
             color: "text-indigo-600",
             bgColor: "bg-indigo-50",
-            trend: "Dữ liệu thực tế"
+
         },
     ];
 
@@ -181,7 +272,7 @@ export default function ManagerDashboard() {
         ? sortProjectsByNewest(projectList).slice(0, 3).map((project) => {
             const statusMeta = getProjectStatusMeta(project);
             return {
-                name: project?.name || "Dự án không tên",
+                name: project?.name || project?.projectName || `Dự án #${String(project?.id || project?.projectId).slice(0, 5)}`,
                 type: getProjectTypeLabel(project),
                 images: getProjectItemCount(project),
                 status: statusMeta.label,
@@ -189,13 +280,9 @@ export default function ManagerDashboard() {
                 updated: formatRelativeDateVi(getProjectUpdatedAt(project)),
             };
         })
-        : fallbackProjects;
+        : [];
 
-    const fallbackProgress = [
-        { name: "Phân loại chó mèo", done: 2, total: 5, percent: 40, status: "Đang thực hiện", color: "bg-blue-500" },
-        { name: "Nhận dạng phương tiện", done: 0, total: 3, percent: 0, status: "Chờ xử lý", color: "bg-slate-300" },
-    ];
-    const progress = taskStats.length > 0 ? taskStats : fallbackProgress;
+    const progress = taskStats.length > 0 ? taskStats : [];
 
     if (loading) {
         return (
@@ -264,7 +351,12 @@ export default function ManagerDashboard() {
                             </div>
 
                             <div className="space-y-6">
-                                {projects.map((p, i) => (
+                                {projects.length === 0 ? (
+                                    <div className="text-center py-12 bg-slate-50/50 rounded-3xl border-2 border-dashed border-slate-100">
+                                        <FolderOpen className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                                        <p className="text-slate-400 font-bold">Chưa có dự án nào</p>
+                                    </div>
+                                ) : projects.map((p, i) => (
                                     <div key={i} className="group flex items-center justify-between p-6 border border-slate-50 rounded-[24px] hover:border-blue-100 hover:bg-blue-50/10 transition-all duration-300 cursor-pointer">
                                         <div className="flex items-center gap-6">
                                             <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center group-hover:bg-blue-100 transition-colors">
@@ -299,7 +391,10 @@ export default function ManagerDashboard() {
                                 ))}
                             </div>
 
-                            <button className="w-full mt-10 py-4.5 bg-slate-50 text-slate-600 rounded-2xl font-bold text-base hover:bg-blue-50 hover:text-blue-700 transition-all border border-transparent hover:border-blue-100">
+                            <button
+                                onClick={() => navigate("/manager/projects")}
+                                className="w-full mt-10 py-4.5 bg-slate-50 text-slate-600 rounded-2xl font-bold text-base hover:bg-blue-50 hover:text-blue-700 transition-all border border-transparent hover:border-blue-100"
+                            >
                                 Xem tất cả dự án
                             </button>
                         </div>
@@ -313,7 +408,12 @@ export default function ManagerDashboard() {
                             </div>
 
                             <div className="space-y-10">
-                                {progress.map((p, i) => (
+                                {progress.length === 0 ? (
+                                    <div className="text-center py-10 bg-slate-50/50 rounded-[24px] border border-dashed border-slate-100">
+                                        <BarChart3 className="w-10 h-10 text-slate-200 mx-auto mb-3" />
+                                        <p className="text-slate-400 text-sm font-bold uppercase tracking-wider">Chưa có tiến độ thực tế</p>
+                                    </div>
+                                ) : progress.map((p, i) => (
                                     <div key={i} className="space-y-4">
                                         <div className="flex justify-between items-start">
                                             <div className="max-w-[180px]">
@@ -347,11 +447,11 @@ export default function ManagerDashboard() {
                             <div className="grid grid-cols-2 gap-6">
                                 <div>
                                     <p className="text-sm text-blue-100 font-bold uppercase tracking-wider">Hôm nay</p>
-                                    <p className="text-3xl font-display font-bold">+24 nhãn</p>
+                                    <p className="text-3xl font-display font-bold">+{statsData.todayLabels} nhãn</p>
                                 </div>
                                 <div className="text-right">
                                     <p className="text-sm text-blue-100 font-bold uppercase tracking-wider">Hiệu suất</p>
-                                    <p className="text-3xl font-display font-bold">96.4%</p>
+                                    <p className="text-3xl font-display font-bold">{statsData.efficiency}</p>
                                 </div>
                             </div>
                         </div>

@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
-import api, { labelAPI, taskAPI } from "../../config/api";
+import api, { labelAPI, taskAPI, exportAPI } from "../../config/api";
 
 const toArray = (value) => {
   if (Array.isArray(value)) return value;
@@ -87,8 +87,17 @@ export default function ManagerProjectDetail() {
   const [addingMember, setAddingMember] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState("");
   const [assigningTask, setAssigningTask] = useState(false);
+  
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportForm, setExportForm] = useState({
+    format: "json",
+    trainSplitRatio: 0.8,
+    randomSeed: 0
+  });
 
   const [isEditMode, setIsEditMode] = useState(false);
+  const [guidelineId, setGuidelineId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [customLabelInput, setCustomLabelInput] = useState("");
   const [editingCategoryLabelId, setEditingCategoryLabelId] = useState("");
@@ -198,7 +207,7 @@ export default function ManagerProjectDetail() {
       setError(null);
 
       // ✅ Gọi các endpoint để lấy datasets và labels của dự án theo ảnh yêu cầu
-      const [projectRes, categoriesRes, datasetsRes, projectDatasetsRes, tasksRes, projectLabelsRes, usersRes] = await Promise.all([
+      const [projectRes, categoriesRes, datasetsRes, projectDatasetsRes, tasksRes, projectLabelsRes, usersRes, guidelineRes] = await Promise.all([
         api.get(`/projects/${id}`),
         api.get("/categories").catch(() => ({ data: [] })),
         api.get("/datasets").catch(() => ({ data: [] })),
@@ -206,6 +215,7 @@ export default function ManagerProjectDetail() {
         api.get("/tasks").catch(() => ({ data: [] })),
         api.get(`/projects/${id}/labels`).catch(() => api.get(`/labels?ProjectId=${id}`)).catch(() => ({ data: [] })), // GET /api/projects/{id}/labels
         api.get("/users").catch(() => ({ data: [] })),
+        api.get(`/projects/${id}/guideline`).catch(() => ({ data: null })), // CORRECT Path based on swagger
       ]);
 
       const fetchedProject =
@@ -213,9 +223,29 @@ export default function ManagerProjectDetail() {
         toObject(projectRes?.data?.project) ||
         projectRes?.data;
 
+      // Extract content from separate guideline if found
+      const guidelineRaw = guidelineRes?.data?.data || guidelineRes?.data;
+      let guidelineContent = "";
+      let foundId = null;
+
+      if (typeof guidelineRaw === 'string') {
+        guidelineContent = guidelineRaw;
+      } else if (guidelineRaw && typeof guidelineRaw === 'object') {
+        guidelineContent = guidelineRaw.content || guidelineRaw.guideline || guidelineRaw.text || "";
+        foundId = guidelineRaw.id || guidelineRaw.guidelineId;
+      }
+
+      setGuidelineId(foundId);
+
+      if (guidelineContent) {
+        fetchedProject.guideline = guidelineContent;
+      } else {
+        // Fallback to project guideline if separate fetch yielded nothing
+        fetchedProject.guideline = fetchedProject.guideline || "";
+      }
+
       // Lấy members từ project detail (nếu có) hoặc từ allUsers filter
-      // ❌ Bỏ /projects/{id}/members vì 400
-      // ❌ Bỏ /projects/{id}/label-sets vì 404
+
       let fetchedMembers = [];
       const membersFromProject = toArray(fetchedProject?.members);
       if (membersFromProject.length > 0) {
@@ -315,78 +345,43 @@ export default function ManagerProjectDetail() {
     }
   };
 
-  const handleExportJson = async () => {
-    if (projectTasks.length === 0) {
-      alert("Dự án này chưa có nhiệm vụ nào để xuất dữ liệu.");
-      return;
-    }
-
+  const handleExportData = async () => {
     try {
-      setSaving(true);
-      const exportData = {
-        projectName: project.name,
-        projectId: id,
-        exportDate: new Date().toISOString(),
-        tasks: [],
+      setExporting(true);
+      // Construct filename
+      const timestamp = new Date().getTime();
+      const filename = `Project_${id}_Export_${exportForm.format}_${timestamp}.${exportForm.format === 'json' ? 'json' : 'zip'}`;
+      
+      const payload = {
+        format: exportForm.format,
+        trainSplitRatio: exportForm.format === 'yolo' ? exportForm.trainSplitRatio : 0.8,
+        randomSeed: exportForm.format === 'yolo' ? exportForm.randomSeed : 0
       };
 
-      // Duyệt qua từng task để thu thập dữ liệu
-      for (const task of projectTasks) {
-        const taskId = task.id || task.taskId;
-        if (!taskId) continue;
-
-        try {
-          // Lấy danh sách item và annotation của task đó
-          const [itemsRes, annotationsRes] = await Promise.all([
-            taskAPI.getItems(taskId),
-            annotationAPI.getByTask(taskId).catch(() => ({ data: [] })),
-          ]);
-
-          const taskItems = toArray(itemsRes?.data);
-          const taskAnnotations = toArray(annotationsRes?.data);
-
-          // Map annotations vào từng item tương ứng
-          const itemsWithAnnotations = taskItems.map(item => {
-            const itemId = item.id || item.itemId;
-            const itemAnnos = taskAnnotations.filter(anno =>
-              String(anno.itemId || anno.item_id) === String(itemId)
-            );
-            return {
-              ...item,
-              annotations: itemAnnos
-            };
-          });
-
-          exportData.tasks.push({
-            id: taskId,
-            title: task.title || task.name,
-            status: task.status,
-            assignee: task.assignedTo || task.annotatorId,
-            items: itemsWithAnnotations
-          });
-        } catch (taskErr) {
-          console.warn(`Lỗi khi lấy dữ liệu cho task ${taskId}:`, taskErr);
-        }
-      }
-
-      // Tạo file JSON và tải về
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
+      const res = await api.post(`/exports/${id}`, payload, { responseType: 'blob' });
+      
+      const url = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.download = `Export_${project.name.replace(/\s+/g, '_')}_${new Date().getTime()}.json`;
+      link.setAttribute('download', filename);
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
+      link.parentNode.removeChild(link);
+      
+      setShowExportModal(false);
       alert("Xuất dữ liệu thành công!");
     } catch (err) {
       console.error("Export failed:", err);
-      alert("Có lỗi xảy ra khi xuất dữ liệu.");
+      alert("Có lỗi xảy ra khi xuất dữ liệu: " + (err.response?.data?.message || err.message));
     } finally {
-      setSaving(false);
+      setExporting(false);
     }
+  };
+
+  const handleExportJson = async () => {
+    // Keep internal JSON export as fallback or alternative if needed
+    // But now redirect to modal for consistency
+    setShowExportModal(true);
   };
 
   const handleAssignTask = async () => {
@@ -529,18 +524,38 @@ export default function ManagerProjectDetail() {
   const saveProject = async () => {
     try {
       setSaving(true);
-      await api.put(`/projects/${id}`, {
-        name: editForm.name.trim(),
+      const updatePayload = {
         description: editForm.description.trim(),
         isActive: String(editForm.status || "").toLowerCase() !== "inactive",
-        guideline: editForm.guideline,
-        categoryId: editForm.categoryId || null,
-        status: editForm.status,
-        type: editForm.type,
-        deadline: null,
-        labels: editForm.labels,
-        labelNames: editForm.labels,
-      });
+      };
+
+      // Only include name if it actually changed
+      if (editForm.name.trim() !== project.name) {
+        updatePayload.name = editForm.name.trim();
+      }
+
+      await api.put(`/projects/${id}`, updatePayload);
+
+      // ✅ Update guideline separately as requested
+      try {
+        if (guidelineId) {
+          // Use PUT /api/guidelines/{id}
+          await api.put(`/guidelines/${guidelineId}`, {
+            content: editForm.guideline || ""
+          });
+        } else {
+          // POST to create new
+          await api.post("/guidelines", {
+            projectId: id,
+            content: editForm.guideline || ""
+          });
+          // Refresh after save to get new guideline ID
+          setTimeout(fetchProjectDetail, 1000);
+        }
+      } catch (e) {
+        console.warn("Could not update/create guideline via /guidelines.");
+      }
+
       if (editForm.datasetIds.length > 0) {
         await Promise.allSettled(
           editForm.datasetIds.map((datasetId) => api.post(`/datasets/add/${id}`, { datasetId }, { validateStatus: () => true }))
@@ -592,12 +607,12 @@ export default function ManagerProjectDetail() {
         </div>
         <div className="flex gap-3">
           <button
-            disabled={saving}
-            onClick={handleExportJson}
-            className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            disabled={exporting}
+            onClick={() => setShowExportModal(true)}
+            className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50 text-slate-700 font-semibold"
           >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            {saving ? "Đang xuất..." : "Xuất dữ liệu"}
+            {exporting ? <Loader2 className="w-4 h-4 animate-spin text-indigo-600" /> : <Download className="w-4 h-4 text-indigo-600" />}
+            {exporting ? "Đang xử lý..." : "Xuất dữ liệu"}
           </button>
           <button onClick={() => setIsEditMode((prev) => !prev)} className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-black">
             {isEditMode ? <X className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
@@ -860,6 +875,105 @@ export default function ManagerProjectDetail() {
           </div>
         )}
       </div>
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <Download className="w-5 h-5 text-indigo-600" /> Xuất dữ liệu dự án
+              </h3>
+              <button onClick={() => setShowExportModal(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Định dạng xuất</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['json', 'coco', 'yolo'].map((fmt) => (
+                    <button
+                      key={fmt}
+                      onClick={() => setExportForm(prev => ({ ...prev, format: fmt }))}
+                      className={`py-2.5 rounded-xl border-2 font-bold uppercase text-sm transition-all ${
+                        exportForm.format === fmt 
+                          ? 'border-indigo-600 bg-indigo-50 text-indigo-700' 
+                          : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-200'
+                      }`}
+                    >
+                      {fmt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {exportForm.format === 'yolo' && (
+                <div className="space-y-4 pt-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div>
+                    <div className="flex justify-between items-end mb-1.5">
+                      <label className="text-sm font-semibold text-gray-700">Tỷ lệ Train/Val</label>
+                      <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                        {Math.round(exportForm.trainSplitRatio * 100)}% / {Math.round((1 - exportForm.trainSplitRatio) * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.1"
+                      max="0.9"
+                      step="0.05"
+                      value={exportForm.trainSplitRatio}
+                      onChange={(e) => setExportForm(prev => ({ ...prev, trainSplitRatio: parseFloat(e.target.value) }))}
+                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                    />
+                    <div className="flex justify-between text-[10px] text-gray-400 font-medium px-1 mt-1">
+                      <span>10% Train</span>
+                      <span>50%</span>
+                      <span>90% Train</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">Random Seed (0-9999)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="9999"
+                      value={exportForm.randomSeed}
+                      onChange={(e) => setExportForm(prev => ({ ...prev, randomSeed: parseInt(e.target.value) || 0 }))}
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-medium"
+                      placeholder="VD: 42"
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1 px-1">Dùng để cố định kết quả xáo trộn dữ liệu khi chia tập train/val.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="flex-1 py-3 border border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50 transition-all"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleExportData}
+                disabled={exporting}
+                className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 transition-all"
+              >
+                {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {exporting ? "Đang xử lý..." : "Bắt đầu xuất"}
+              </button>
+            </div>
+            
+            <p className="text-[10px] text-center text-gray-400">
+              * Dữ liệu sẽ được xuất dựa trên các bản gán nhãn đã đạt đồng thuận hoặc được phê duyệt.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

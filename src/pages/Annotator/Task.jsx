@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import api, { taskAPI, annotationAPI } from '../../config/api';
+import api, { taskAPI, annotationAPI, trySequential } from '../../config/api';
 import {
   normalizeTask,
   resolveApiData,
   getCurrentUserId,
+  getCurrentUserIdentifiers,
   getLocalAssignedTasksForUser,
   getAssignedTasksByUserMap,
   upsertLocalAssignedTask,
@@ -67,7 +68,7 @@ async function fetchProjectLabels(projectId) {
 }
 
 // ── Submission Result Modal ───────────────────────────────────
-function SubmissionResultModal({ result, onClose, onRework }) {
+function SubmissionResultModal({ result, onClose, onRework, totalAnnotators = 3 }) {
   const { hasConflict, conflictCount, totalItems, nonConflictCount } = result;
 
   if (!hasConflict) {
@@ -87,7 +88,7 @@ function SubmissionResultModal({ result, onClose, onRework }) {
           <div className="flex items-center gap-2 p-3 bg-indigo-50 rounded-2xl mb-8 text-left">
             <Users className="w-5 h-5 text-indigo-500 shrink-0" />
             <p className="text-xs text-indigo-700 font-medium">
-              3 annotator đã đồng thuận. Reviewer sẽ kiểm tra kết quả và phê duyệt cuối.
+              {totalAnnotators} annotator đã đồng thuận. Reviewer sẽ kiểm tra kết quả và phê duyệt cuối.
             </p>
           </div>
           <button
@@ -110,7 +111,7 @@ function SubmissionResultModal({ result, onClose, onRework }) {
         <h2 className="text-2xl font-black text-slate-900 mb-3">Có ảnh bị Conflict!</h2>
         <p className="text-slate-500 mb-6">
           <strong className="text-amber-600">{conflictCount}</strong> / {totalItems} ảnh bị conflict
-          (3 annotator gán nhãn khác nhau).
+          ({totalAnnotators} annotator gán nhãn khác nhau).
         </p>
 
         <div className="space-y-3 mb-8">
@@ -125,7 +126,7 @@ function SubmissionResultModal({ result, onClose, onRework }) {
           <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-2xl text-left">
             <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
             <p className="text-sm text-amber-700 font-medium">
-              <strong>{conflictCount}</strong> ảnh cần gán nhãn lại (3 annotator không đồng ý).
+              <strong>{conflictCount}</strong> ảnh cần gán nhãn lại ({totalAnnotators} annotator không đồng ý).
             </p>
           </div>
         </div>
@@ -150,7 +151,7 @@ function SubmissionResultModal({ result, onClose, onRework }) {
 }
 
 // ── Waiting for other annotators modal ───────────────────────
-function WaitingModal({ submittedCount, onClose }) {
+function WaitingModal({ submittedCount, onClose, totalAnnotators = 3 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-md p-10 text-center animate-in zoom-in duration-300">
@@ -159,15 +160,15 @@ function WaitingModal({ submittedCount, onClose }) {
         </div>
         <h2 className="text-2xl font-black text-slate-900 mb-3">Đã nộp thành công!</h2>
         <p className="text-slate-500 mb-4">
-          Bạn là annotator thứ <strong className="text-blue-600">{submittedCount}</strong>/3 nộp bài.
+          Bạn là annotator thứ <strong className="text-blue-600">{submittedCount}</strong>/{totalAnnotators} nộp bài.
         </p>
-        <div className="flex justify-center gap-2 mb-6">
-          {[1, 2, 3].map(n => (
+        <div className="flex justify-center flex-wrap gap-2 mb-6">
+          {Array.from({ length: totalAnnotators }, (_, i) => i + 1).map(n => (
             <div
               key={n}
               className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-sm border-2 ${n <= submittedCount
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-slate-100 text-slate-300 border-slate-200'
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-slate-100 text-slate-300 border-slate-200'
                 }`}
             >
               {n <= submittedCount ? <Check className="w-5 h-5" /> : n}
@@ -175,7 +176,7 @@ function WaitingModal({ submittedCount, onClose }) {
           ))}
         </div>
         <p className="text-sm text-slate-400 mb-8">
-          Đang chờ <strong>{3 - submittedCount}</strong> annotator còn lại nộp bài để tính đồng thuận.
+          Đang chờ <strong>{totalAnnotators - submittedCount}</strong> annotator còn lại nộp bài để tính đồng thuận.
         </p>
         <button
           onClick={onClose}
@@ -208,7 +209,7 @@ export default function AnnotatorTask() {
   const [itemStates, setItemStates] = useState({});
 
   // Post-submit result
-  const [submitResult, setSubmitResult] = useState(null); // { hasConflict, conflictCount, totalItems, nonConflictCount }
+  const [submitResult, setSubmitResult] = useState(null);
   const [submittedCount, setSubmittedCount] = useState(0);
   const [showWaiting, setShowWaiting] = useState(false);
 
@@ -224,6 +225,7 @@ export default function AnnotatorTask() {
   const [skipReason, setSkipReason] = useState('');
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [isExpired, setIsExpired] = useState(false);
+  const [pendingBox, setPendingBox] = useState(null);
 
   const currentItem = items[currentIndex] || null;
   const currentItemId = currentItem?.taskItemId || currentItem?.id || `item-${currentIndex}`;
@@ -295,12 +297,13 @@ export default function AnnotatorTask() {
         const baseItem = item?.taskItemId && item?.datasetItem
           ? {
             ...item.datasetItem,
+            ...localMeta,
             taskItemId: item.taskItemId,
             id: item.taskItemId,
             isConflict: !!(item.isConflict || localMeta.isConflict),
             _raw: item
           }
-          : { ...item, isConflict: !!(item.isConflict || localMeta.isConflict) };
+          : { ...item, ...localMeta, isConflict: !!(item.isConflict || localMeta.isConflict) };
         return baseItem;
       });
 
@@ -342,13 +345,35 @@ export default function AnnotatorTask() {
           });
         }
 
+        const isReviewRework = taskItems.some(it => {
+          const s = String(it.status || '').toLowerCase();
+          return s === 'rejected' || s === 'completed' || s === 'approved';
+        });
+
         const conflictedCount = taskItems.filter(it => it.isConflict).length;
-        if (conflictedCount === 0) {
+        if (conflictedCount === 0 && !isReviewRework) {
           taskItems = taskItems.map(it => ({ ...it, isConflict: true }));
         }
       }
 
       setItems(taskItems);
+
+      // Deep Sync: Fetch all task annotations at once to link IDs correctly
+      let allTaskAnns = [];
+      try {
+        const resAnns = await annotationAPI.getByTask(taskId);
+        const rawAnns = resolveApiData(resAnns);
+        if (Array.isArray(rawAnns)) {
+          allTaskAnns = rawAnns;
+        } else if (rawAnns && typeof rawAnns === 'object') {
+          const values = Object.values(rawAnns);
+          if (values.some(v => Array.isArray(v))) {
+            allTaskAnns = values.flat().filter(v => v && typeof v === 'object');
+          } else {
+            allTaskAnns = values;
+          }
+        }
+      } catch (e) { console.warn('[Task] Pre-fetch anns failed'); }
 
       if (taskData.dueDate && new Date(taskData.dueDate) < new Date()) {
         setIsExpired(true);
@@ -360,42 +385,84 @@ export default function AnnotatorTask() {
       });
       setCurrentIndex(firstUnprocessed >= 0 ? firstUnprocessed : 0);
 
+      const myUserIds = getCurrentUserIdentifiers();
       const initialStates = {};
+
       for (const item of taskItems) {
-        const itemId = item?.taskItemId || item?.id || item?.itemId;
+        const itemId = String(item?.taskItemId || item?.id || item?.itemId || '');
         const itemStatus = String(item?.status || '').toLowerCase();
         const isConflictItem = item.isConflict && isRework;
+        const datasetItemId = String(item?.datasetItemId || item?.dataset_item_id || item?.datasetItem?.id || '');
 
+        const matchedAnn = allTaskAnns.find(a => {
+          // 1. User Filter (Crucial for consensus tasks)
+          const aUserId = String(a.userId || a.annotatorId || a.annotator_id || a.ParticipantId || '');
+          if (aUserId && !myUserIds.includes(aUserId)) return false;
+
+          // 2. Item Match
+          if (String(a.taskItemId || a.task_item_id || a.TaskItemId || a.itemId || a.item_id || '').toLowerCase() === itemId.toLowerCase()) return true;
+          if (String(a.datasetItemId || a.dataset_item_id || a._datasetItemId || '').toLowerCase() === datasetItemId.toLowerCase()) return true;
+          
+          return Object.keys(a).some(k => {
+            const val = String(a[k] || '').toLowerCase();
+            return val === itemId.toLowerCase() || val === datasetItemId.toLowerCase();
+          });
+        });
+
+        let embeddedAnnId = null;
+        const rawAnns = item.annotations || item.Annotations || item.boundingBoxes || item.labels || [];
+        if (Array.isArray(rawAnns) && rawAnns.length > 0) {
+          embeddedAnnId = rawAnns[0].id || rawAnns[0]._id || rawAnns[0].AnnotationId || rawAnns[0].annotationId;
+        }
+
+        const isDone = itemStatus === 'completed' || itemStatus === 'done' || itemStatus === 'approved';
+        const isRejected = itemStatus === 'rejected';
+
+        // ─── FIX CHÍNH ────────────────────────────────────────────────────────────
+        // Với item bị REJECTED: backend giữ annotation cũ (không xóa khi reject).
+        // Phải GIỮ annotationId để saveCurrentItem() gọi PUT thay vì POST.
+        // Nếu reset về null → POST → 400 "Already exists".
+        //
+        // Với conflict rework (isConflictItem): reset null vì đây là item mới hoàn toàn
+        // chưa có annotation trên server (conflict items chưa được submit).
+        // ─────────────────────────────────────────────────────────────────────────
         initialStates[itemId] = {
           annotations: [],
-          status: isConflictItem ? 'pending' : (itemStatus === 'completed' || itemStatus === 'done' ? 'done' : itemStatus === 'skipped' ? 'skipped' : 'pending'),
+          annotationId: isConflictItem
+            ? null
+            : (matchedAnn?.id || matchedAnn?._id || matchedAnn?.AnnotationId || matchedAnn?.annotationId || item.annotationId || embeddedAnnId || null),
+          status: isConflictItem
+            ? 'pending'
+            : isDone
+              ? 'done'
+              : (itemStatus === 'skipped')
+                ? 'skipped'
+                : isRejected
+                  ? 'rejected'
+                  : 'pending',
           skipReason: '',
         };
 
-        if (itemId) {
-          try {
-            const annRes = await annotationAPI.getByItem(itemId);
-            const data = resolveApiData(annRes);
-            const anns = Array.isArray(data) ? data : [];
-            if (anns.length > 0) {
-              const latestAnn = anns[anns.length - 1];
-              const bboxes = latestAnn?.payload?.bboxes || [];
-              initialStates[itemId].annotationId = latestAnn.id;
-              initialStates[itemId].annotations = bboxes.map((b, idx) => ({
-                id: b.id || `ann-${idx}`,
-                label: b.label,
-                x: b.x, y: b.y, width: b.width, height: b.height,
-                color: getLabelColor(b.label, idx),
-              }));
-              if (!isConflictItem) initialStates[itemId].status = 'done';
-              else {
-                initialStates[itemId].annotations = [];
-                initialStates[itemId].status = 'pending';
-              }
-            }
-          } catch (e) {
-            console.warn(`[Task] Failed to fetch annotations for item ${itemId}:`, e?.message);
+        // Load existing labels nếu có (chỉ khi không bị rejected và không phải conflict rework)
+        // Với rejected: reset annotations rỗng để annotator vẽ lại từ đầu,
+        // nhưng annotationId vẫn GIỮ ở trên để dùng PUT khi save
+        if (matchedAnn && !isRejected && !isConflictItem) {
+          const bboxes = matchedAnn.payload?.bboxes || matchedAnn.payload?.boundingBoxes || [];
+          initialStates[itemId].annotations = bboxes.map((b, idx) => ({
+            id: b.id || `ann-${idx}`,
+            label: b.label, x: b.x, y: b.y, width: b.width, height: b.height,
+            color: getLabelColor(b.label, idx),
+          }));
+
+          if (isDone) {
+            initialStates[itemId].status = 'done';
           }
+        }
+
+        // Conflict rework: reset annotations
+        if (isConflictItem) {
+          initialStates[itemId].annotations = [];
+          initialStates[itemId].annotationId = null;
         }
       }
       setItemStates(initialStates);
@@ -427,7 +494,6 @@ export default function AnnotatorTask() {
 
   function handleCanvasMouseDown(e) {
     if (isExpired) return;
-    if (!selectedLabel) { alert('Vui lòng chọn nhãn trước khi vẽ bounding box!'); return; }
     setIsDrawing(true); setStartPoint(getCanvasCoords(e)); setPreviewBox(null);
   }
 
@@ -449,15 +515,8 @@ export default function AnnotatorTask() {
     };
     setIsDrawing(false); setStartPoint(null); setPreviewBox(null);
     if (box.width > 8 && box.height > 8) {
-      updateItemState(currentItemId, {
-        annotations: [...annotations, {
-          id: `ann-${Date.now()}`,
-          label: selectedLabel,
-          color: getLabelColor(selectedLabel, labels.indexOf(selectedLabel)),
-          ...box
-        }],
-        status: 'pending',
-      });
+      setPendingBox(box);
+      setSelectedLabel('');
     }
   }
 
@@ -476,14 +535,18 @@ export default function AnnotatorTask() {
       ctx.fillStyle = color; ctx.fillRect(bx, by, bw, bh);
       ctx.fillStyle = '#fff'; ctx.fillText(ann.label, bx + 5, by + 13);
     });
-    if (previewBox && selectedLabel) {
-      const color = getLabelColor(selectedLabel, labels.indexOf(selectedLabel));
-      ctx.fillStyle = color + '22'; ctx.fillRect(previewBox.x, previewBox.y, previewBox.width, previewBox.height);
-      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([6, 3]);
+    if (previewBox) {
+      ctx.strokeStyle = '#6366f1'; ctx.lineWidth = 2; ctx.setLineDash([6, 3]);
       ctx.strokeRect(previewBox.x, previewBox.y, previewBox.width, previewBox.height);
       ctx.setLineDash([]);
     }
-  }, [annotations, previewBox, selectedLabel, labels, currentIndex]);
+    if (pendingBox) {
+      ctx.strokeStyle = '#6366f1'; ctx.lineWidth = 3;
+      ctx.strokeRect(pendingBox.x, pendingBox.y, pendingBox.width, pendingBox.height);
+      ctx.fillStyle = 'rgba(99, 102, 241, 0.1)';
+      ctx.fillRect(pendingBox.x, pendingBox.y, pendingBox.width, pendingBox.height);
+    }
+  }, [annotations, previewBox, pendingBox, selectedLabel, labels, currentIndex]);
 
   // ── Actions ─────────────────────────────────────────────────
   async function saveCurrentItem() {
@@ -496,19 +559,222 @@ export default function AnnotatorTask() {
         width: Math.round(a.width), height: Math.round(a.height)
       }));
 
-      const existingAnnId = itemStates[currentItemId]?.annotationId;
-      if (existingAnnId) {
-        await annotationAPI.update(existingAnnId, { payload: { bboxes } });
-      } else {
-        await annotationAPI.submit([{ taskItemId: currentItemId, payload: { bboxes } }]);
+      let existingAnnId = itemStates[currentItemId]?.annotationId;
+
+      // Với item rejected: annotationId đã được GIỮ từ loadTask()
+      // nên existingAnnId sẽ có giá trị → đi thẳng vào nhánh PUT bên dưới.
+      // Chỉ cần verify annotation vẫn tồn tại trên server phòng trường hợp backend xóa khi reject.
+      const itemStatus = String(currentItem?.status || currentState?.status || '').toLowerCase();
+      const isRejectedItem = itemStatus === 'rejected';
+
+      if (isRejectedItem && existingAnnId) {
+        try {
+          await annotationAPI.getById(existingAnnId);
+          // GET thành công → annotation vẫn còn → dùng PUT
+          console.log('[SaveItem] Rejected item: annotation exists on server, will PUT update.');
+        } catch (e) {
+          // Backend đã xóa annotation khi reject → reset null để POST mới
+          console.warn('[SaveItem] Rejected annotation no longer exists on server, will POST new.');
+          existingAnnId = null;
+          updateItemState(currentItemId, { annotationId: null });
+        }
       }
 
-      updateItemState(currentItemId, { status: 'done' });
+      try {
+        const nextStatus = 'done';
+        updateItemState(currentItemId, { status: nextStatus, annotations });
 
-      const nextProcessedCount = Object.values({
-        ...itemStates,
-        [currentItemId]: { ...(itemStates[currentItemId] || {}), status: 'done' }
-      }).filter((s) => s.status === 'done' || s.status === 'skipped').length;
+        const nextProcessedItems = items.map(it => {
+          const id = it?.taskItemId || it?.id;
+          if (id === currentItemId) return { ...it, status: nextStatus };
+          return it;
+        });
+
+        const nextProcessedCount = nextProcessedItems.filter((it) =>
+          ['done', 'completed', 'skipped', 'approved'].includes(String(it.status || '').toLowerCase())
+        ).length;
+
+        const newProgress = Math.round((nextProcessedCount / totalItems) * 100);
+
+        upsertLocalAssignedTask({
+          ...task, progress: newProgress, items: nextProcessedItems, totalItems: items.length
+        }, getCurrentUserId());
+
+        // Navigation (Chỉ chuyển index nếu không phải là người dùng cố tình ở lại để edit)
+        if (currentIndex < totalItems - 1) {
+          setCurrentIndex(currentIndex + 1);
+        }
+
+        // ─── ĐỒNG BỘ SERVER (Background/Retry) ───────────────────────────────
+        if (existingAnnId) {
+          try {
+            // ─── TẬP HỢP CÁC PHƯƠNG ÁN UPDATE (SERIAL) ───────────────────────────
+            await trySequential([
+              // 1. PUT chuẩn
+              () => annotationAPI.update(existingAnnId, { payload: { bboxes } }),
+              
+              // 2. PUT phẳng (không bọc trong payload)
+              () => annotationAPI.update(existingAnnId, { bboxes }),
+              
+              // 3. PUT với flag bypass
+              () => annotationAPI.update(existingAnnId, { payload: { bboxes }, status: "Conflicted", isConflict: true }),
+              
+              // 4. POST submit định dạng Top-level TaskId (Object)
+              () => api.post("/annotations/submit", { taskId, taskItemId: currentItemId, payload: { bboxes }, id: existingAnnId }),
+              
+              // 5. POST submit định dạng Top-level TaskId (Array wrapper)
+              () => api.post("/annotations/submit", { taskId, annotations: [{ taskItemId: currentItemId, payload: { bboxes }, id: existingAnnId }] }),
+
+              // 6. PATCH
+              () => annotationAPI.patch(existingAnnId, { payload: { bboxes } }),
+            ]);
+            
+            console.log('[SaveItem] Update successful');
+          } catch (updateErr) {
+            console.warn('[SaveItem] Sequential updates failed. Trying reset...');
+            try { await annotationAPI.remove(existingAnnId); } catch (e) { }
+            
+            await trySequential([
+              () => annotationAPI.submit([{ taskItemId: currentItemId, payload: { bboxes } }]),
+              () => api.post("/annotations/submit", { taskId, taskItemId: currentItemId, payload: { bboxes } }),
+            ]);
+            console.log('[SaveItem] Reset & POST successful');
+          }
+        } else {
+          // Chưa có annotation → POST tạo mới
+          try {
+            const res = await annotationAPI.submit([{ taskItemId: currentItemId, payload: { bboxes } }]);
+            const resData = resolveApiData(res);
+            const firstRes = Array.isArray(resData) ? resData[0] : (resData?.id || resData?._id ? resData : null);
+            if (firstRes?.id || firstRes?._id || firstRes?.annotationId) {
+              existingAnnId = firstRes.id || firstRes._id || firstRes.annotationId;
+              console.log('[SaveItem] POST created annotation:', existingAnnId);
+              updateItemState(currentItemId, { annotationId: existingAnnId });
+            }
+          } catch (err) {
+            // Healing: nếu vẫn bị 400/409 "Already Exists" dù đã cố gắng giữ annotationId,
+            // tức là có annotation trên server mà ta không biết ID → tìm và PUT
+            const isAlreadyExists =
+              err.response?.status === 400 ||
+              err.response?.status === 409 ||
+              String(err.response?.data?.message || '').toLowerCase().includes('already exists');
+
+            if (isAlreadyExists) {
+              console.warn('[Healing] POST failed with "Already Exists". Searching for existing annotation ID...');
+              const myUserIds = getCurrentUserIdentifiers();
+              const datasetItemId = currentItem?.datasetItem?.id || currentItem?.datasetItemId || currentItem?.dataset_item_id || currentItem?.dataset_item?.id;
+              const taskIdFromTask = task?.id || taskId;
+
+              let anns = [];
+
+              // 1. getByItem với currentItemId và datasetItemId
+              const idsToTry = [currentItemId, datasetItemId].filter(Boolean);
+              for (const idToTry of idsToTry) {
+                try {
+                  const findRes = await annotationAPI.getByItem(idToTry);
+                  const findData = resolveApiData(findRes);
+                  if (Array.isArray(findData)) anns = [...anns, ...findData];
+                  else if (findData?.id || findData?._id) anns.push(findData);
+                } catch (e) { }
+              }
+
+              // 2. getByTask để tìm trong toàn bộ task
+              try {
+                const taskAnnsRes = await annotationAPI.getByTask(taskIdFromTask);
+                const taskAnnsData = resolveApiData(taskAnnsRes);
+                const annList = Array.isArray(taskAnnsData)
+                  ? taskAnnsData
+                  : (taskAnnsData && typeof taskAnnsData === 'object' ? Object.values(taskAnnsData) : []);
+                if (Array.isArray(annList)) {
+                  anns = [...anns, ...annList.flat()];
+                }
+              } catch (e2) { }
+
+              // Log data for diagnostic
+              console.log('[Healing] Candidiate annotations found:', anns.length);
+              if (anns.length > 0) console.log('[Healing] Sample candidate:', anns[0]);
+              console.log('[Healing] Target ItemId:', currentItemId, 'Target DatasetItemId:', datasetItemId);
+              console.log('[Healing] My User Identifiers:', myUserIds);
+
+              // Deduplicate
+              const uniqueAnns = anns.filter((v, i, a) =>
+                v && (v.id || v._id || v.annotationId || v.AnnotationId) &&
+                a.findIndex(t => (t.id || t._id || t.annotationId || t.AnnotationId) === (v.id || v._id || v.annotationId || v.AnnotationId)) === i
+              );
+
+              // Match theo userId + itemId (Sử dụng include để check nhiều định danh)
+              let existing = uniqueAnns.find(a => {
+                const aUserId = String(a.userId || a.annotatorId || a.annotator_id || a.ParticipantId || a.UserId || '');
+                const matchesUser = myUserIds.includes(aUserId);
+                
+                const aItemId = String(a.taskItemId || a.taskItem || a.task_item_id || a.itemId || a.item_id || a.ItemId || a.Item_Id || '').toLowerCase();
+                const aDatasetId = String(a.datasetItemId || a.datasetItem || a.dataset_item_id || a._datasetItemId || '').toLowerCase();
+                
+                const matchesItem = (aItemId === String(currentItemId).toLowerCase() || aDatasetId === String(datasetItemId).toLowerCase());
+                
+                return matchesUser && matchesItem;
+              });
+
+              if (!existing) {
+                // Fallback 1: Match by itemId only
+                existing = uniqueAnns.find(a => {
+                  const aItemId = String(a.taskItemId || a.taskItem || a.task_item_id || a.itemId || a.item_id || a.ItemId || a.Item_Id || '').toLowerCase();
+                  const aDatasetId = String(a.datasetItemId || a.datasetItem || a.dataset_item_id || a._datasetItemId || '').toLowerCase();
+                  return aItemId === String(currentItemId).toLowerCase() || aDatasetId === String(datasetItemId).toLowerCase();
+                });
+              }
+
+              if (!existing) {
+                // Fallback 2: Any annotation for this user in this task
+                existing = uniqueAnns.find(a => 
+                  myUserIds.includes(String(a.userId || a.annotatorId || a.annotator_id || a.ParticipantId || a.UserId || ''))
+                );
+              }
+
+              if (existing?.id || existing?._id || existing?.annotationId || existing?.AnnotationId) {
+                existingAnnId = existing.id || existing._id || existing.annotationId || existing.AnnotationId;
+                console.log('[Healing] Found existing ID:', existingAnnId, '→ will attempt update');
+                // Lưu lại để lần sau không cần healing nữa
+                updateItemState(currentItemId, { annotationId: existingAnnId });
+                
+                try {
+                  await trySequential([
+                    () => annotationAPI.update(existingAnnId, { payload: { bboxes } }),
+                    () => api.post("/annotations/submit", { taskId, annotations: [{ taskItemId: currentItemId, payload: { bboxes }, id: existingAnnId }] }),
+                    () => annotationAPI.patch(existingAnnId, { payload: { bboxes } }),
+                  ]);
+                  console.log('[Healing] Sequential update success');
+                } catch (updateErr) {
+                  console.warn('[Healing] All updates failed, trying reset...');
+                  try { await annotationAPI.remove(existingAnnId); } catch (e) { }
+                  await annotationAPI.submit([{ taskItemId: currentItemId, payload: { bboxes } }]);
+                  console.log('[Healing] Reset & POST success');
+                }
+              } else {
+                console.error('[Healing] Could not resolve existing annotation ID.');
+                throw err;
+              }
+            } else {
+              throw err;
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[SaveItem] Server sync failed:', err);
+        // Nếu là Rework, chúng ta chỉ log lỗi và cho phép tiếp tục vì local state đã OK
+        if (isRework) {
+          console.warn('[SaveItem] Rework mode: proceeding with local save.');
+          return true;
+        }
+
+        const serverMsg = err?.response?.data?.message || err?.response?.data?.error || err?.message;
+        alert('Lưu thất bại: ' + serverMsg);
+        return false;
+      }
+
+      setSaving(false);
+      return true;
+
 
       const newProgress = Math.round((nextProcessedCount / totalItems) * 100);
       const updatedItems = items.map(it => {
@@ -587,7 +853,6 @@ export default function AnnotatorTask() {
     const currentUserId = getCurrentUserId();
 
     try {
-      // Build updated task with all items
       const updatedTask = {
         ...task,
         status: 'completed',
@@ -607,30 +872,24 @@ export default function AnnotatorTask() {
         })
       };
 
-      // Submit to API
       try {
         await taskAPI.submit(taskId, { items: updatedTask.items });
       } catch (e) {
         console.warn('[Task] submit API failed:', e?.message);
       }
 
-      // Save to local storage
       upsertLocalAssignedTask(updatedTask, currentUserId);
 
-      // Check how many have submitted so far (including this one)
       const currentCount = getSubmissionCount(taskId);
       setSubmittedCount(currentCount);
 
-      // Process consensus
       const consensusResult = processTaskConsensus(taskId);
 
       setShowSubmitConfirm(false);
 
       if (!consensusResult.ready) {
-        // Not all 3 have submitted yet
         setShowWaiting(true);
       } else {
-        // All 3 submitted, show result
         setSubmitResult(consensusResult);
       }
     } catch (err) {
@@ -733,8 +992,8 @@ export default function AnnotatorTask() {
               }}
               disabled={submitting || isExpired}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-md ${canSubmit && !isExpired
-                  ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'
-                  : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'
+                : 'bg-gray-200 text-gray-500 cursor-not-allowed'
                 }`}
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -763,8 +1022,9 @@ export default function AnnotatorTask() {
                   key={id}
                   onClick={() => setCurrentIndex(idx)}
                   className={`w-full rounded-xl border-2 overflow-hidden transition-all relative ${isActive ? 'border-indigo-500 shadow-md' :
-                      state.status === 'done' ? 'border-emerald-300 opacity-80' :
-                        state.status === 'skipped' ? 'border-amber-300 opacity-70' :
+                    (state.status === 'done' || state.status === 'completed') ? 'border-emerald-300 opacity-80' :
+                      state.status === 'skipped' ? 'border-amber-300 opacity-70' :
+                        state.status === 'rejected' ? 'border-rose-400 bg-rose-50/50' :
                           'border-transparent hover:border-slate-300'
                     }`}
                 >
@@ -778,8 +1038,9 @@ export default function AnnotatorTask() {
                         <AlertCircle className="w-3 h-3" />
                       </span>
                     )}
-                    {state.status === 'done' && <span className="bg-emerald-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md"><Check className="w-3 h-3" /></span>}
+                    {(state.status === 'done' || state.status === 'completed') && <span className="bg-emerald-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md"><Check className="w-3 h-3" /></span>}
                     {state.status === 'skipped' && <span className="bg-amber-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md"><SkipForward className="w-3 h-3" /></span>}
+                    {state.status === 'rejected' && <span className="bg-rose-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md"><X className="w-3 h-3" /></span>}
                   </div>
                   <div className="absolute bottom-0 left-0 right-0 bg-black/40 text-white text-[9px] font-bold px-1 py-0.5 text-center">{idx + 1}</div>
                 </button>
@@ -858,32 +1119,61 @@ export default function AnnotatorTask() {
         <div className="w-64 bg-white border-l border-gray-200 flex flex-col overflow-hidden shrink-0">
           <div className="p-4 border-b border-gray-100">
             <h3 className="text-sm font-black uppercase text-gray-500 tracking-wider mb-3 flex items-center gap-2">
-              <Tag className="w-4 h-4" /> Chọn nhãn
+              <Tag className="w-4 h-4" /> {pendingBox ? 'Gán nhãn cho vùng chọn' : 'Chọn nhãn'}
             </h3>
-            <div className="space-y-1.5 max-h-52 overflow-y-auto">
-              {labels.length === 0 ? (
-                <div className="text-center py-4 text-gray-400">
-                  <Tag className="w-6 h-6 mx-auto mb-1 opacity-40" />
-                  <p className="text-xs">Không có nhãn trong dự án</p>
-                </div>
-              ) : labels.map((label, idx) => {
-                const color = getLabelColor(label, idx);
-                const isSelected = selectedLabel === label;
-                return (
-                  <button
-                    key={label}
-                    onClick={() => setSelectedLabel(isSelected ? '' : label)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left font-semibold text-sm transition-all ${isSelected ? 'text-white shadow-md' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'}`}
-                    style={isSelected ? { backgroundColor: color } : {}}
+
+            {pendingBox ? (
+              <div className="space-y-3">
+                <div className="relative">
+                  <select
+                    className="w-full appearance-none bg-indigo-50 border-2 border-indigo-200 text-indigo-900 px-4 py-3 rounded-xl font-bold text-sm focus:border-indigo-500 outline-none pr-10"
+                    value={selectedLabel}
+                    onChange={(e) => {
+                      const label = e.target.value;
+                      if (!label) return;
+                      updateItemState(currentItemId, {
+                        annotations: [...annotations, {
+                          id: `ann-${Date.now()}`,
+                          label: label,
+                          color: getLabelColor(label, labels.indexOf(label)),
+                          ...pendingBox
+                        }],
+                        status: 'pending',
+                      });
+                      setPendingBox(null);
+                      setSelectedLabel('');
+                    }}
                   >
-                    <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                    {label}
-                    {isSelected && <Check className="w-4 h-4 ml-auto" />}
-                  </button>
-                );
-              })}
-            </div>
-            {!selectedLabel && labels.length > 0 && <p className="text-xs text-amber-600 mt-2 font-medium">↑ Chọn nhãn, rồi kéo trên ảnh để vẽ</p>}
+                    <option value="">-- Chọn nhãn --</option>
+                    {labels.map((l) => (
+                      <option key={l} value={l}>{l}</option>
+                    ))}
+                  </select>
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <Tag className="w-4 h-4 text-indigo-400" />
+                  </div>
+                </div>
+                <button
+                  onClick={() => setPendingBox(null)}
+                  className="w-full py-2 text-xs font-bold text-gray-400 hover:text-red-500 transition-colors"
+                >
+                  Hủy vùng chọn này
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-1.5 max-h-52 overflow-y-auto">
+                {labels.length === 0 ? (
+                  <div className="text-center py-4 text-gray-400">
+                    <Tag className="w-6 h-6 mx-auto mb-1 opacity-40" />
+                    <p className="text-xs">Không có nhãn trong dự án</p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-indigo-600 mb-2 font-bold animate-pulse">
+                    ↑ Kéo chuột trên ảnh để khoanh vùng
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto p-4">
@@ -905,15 +1195,40 @@ export default function AnnotatorTask() {
               <div className="space-y-2">
                 {annotations.map((ann) => (
                   <div key={ann.id} className="flex items-center justify-between gap-2 p-2.5 bg-gray-50 rounded-xl border border-gray-100">
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
                       <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: ann.color }} />
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-gray-900 truncate">{ann.label}</p>
-                        <p className="text-[10px] text-gray-400">{Math.round(ann.width)}×{Math.round(ann.height)}</p>
+                      <div className="flex-1 min-w-0">
+                        {currentState.status !== 'done' ? (
+                          <select
+                            className="w-full text-sm font-black text-slate-900 bg-white/50 border border-slate-200 rounded-lg px-2 py-0.5 outline-none cursor-pointer hover:border-indigo-300 transition-all appearance-none"
+                            value={ann.label}
+                            onChange={(e) => {
+                              const newLabel = e.target.value;
+                              const updatedAnns = annotations.map(a =>
+                                a.id === ann.id ? {
+                                  ...a,
+                                  label: newLabel,
+                                  color: getLabelColor(newLabel, labels.indexOf(newLabel))
+                                } : a
+                              );
+                              updateItemState(currentItemId, { annotations: updatedAnns });
+                            }}
+                          >
+                            {labels.map(l => (
+                              <option key={l} value={l}>{l}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <p className="text-sm font-bold text-gray-900 truncate">{ann.label}</p>
+                        )}
+                        <p className="text-[10px] text-gray-400 mt-0.5">{Math.round(ann.width)}×{Math.round(ann.height)} pixels</p>
                       </div>
                     </div>
                     {currentState.status !== 'done' && (
-                      <button onClick={() => updateItemState(currentItemId, { annotations: annotations.filter((a) => a.id !== ann.id) })} className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all shrink-0">
+                      <button
+                        onClick={() => updateItemState(currentItemId, { annotations: annotations.filter((a) => a.id !== ann.id) })}
+                        className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all shrink-0"
+                      >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     )}
@@ -978,7 +1293,7 @@ export default function AnnotatorTask() {
             <h3 className="text-xl font-bold text-gray-900 mb-2">Nộp dự án?</h3>
             <p className="text-gray-600 mb-2">Bạn đã xử lý <strong>{processedCount}/{totalItems}</strong> ảnh.</p>
             <p className="text-sm text-gray-500 mb-6">
-              Sau khi nộp, hệ thống sẽ tính toán đồng thuận với 2 annotator còn lại.
+              Sau khi nộp, hệ thống sẽ tính toán đồng thuận với {task?.totalAnnotators ? task.totalAnnotators - 1 : 2} annotator còn lại.
             </p>
             <div className="flex gap-3">
               <button onClick={() => setShowSubmitConfirm(false)} className="flex-1 py-3 border border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50">Hủy</button>
@@ -994,6 +1309,7 @@ export default function AnnotatorTask() {
       {showWaiting && (
         <WaitingModal
           submittedCount={submittedCount}
+          totalAnnotators={task?.totalAnnotators || 3}
           onClose={() => {
             setShowWaiting(false);
             navigate('/annotator/tasks');
@@ -1001,10 +1317,11 @@ export default function AnnotatorTask() {
         />
       )}
 
-      {/* Submission result modal (after all 3 submitted) */}
+      {/* Submission result modal (after all submitted) */}
       {submitResult && (
         <SubmissionResultModal
           result={submitResult}
+          totalAnnotators={task?.totalAnnotators || 3}
           onClose={handleSubmitResultClose}
           onRework={handleRework}
         />

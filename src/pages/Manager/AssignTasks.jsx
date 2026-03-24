@@ -34,10 +34,23 @@ export default function AssignTasks() {
   const [loadingDatasets, setLoadingDatasets] = useState(false);
   const [selectedDatasetId, setSelectedDatasetId] = useState(null);
 
-  const [users, setUsers] = useState([]);
   const [rolesMap, setRolesMap] = useState({});
-  const [selectedAnnotatorIds, setSelectedAnnotatorIds] = useState([]); // 3 annotators
-  const [selectedReviewerId, setSelectedReviewerId] = useState(null); // 1 reviewer
+  const [selectedAnnotators, setSelectedAnnotators] = useState([]); 
+  const [selectedReviewer, setSelectedReviewer] = useState(null); 
+
+  const selectedAnnotatorIds = useMemo(() => selectedAnnotators.map(u => u.id || u.userId), [selectedAnnotators]);
+  const selectedReviewerId = useMemo(() => selectedReviewer?.id || selectedReviewer?.userId || null, [selectedReviewer]);
+
+  // Pagination for Personnel
+  const [paginatedAnnotators, setPaginatedAnnotators] = useState([]);
+  const [paginatedReviewers, setPaginatedReviewers] = useState([]);
+  const [annPage, setAnnPage] = useState(1);
+  const [revPage, setRevPage] = useState(1);
+  const [annTotalPages, setAnnTotalPages] = useState(1);
+  const [revTotalPages, setRevTotalPages] = useState(1);
+  const USER_PAGE_SIZE = 10;
+
+  const [loadingUsers, setLoadingUsers] = useState(false);
 
   // Searching
   const [searchProject, setSearchProject] = useState('');
@@ -48,9 +61,8 @@ export default function AssignTasks() {
     try {
       setLoading(true);
 
-      const [projRes, usersRes, rolesRes, tasksRes, reviewsRes] = await Promise.allSettled([
+      const [projRes, rolesRes, tasksRes, reviewsRes] = await Promise.allSettled([
         api.get('/projects').catch(() => api.get('/Projects')),
-        api.get('/users').catch(() => api.get('/Users')),
         api.get('/roles').catch(() => api.get('/Roles')),
         api.get('/tasks').catch(() => api.get('/Tasks')),
         api.get('/reviews').catch(() => api.get('/Reviews')),
@@ -61,11 +73,6 @@ export default function AssignTasks() {
       if (projRes.status === 'fulfilled') {
         const pData = projRes.value.data?.data || projRes.value.data;
         setProjects(Array.isArray(pData?.items) ? pData.items : Array.isArray(pData) ? pData : []);
-      }
-
-      if (usersRes.status === 'fulfilled') {
-        const uData = usersRes.value.data?.data || usersRes.value.data;
-        setUsers(Array.isArray(uData?.items) ? uData.items : Array.isArray(uData) ? uData : []);
       }
 
       if (rolesRes.status === 'fulfilled') {
@@ -108,6 +115,40 @@ export default function AssignTasks() {
       setLoading(false);
     }
   };
+
+  const fetchPersonnel = async (role, page) => {
+    try {
+      setLoadingUsers(true);
+      const res = await api.get('/users', {
+        params: {
+          Role: role,
+          page,
+          pageSize: USER_PAGE_SIZE,
+        }
+      });
+      const raw = res.data;
+      const users = (Array.isArray(raw?.items) ? raw.items : Array.isArray(raw?.data) ? raw.data : Array.isArray(raw) ? raw : []);
+      
+      if (role === 'annotator') {
+        setPaginatedAnnotators(users);
+        setAnnTotalPages(raw?.totalPages || 1);
+      } else {
+        setPaginatedReviewers(users);
+        setRevTotalPages(raw?.totalPages || 1);
+      }
+    } catch (err) {
+      console.error(`Error fetching ${role}:`, err);
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  useEffect(() => {
+    if (step === 3) {
+      fetchPersonnel('annotator', annPage);
+      fetchPersonnel('reviewer', revPage);
+    }
+  }, [step, annPage, revPage]);
 
   useEffect(() => {
     fetchInitialData();
@@ -155,26 +196,6 @@ export default function AssignTasks() {
     setStep(2);
     setSelectedDatasetId(null);
   };
-
-  const getUserRole = (user) => {
-    const roleId = String(user?.roleId ?? user?.roleID ?? user?.role_id ?? user?.role?.id ?? '');
-    return rolesMap[roleId] || String(user?.roleName ?? user?.role?.name ?? '').toLowerCase();
-  };
-
-  const isAnnotatorUser = (user) => {
-    const role = getUserRole(user);
-    const name = String(user?.username || user?.displayName || '').toLowerCase();
-    return role.includes('annotator') || role.includes('labeler') || name.includes('ann');
-  };
-
-  const isReviewerUser = (user) => {
-    const role = getUserRole(user);
-    const name = String(user?.username || user?.displayName || '').toLowerCase();
-    return role.includes('reviewer') || role.includes('checker') || name.includes('rev');
-  };
-
-  const annotators = users.filter(isAnnotatorUser);
-  const reviewers = users.filter(isReviewerUser);
 
   const filteredProjects = useMemo(() => {
     return projects.filter((p) => {
@@ -233,8 +254,8 @@ export default function AssignTasks() {
 
   const handleAssignSubmit = async () => {
     if (!selectedProject || !selectedDatasetId) return;
-    if (!selectedAnnotatorIds || selectedAnnotatorIds.length !== 3) {
-      showMessage('warning', 'Vui lòng chọn ĐÚNG 3 Annotator.');
+    if (!selectedAnnotatorIds || selectedAnnotatorIds.length < 2) {
+      showMessage('warning', 'Vui lòng chọn ít nhất 2 Annotator.');
       return;
     }
     if (!selectedReviewerId) {
@@ -579,7 +600,7 @@ export default function AssignTasks() {
 
               <button
                 onClick={handleAssignSubmit}
-                disabled={assigning || selectedAnnotatorIds.length !== 3 || !selectedReviewerId || !deadline}
+                disabled={assigning || selectedAnnotatorIds.length < 2 || !selectedReviewerId || !deadline}
                 className="bg-slate-900 text-white px-12 py-5 rounded-3xl font-black shadow-2xl hover:bg-black transition-all disabled:opacity-20 flex items-center gap-4 border-2 border-slate-800"
               >
                 {assigning ? <Loader2 className="w-6 h-6 animate-spin" /> : <UserCheck className="w-6 h-6" />}
@@ -593,34 +614,73 @@ export default function AssignTasks() {
                 <div className="p-8 border-b-2 border-slate-50 flex items-center justify-between bg-emerald-50/30 rounded-t-[3rem]">
                   <div>
                     <h3 className="text-xl font-black text-slate-900">Annotators</h3>
-                    <p className={`text-[10px] font-black uppercase tracking-widest ${selectedAnnotatorIds.length === 3 ? 'text-emerald-600' : 'text-slate-400'}`}>
-                      {selectedAnnotatorIds.length === 3 ? 'Đã lựa chọn đủ 3 annotator' : `Đã chọn ${selectedAnnotatorIds.length}/3 annotator`}
+                    <p className={`text-[10px] font-black uppercase tracking-widest ${selectedAnnotatorIds.length >= 2 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                      {selectedAnnotatorIds.length >= 2 ? `Đã chọn ${selectedAnnotatorIds.length} annotator` : `Đã chọn ${selectedAnnotatorIds.length}/2 annotator`}
                     </p>
                   </div>
-                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${selectedAnnotatorIds.length === 3 ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white text-slate-300'}`}>
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${selectedAnnotatorIds.length >= 2 ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white text-slate-300'}`}>
                     <Users className="w-7 h-7" />
                   </div>
                 </div>
                 <div className="p-8 space-y-4 overflow-y-auto custom-scrollbar flex-1">
-                  {annotators.length === 0 ? (
+                  {loadingUsers ? (
+                    <div className="py-20 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-emerald-600" /></div>
+                  ) : paginatedAnnotators.length === 0 ? (
                     <p className="text-center text-slate-400 font-bold py-10">Không tìm thấy Annotator</p>
                   ) : (
-                    annotators.map(u => {
-                      const uid = u.id || u.userId;
-                      const isSelected = selectedAnnotatorIds.includes(uid);
-                      const handleToggle = () => {
-                        if (isSelected) {
-                          setSelectedAnnotatorIds(prev => prev.filter(id => id !== uid));
-                        } else {
-                          if (selectedAnnotatorIds.length >= 3) {
-                            showMessage('warning', 'Chỉ được chọn tối đa 3 Annotator.');
-                            return;
+                    <div className="space-y-4">
+                      {/* Selected Section */}
+                      {selectedAnnotators.length > 0 && (
+                        <div className="space-y-3 mb-8 bg-emerald-50/50 p-4 rounded-[2rem] border border-emerald-100">
+                           <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest pl-2 mb-2">Đăng chọn ({selectedAnnotators.length})</p>
+                           <div className="grid grid-cols-1 gap-2">
+                             {selectedAnnotators.map(u => (
+                               renderSimpleUserCard(u, true, () => {
+                                 const uid = u.id || u.userId;
+                                 setSelectedAnnotators(prev => prev.filter(a => (a.id || a.userId) !== uid));
+                               }, 'annotator')
+                             ))}
+                           </div>
+                        </div>
+                      )}
+                      
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">Danh sách Annotator</p>
+                      {paginatedAnnotators
+                        .filter(u => !selectedAnnotatorIds.includes(u.id || u.userId))
+                        .map(u => {
+                        const uid = u.id || u.userId;
+                        const isSelected = selectedAnnotatorIds.includes(uid);
+                        const handleToggle = () => {
+                          if (isSelected) {
+                            setSelectedAnnotators(prev => prev.filter(a => (a.id || a.userId) !== uid));
+                          } else {
+                            setSelectedAnnotators(prev => [...prev, u]);
                           }
-                          setSelectedAnnotatorIds(prev => [...prev, uid]);
-                        }
-                      };
-                      return renderSimpleUserCard(u, isSelected, handleToggle, 'annotator');
-                    })
+                        };
+                        return renderSimpleUserCard(u, isSelected, handleToggle, 'annotator');
+                      })}
+
+                      {/* Pagination Controls */}
+                      {annTotalPages > 1 && (
+                        <div className="flex items-center justify-center gap-4 pt-4">
+                          <button 
+                            disabled={annPage <= 1} 
+                            onClick={() => setAnnPage(p => p - 1)}
+                            className="p-2 bg-slate-100 rounded-xl disabled:opacity-30"
+                          >
+                            <ArrowLeft className="w-4 h-4" />
+                          </button>
+                          <span className="text-xs font-bold text-slate-500">Trang {annPage} / {annTotalPages}</span>
+                          <button 
+                            disabled={annPage >= annTotalPages} 
+                            onClick={() => setAnnPage(p => p + 1)}
+                            className="p-2 bg-slate-100 rounded-xl disabled:opacity-30"
+                          >
+                            <ArrowRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -639,16 +699,52 @@ export default function AssignTasks() {
                   </div>
                 </div>
                 <div className="p-8 space-y-4 overflow-y-auto custom-scrollbar flex-1">
-                  {reviewers.length === 0 ? (
+                  {loadingUsers ? (
+                    <div className="py-20 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>
+                  ) : paginatedReviewers.length === 0 ? (
                     <p className="text-center text-slate-400 font-bold py-10">Không tìm thấy Reviewer</p>
                   ) : (
-                    reviewers.map(u => {
-                      const uid = u.id || u.userId;
-                      const isSelected = selectedReviewerId === uid;
-                      return renderSimpleUserCard(u, isSelected, () => {
-                        setSelectedReviewerId(isSelected ? null : uid);
-                      }, 'reviewer');
-                    })
+                    <div className="space-y-4">
+                      {/* Selected Section */}
+                      {selectedReviewer && (
+                        <div className="space-y-3 mb-8 bg-indigo-50/50 p-4 rounded-[2rem] border border-indigo-100">
+                           <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest pl-2 mb-2">Đã chọn</p>
+                           {renderSimpleUserCard(selectedReviewer, true, () => setSelectedReviewer(null), 'reviewer')}
+                        </div>
+                      )}
+
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">Danh sách Reviewer</p>
+                      {paginatedReviewers
+                        .filter(u => (u.id || u.userId) !== selectedReviewerId)
+                        .map(u => {
+                        const uid = u.id || u.userId;
+                        const isSelected = selectedReviewerId === uid;
+                        return renderSimpleUserCard(u, isSelected, () => {
+                          setSelectedReviewer(isSelected ? null : u);
+                        }, 'reviewer');
+                      })}
+
+                      {/* Pagination Controls */}
+                      {revTotalPages > 1 && (
+                        <div className="flex items-center justify-center gap-4 pt-4">
+                          <button 
+                            disabled={revPage <= 1} 
+                            onClick={() => setRevPage(p => p - 1)}
+                            className="p-2 bg-slate-100 rounded-xl disabled:opacity-30"
+                          >
+                            <ArrowLeft className="w-4 h-4" />
+                          </button>
+                          <span className="text-xs font-bold text-slate-500">Trang {revPage} / {revTotalPages}</span>
+                          <button 
+                            disabled={revPage >= revTotalPages} 
+                            onClick={() => setRevPage(p => p + 1)}
+                            className="p-2 bg-slate-100 rounded-xl disabled:opacity-30"
+                          >
+                            <ArrowRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>

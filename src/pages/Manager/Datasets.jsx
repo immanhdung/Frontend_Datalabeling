@@ -19,6 +19,15 @@ import {
     Pencil
 } from "lucide-react";
 import api from "../../config/api";
+import Pagination from "../../components/common/Pagination";
+
+const toArray = (value) => {
+    if (Array.isArray(value)) return value;
+    const root = value?.data ?? value?.items ?? value?.results ?? value;
+    if (Array.isArray(root)) return root;
+    if (Array.isArray(root?.items)) return root.items;
+    return [];
+};
 
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "bmp", "gif", "tif", "tiff"];
 const MIME_EXTENSION_MAP = {
@@ -384,6 +393,14 @@ export default function Datasets() {
 
     const [openMenuId, setOpenMenuId] = useState(null);
 
+    // Pagination state
+    const [currentPage, setCurrentPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+
+    // Detail modal pagination state
+    const [detailCurrentPage, setDetailCurrentPage] = useState(1);
+    const [detailPageSize, setDetailPageSize] = useState(10);
+
     const getDatasetId = (dataset) => dataset?.id ?? dataset?.datasetId ?? null;
 
     const patchDatasetCount = (datasetId, itemCount) => {
@@ -629,36 +646,63 @@ export default function Datasets() {
             setLoading(true);
             setError(null);
 
-            let datasetList = [];
-            let projectList = [];
+            const { getAssignedTasksByUserMap } = await import("../../utils/annotatorTaskHelpers");
+
+            let apiDatasets = [];
+            let apiProjects = [];
 
             try {
-                const datasetRes = await api.get("/datasets");
-                datasetList = datasetRes.data?.items || datasetRes.data?.data || datasetRes.data || [];
-            } catch {
-                setError("Không thể tải dữ liệu dataset.");
+                const datasetRes = await api.get("/datasets", { params: { PageSize: 1000, pageSize: 1000, page: 1 } });
+                apiDatasets = toArray(datasetRes.data);
+            } catch (err) {
+                console.warn("API Datasets failed, falling back to local history", err);
             }
 
             try {
-                const projRes = await api.get("/projects");
-                projectList = projRes.data?.items || projRes.data?.data || projRes.data || [];
+                const projRes = await api.get("/projects", { params: { PageSize: 1000, pageSize: 1000 } });
+                apiProjects = toArray(projRes.data);
             } catch {
-                projectList = [];
+                apiProjects = [];
             }
 
-            const safeDatasets = Array.isArray(datasetList) ? datasetList : [];
-            setDatasets(safeDatasets);
-            setProjects(Array.isArray(projectList) ? projectList : []);
+            const localTasksMap = getAssignedTasksByUserMap();
+            const allLocalTasks = Object.values(localTasksMap).flat();
+            
+            const localDatasets = [];
+            const seenDids = new Set(apiDatasets.map(d => String(d.id || d.datasetId)));
+            
+            allLocalTasks.forEach(t => {
+                const did = String(t.datasetId || t.dataset?.id || "");
+                if (did && !seenDids.has(did)) {
+                    localDatasets.push({
+                        id: did,
+                        datasetId: did,
+                        name: t.datasetName || t.dataset?.name || `Dataset #${did.slice(0, 5)}`,
+                        imagesCount: t.totalItems || t.items?.length || 0,
+                        createdAt: t.createdAt
+                    });
+                    seenDids.add(did);
+                }
+            });
+
+            const merged = [...apiDatasets, ...localDatasets];
+            setDatasets(merged);
+            setProjects(apiProjects);
 
             const countResults = await Promise.allSettled(
-                safeDatasets.map(async (dataset) => {
+                merged.map(async (dataset) => {
                     const datasetId = getDatasetId(dataset);
                     if (!datasetId) return { datasetId: null, itemCount: 0 };
-                    const itemsRes = await api.get(`/datasets/${datasetId}/items`);
-                    return {
-                        datasetId,
-                        itemCount: normalizeDatasetItems(itemsRes?.data).length,
-                    };
+                    
+                    try {
+                      const itemsRes = await api.get(`/datasets/${datasetId}/items`, { params: { PageSize: 1 } });
+                      return {
+                          datasetId,
+                          itemCount: itemsRes?.data?.totalCount || normalizeDatasetItems(itemsRes?.data).length || dataset.imagesCount || 0,
+                      };
+                    } catch {
+                      return { datasetId, itemCount: dataset.imagesCount || 0 };
+                    }
                 })
             );
 
@@ -977,6 +1021,7 @@ export default function Datasets() {
             const detail = await fetchDatasetDetail(id);
             setSelectedDataset(detail.dataset);
             setDetailItems(detail.items);
+            setDetailCurrentPage(1);
             patchDatasetCount(id, detail.items.length);
         } catch (err) {
             console.error("Fetch dataset details error:", err);
@@ -1001,6 +1046,7 @@ export default function Datasets() {
             const detail = await fetchDatasetDetail(id);
             setSelectedDataset(detail.dataset);
             setDetailItems(detail.items);
+            setDetailCurrentPage(1);
             patchDatasetCount(id, detail.items.length);
         } catch (err) {
             console.error("Fetch dataset details for edit error:", err);
@@ -1156,7 +1202,10 @@ export default function Datasets() {
                     type="text"
                     placeholder="Tìm kiếm dataset theo tên..."
                     value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(e) => {
+                        setSearchTerm(e.target.value);
+                        setCurrentPage(1); // Reset to page 1 on search
+                    }}
                     className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 transition-all shadow-sm"
                 />
             </div>
@@ -1181,102 +1230,116 @@ export default function Datasets() {
                     <p className="text-gray-500 mt-1">Hãy thử tìm kiếm từ khóa khác hoặc tạo dataset mới</p>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                    {filteredDatasets.map((ds) => {
-                        const id = ds.id || ds.datasetId;
-                        return (
-                            <div
-                                key={id}
-                                className="group bg-white rounded-3xl p-6 shadow-sm border border-gray-100 hover:shadow-xl hover:border-indigo-100 transition-all duration-300 relative overflow-hidden"
-                            >
-                                <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <div className="relative transition-all">
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setOpenMenuId(openMenuId === id ? null : id);
-                                            }}
-                                            className="p-2 bg-gray-50 hover:bg-indigo-50 rounded-xl transition-colors"
-                                        >
-                                            <MoreVertical className="w-5 h-5 text-gray-500 hover:text-indigo-600" />
-                                        </button>
-
-                                        {openMenuId === id && (
-                                            <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-100 rounded-2xl shadow-2xl z-20 py-2 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        {filteredDatasets
+                            .slice((currentPage - 1) * pageSize, currentPage * pageSize)
+                            .map((ds) => {
+                                const id = ds.id || ds.datasetId;
+                                return (
+                                    <div
+                                        key={id}
+                                        className="group bg-white rounded-3xl p-6 shadow-sm border border-gray-100 hover:shadow-xl hover:border-indigo-100 transition-all duration-300 relative overflow-hidden"
+                                    >
+                                        <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="relative transition-all">
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        handleViewDetail(ds);
-                                                        setOpenMenuId(null);
+                                                        setOpenMenuId(openMenuId === id ? null : id);
                                                     }}
-                                                    className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 transition-colors"
+                                                    className="p-2 bg-gray-50 hover:bg-indigo-50 rounded-xl transition-colors"
                                                 >
-                                                    <Eye className="w-4 h-4" />
-                                                    Xem chi tiết
-                                                </button>
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        openEditDatasetModal(ds);
-                                                        setOpenMenuId(null);
-                                                    }}
-                                                    className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
-                                                >
-                                                    <Pencil className="w-4 h-4" />
-                                                    Chỉnh sửa dataset
-                                                </button>
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setSelectedDataset(ds);
-                                                        setShowAssignModal(true);
-                                                        setOpenMenuId(null);
-                                                    }}
-                                                    className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
-                                                >
-                                                    <Link2 className="w-4 h-4" />
-                                                    Gán vào project
+                                                    <MoreVertical className="w-5 h-5 text-gray-500 hover:text-indigo-600" />
                                                 </button>
 
-                                                <div className="h-px bg-gray-100 my-1" />
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleDeleteDataset(id);
-                                                        setOpenMenuId(null);
-                                                    }}
-                                                    className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-50 transition-colors"
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                    Xóa Dataset
-                                                </button>
+                                                {openMenuId === id && (
+                                                    <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-100 rounded-2xl shadow-2xl z-20 py-2 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleViewDetail(ds);
+                                                                setOpenMenuId(null);
+                                                            }}
+                                                            className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 transition-colors"
+                                                        >
+                                                            <Eye className="w-4 h-4" />
+                                                            Xem chi tiết
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                openEditDatasetModal(ds);
+                                                                setOpenMenuId(null);
+                                                            }}
+                                                            className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                                                        >
+                                                            <Pencil className="w-4 h-4" />
+                                                            Chỉnh sửa dataset
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setSelectedDataset(ds);
+                                                                setShowAssignModal(true);
+                                                                setOpenMenuId(null);
+                                                            }}
+                                                            className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                                                        >
+                                                            <Link2 className="w-4 h-4" />
+                                                            Gán vào project
+                                                        </button>
+
+                                                        <div className="h-px bg-gray-100 my-1" />
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleDeleteDataset(id);
+                                                                setOpenMenuId(null);
+                                                            }}
+                                                            className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-50 transition-colors"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                            Xóa Dataset
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
-                                        )}
-                                    </div>
-                                </div>
+                                        </div>
 
-                                <div className="p-4 bg-indigo-50 rounded-2xl w-fit mb-5 group-hover:bg-indigo-600 transition-colors duration-300">
-                                    <FolderPlus className="w-8 h-8 text-indigo-600 group-hover:text-white transition-colors duration-300" />
-                                </div>
+                                        <div className="p-4 bg-indigo-50 rounded-2xl w-fit mb-5 group-hover:bg-indigo-600 transition-colors duration-300">
+                                            <FolderPlus className="w-8 h-8 text-indigo-600 group-hover:text-white transition-colors duration-300" />
+                                        </div>
 
-                                <h3 className="text-xl font-bold text-gray-900 line-clamp-1">{ds.name}</h3>
-                                <div className="mt-4 flex items-center gap-4 text-sm font-medium text-gray-500">
-                                    <div className="flex items-center gap-1.5">
-                                        <ImageIcon className="w-4 h-4" />
-                                        {ds.imagesCount || ds.itemsCount || ds.totalItems || ds.itemCount || ds.imageCount || ds.items?.length || 0} files
-                                    </div>
-                                    <div className="flex items-center gap-1.5">
-                                        <Database className="w-4 h-4" />
-                                        {formatBytes(ds.totalSize || ds.totalBytes || ds.size || ds.datasetSize)}
-                                    </div>
-                                </div>
+                                        <h3 className="text-xl font-bold text-gray-900 line-clamp-1">{ds.name}</h3>
+                                        <div className="mt-4 flex items-center gap-4 text-sm font-medium text-gray-500">
+                                            <div className="flex items-center gap-1.5">
+                                                <ImageIcon className="w-4 h-4" />
+                                                {ds.imagesCount || ds.itemsCount || ds.totalItems || ds.itemCount || ds.imageCount || ds.items?.length || 0} files
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <Database className="w-4 h-4" />
+                                                {formatBytes(ds.totalSize || ds.totalBytes || ds.size || ds.datasetSize)}
+                                            </div>
+                                        </div>
 
-                                <p className="text-xs text-gray-400 mt-4 italic">
-                                    Ngày tạo: {ds.createdAt ? new Date(ds.createdAt).toLocaleDateString() : "N/A"}
-                                </p>
-                            </div>
-                        );
-                    })}
+                                        <p className="text-xs text-gray-400 mt-4 italic">
+                                            Ngày tạo: {ds.createdAt ? new Date(ds.createdAt).toLocaleDateString() : "N/A"}
+                                        </p>
+                                    </div>
+                                );
+                            })}
+                    </div>
+
+                    <Pagination
+                        currentPage={currentPage}
+                        totalPages={Math.ceil(filteredDatasets.length / pageSize)}
+                        onPageChange={setCurrentPage}
+                        pageSize={pageSize}
+                        onPageSizeChange={setPageSize}
+                        pageSizeOptions={[5, 10, 20, 50]}
+                        totalItems={filteredDatasets.length}
+                    />
                 </div>
             )}
 
@@ -1680,59 +1743,62 @@ export default function Datasets() {
                                         </div>
 
                                         <div className="max-h-[420px] overflow-y-auto divide-y divide-gray-100">
-                                            {detailItems.map((item, idx) => {
-                                                const itemId = getItemId(item, idx);
-                                                const insight = itemInsights[itemId];
-                                                const fileName = insight?.fileName || getItemName(item, idx);
-                                                const ext = insight?.extension || getItemExtension(item, idx);
-                                                const sizeBytes = insight?.sizeBytes ?? getItemSizeBytes(item);
-                                                const dims = insight?.dimensions ?? getItemDimensions(item);
-                                                const quality = insight
-                                                    ? { status: insight.qualityStatus, text: insight.qualityText }
-                                                    : getQualityInfo(item, idx);
-                                                const previewUrl = getPreviewSrc(item, idx);
-                                                const canRenderAsImage = Boolean(previewUrl) && (Boolean(securePreviewUrls[itemId]) || insight?.isImage || isImageItem(item, idx));
+                                            {detailItems
+                                                .slice((detailCurrentPage - 1) * detailPageSize, detailCurrentPage * detailPageSize)
+                                                .map((item, pageIdx) => {
+                                                    const idx = (detailCurrentPage - 1) * detailPageSize + pageIdx;
+                                                    const itemId = getItemId(item, idx);
+                                                    const insight = itemInsights[itemId];
+                                                    const fileName = insight?.fileName || getItemName(item, idx);
+                                                    const ext = insight?.extension || getItemExtension(item, idx);
+                                                    const sizeBytes = insight?.sizeBytes ?? getItemSizeBytes(item);
+                                                    const dims = insight?.dimensions ?? getItemDimensions(item);
+                                                    const quality = insight
+                                                        ? { status: insight.qualityStatus, text: insight.qualityText }
+                                                        : getQualityInfo(item, idx);
+                                                    const previewUrl = getPreviewSrc(item, idx);
+                                                    const canRenderAsImage = Boolean(previewUrl) && (Boolean(securePreviewUrls[itemId]) || insight?.isImage || isImageItem(item, idx));
 
-                                                return (
-                                                    <div key={`${fileName}-${idx}`} className="grid grid-cols-12 gap-2 px-4 py-3 text-sm items-center">
-                                                        <div className="col-span-5 flex items-center gap-4 min-w-0">
-                                                            {canRenderAsImage ? (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => openImagePreview(previewUrl, fileName)}
-                                                                    className="rounded-lg overflow-hidden border border-indigo-100 hover:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                                                                    title="Xem ảnh lớn"
-                                                                >
-                                                                    <img
-                                                                        src={previewUrl}
-                                                                        alt={fileName}
-                                                                        className="w-14 h-14 rounded-lg object-cover"
-                                                                    />
-                                                                </button>
-                                                            ) : (
-                                                                <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500">
-                                                                    <FileArchive className="w-5 h-5" />
-                                                                </div>
-                                                            )}
-                                                            <span className="truncate font-medium text-gray-800">{fileName}</span>
-                                                        </div>
+                                                    return (
+                                                        <div key={`${fileName}-${idx}`} className="grid grid-cols-12 gap-2 px-4 py-3 text-sm items-center">
+                                                            <div className="col-span-5 flex items-center gap-4 min-w-0">
+                                                                {canRenderAsImage ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => openImagePreview(previewUrl, fileName)}
+                                                                        className="rounded-lg overflow-hidden border border-indigo-100 hover:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                                                                        title="Xem ảnh lớn"
+                                                                    >
+                                                                        <img
+                                                                            src={previewUrl}
+                                                                            alt={fileName}
+                                                                            className="w-14 h-14 rounded-lg object-cover"
+                                                                        />
+                                                                    </button>
+                                                                ) : (
+                                                                    <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500">
+                                                                        <FileArchive className="w-5 h-5" />
+                                                                    </div>
+                                                                )}
+                                                                <span className="truncate font-medium text-gray-800">{fileName}</span>
+                                                            </div>
 
-                                                        <div className="col-span-2 text-gray-600 uppercase">{ext}</div>
-                                                        <div className="col-span-2 text-gray-600">{formatBytes(sizeBytes)}</div>
-                                                        <div className="col-span-2 text-gray-600">{dims ? `${dims.width}x${dims.height}` : "N/A"}</div>
-                                                        <div className="col-span-1">
-                                                            <span className={`text-[11px] font-bold px-2 py-1 rounded-full ${quality.status === "low"
-                                                                ? "bg-amber-100 text-amber-700"
-                                                                : quality.status === "ok"
-                                                                    ? "bg-emerald-100 text-emerald-700"
-                                                                    : "bg-gray-100 text-gray-600"
-                                                                }`}>
-                                                                {quality.text}
-                                                            </span>
+                                                            <div className="col-span-2 text-gray-600 uppercase">{ext}</div>
+                                                            <div className="col-span-2 text-gray-600">{formatBytes(sizeBytes)}</div>
+                                                            <div className="col-span-2 text-gray-600">{dims ? `${dims.width}x${dims.height}` : "N/A"}</div>
+                                                            <div className="col-span-1">
+                                                                <span className={`text-[11px] font-bold px-2 py-1 rounded-full ${quality.status === "low"
+                                                                    ? "bg-amber-100 text-amber-700"
+                                                                    : quality.status === "ok"
+                                                                        ? "bg-emerald-100 text-emerald-700"
+                                                                        : "bg-gray-100 text-gray-600"
+                                                                    }`}>
+                                                                    {quality.text}
+                                                                </span>
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                );
-                                            })}
+                                                    );
+                                                })}
                                         </div>
                                     </div>
                                 ) : (
@@ -1740,6 +1806,18 @@ export default function Datasets() {
                                         <FolderPlus className="w-12 h-12 text-gray-300 mb-2" />
                                         <p className="text-sm font-bold text-gray-400 font-sans">Không tìm thấy file nào trong dataset.</p>
                                     </div>
+                                )}
+
+                                {detailItems.length > detailPageSize && (
+                                    <Pagination
+                                        currentPage={detailCurrentPage}
+                                        totalPages={Math.ceil(detailItems.length / detailPageSize)}
+                                        onPageChange={setDetailCurrentPage}
+                                        pageSize={detailPageSize}
+                                        onPageSizeChange={setDetailPageSize}
+                                        pageSizeOptions={[10, 20, 50, 100]}
+                                        totalItems={detailItems.length}
+                                    />
                                 )}
                             </section>
                         </div>

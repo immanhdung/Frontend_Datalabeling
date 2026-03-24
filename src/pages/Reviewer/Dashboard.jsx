@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { reviewAPI } from '../../config/api';
 import Header from '../../components/common/Header';
@@ -35,7 +35,7 @@ const ReviewerDashboard = () => {
     approvalRate: 0,
   });
 
-  const loadAnnotations = async () => {
+  const loadAnnotations = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -101,15 +101,21 @@ const ReviewerDashboard = () => {
         console.error('[Reviewer] Local task scan failed:', e);
       }
 
-      setAnnotations(allFoundAnnotations);
-      updateStats(allFoundAnnotations, reviewHistory);
+      // 4. Final Filter: Remove items already in review history
+      const pendingOnly = allFoundAnnotations.filter(ann => {
+        const annId = String(ann.id || '').trim().toLowerCase();
+        return !reviewHistory.some(h => String(h.annotationId || '').trim().toLowerCase() === annId);
+      });
+
+      setAnnotations(pendingOnly);
+      updateStats(pendingOnly, reviewHistory);
     } catch (err) {
       console.error('Error loading reviewer data:', err);
       setError('Không thể tải dữ liệu review.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [reviewHistory]);
 
   const updateStats = (anns, history) => {
     const today = new Date().toDateString();
@@ -163,7 +169,7 @@ const ReviewerDashboard = () => {
         activeTab === 'all' ||
         (activeTab === 'pending_review' && (ann.status === 'pending_review' || ann.status === 'pending')) ||
         ann.status === activeTab;
-        
+
       const matchesSearch =
         String(ann.taskTitle || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         String(ann.annotatorName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -191,7 +197,9 @@ const ReviewerDashboard = () => {
         reviewTime: 5,
       };
       const newHistory = [historyEntry, ...reviewHistory];
+      localStorage.setItem('reviewHistory', JSON.stringify(newHistory));
       setReviewHistory(newHistory);
+      window.dispatchEvent(new CustomEvent('reviewHistoryUpdated'));
 
       // Mark in localStorage
       markReviewerTaskReviewed(ann.id, 'approved');
@@ -223,7 +231,9 @@ const ReviewerDashboard = () => {
       reviewTime: 8,
     };
     const newHistory = [historyEntry, ...reviewHistory];
+    localStorage.setItem('reviewHistory', JSON.stringify(newHistory));
     setReviewHistory(newHistory);
+    window.dispatchEvent(new CustomEvent('reviewHistoryUpdated'));
 
     markReviewerTaskReviewed(rejectId, 'rejected', rejectFeedback);
 
@@ -242,9 +252,9 @@ const ReviewerDashboard = () => {
         <div className="mb-12 relative overflow-hidden p-10 rounded-[3rem] bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-2xl shadow-blue-200">
           <div className="relative z-10 flex items-center justify-between">
             <div>
-              <h1 className="text-4xl font-black tracking-tight mb-2">Xin chào, Reviewer! 👋</h1>
+              <h1 className="text-4xl font-black tracking-tight mb-2">Xin chào, Reviewer!</h1>
               <p className="text-blue-100 font-medium opacity-90 max-w-lg">
-                Kiểm tra các bản gán nhãn đã đạt đồng thuận (2/3 annotator đồng ý) và phê duyệt kết quả cuối cùng.
+                Kiểm tra các bản gán nhãn đã đạt đồng thuận và phê duyệt kết quả cuối cùng.
               </p>
             </div>
             <div className="hidden lg:flex gap-4">
@@ -280,20 +290,7 @@ const ReviewerDashboard = () => {
           ))}
         </div>
 
-        {/* Consensus Info Banner */}
-        <div className="bg-indigo-50 border border-indigo-100 rounded-[2rem] p-6 mb-8 flex items-start gap-4">
-          <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center shrink-0">
-            <Users className="w-6 h-6 text-indigo-600" />
-          </div>
-          <div>
-            <h3 className="font-black text-indigo-900 mb-1">Quy trình đồng thuận 3 Annotator</h3>
-            <p className="text-sm text-indigo-700 leading-relaxed">
-              Mỗi nhiệm vụ được giao cho <strong>3 annotator</strong>. Khi cả 3 nộp bài, hệ thống tự động tính đồng thuận:
-              nếu <strong>2/3 đồng ý</strong> → ảnh đó được gửi cho bạn duyệt (random 1 trong 2 bản đồng thuận).
-              Nếu <strong>3/3 khác nhau</strong> (conflict) → annotator làm lại. Bạn chỉ cần duyệt bản <strong>đã qua đồng thuận</strong>.
-            </p>
-          </div>
-        </div>
+
 
         {/* Tabs & Search */}
         <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-8">

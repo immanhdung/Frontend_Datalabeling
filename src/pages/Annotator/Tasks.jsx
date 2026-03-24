@@ -67,20 +67,28 @@ export default function AnnotatorTasks() {
         if (t.id) {
           const ex = map.get(String(t.id));
           const localIsAdv = ex && ['completed', 'approved', 'rejected', 'expired'].includes(ex.status);
-          map.set(String(t.id), { 
-            ...ex, 
-            ...t, 
-            ...(localIsAdv ? { status: ex.status, progress: ex.progress } : {}),
+          const localProgress = ex?.progress || 0;
+          const apiProgress = t.progress || 0;
+
+          map.set(String(t.id), {
+            ...ex,
+            ...t,
+            // Ưu tiên progress lớn nhất giữa Local và API
+            progress: localIsAdv ? ex.progress : Math.max(localProgress, apiProgress),
+            // Giữ nguyên status tiến bộ hơn
+            status: localIsAdv ? ex.status : (localProgress > apiProgress ? 'in_progress' : t.status),
+            // Quan trọng: Phải giữ totalItems từ local nếu API trả về 0
+            totalItems: t.totalItems || ex?.totalItems || 0,
             items: (t.items && t.items.length > 0 ? t.items : ex?.items || []).map(apiIt => {
               const iid = String(apiIt.taskItemId || apiIt.id || '');
               const localIt = (ex?.items || []).find(li => String(li.taskItemId || li.id || '') === iid) || {};
-              return { 
-                  ...apiIt, 
-                  ...localIt, 
-                  ...apiIt, 
-                  isConflict: localIt.isConflict,
-                  isConsensusWinner: localIt.isConsensusWinner,
-                  consensusLabel: localIt.consensusLabel 
+              return {
+                ...apiIt,
+                ...localIt,
+                ...apiIt,
+                isConflict: localIt.isConflict,
+                isConsensusWinner: localIt.isConsensusWinner,
+                consensusLabel: localIt.consensusLabel
               };
             })
           });
@@ -241,9 +249,9 @@ export default function AnnotatorTasks() {
               const TypeIcon = TYPE_ICONS[task.type] || ImageIcon;
               const typeColor = TYPE_COLORS[task.type] || 'bg-slate-50 text-slate-600';
               const pInfo = projectsCache[String(task.projectId)] || {};
-              // ✅ Tên project thực tế
+              //  Tên project thực tế
               const displayName = pInfo.name || task.projectName || 'Dự án';
-              // ✅ Deadline project thực tế (manager đặt khi tạo project)
+              //  Deadline project thực tế (manager đặt khi tạo project)
               const displayDeadline = pInfo.deadline || task.dueDate;
               const days = getDaysUntilDue(displayDeadline);
               const urgency = days !== null && days <= 3 ? 'text-red-500' : 'text-amber-500';
@@ -266,10 +274,25 @@ export default function AnnotatorTasks() {
                   </div>
 
                   <div className="flex-1">
-                    {/* ✅ Ưu tiên hiển thị tên Project làm tiêu đề chính */}
-                    <h3 className="font-bold text-slate-900 text-xl mb-2 line-clamp-1 group-hover:text-blue-600 transition-colors">
+                    {/*  Ưu tiên hiển thị tên Project làm tiêu đề chính */}
+                    <h3 className="font-bold text-slate-900 text-xl mb-1 line-clamp-1 group-hover:text-blue-600 transition-colors">
                       {displayName}
                     </h3>
+
+                    {/* Progress Bar moved here */}
+                    <div className="mb-3">
+                      <div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1.5 uppercase tracking-tight">
+
+                        <span>{task.progress || 0}%</span>
+                      </div>
+                      <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-500 rounded-full ${task.status === 'approved' ? 'bg-emerald-500' : 'bg-indigo-600'}`}
+                          style={{ width: `${task.progress || 0}%` }}
+                        />
+                      </div>
+                    </div>
+
                     <div className="space-y-1.5 mb-3">
                       <div className="flex items-center gap-2">
                         <Tag className="w-4 h-4 text-slate-400 shrink-0" />
@@ -288,15 +311,6 @@ export default function AnnotatorTasks() {
                   </div>
 
                   <div className="mt-auto pt-4 border-t border-slate-50 space-y-4">
-                    {task.status === 'in_progress' && (
-                      <div>
-                        <div className="flex justify-between text-xs font-bold text-slate-700 mb-2"><span>Tiến độ</span><span>{task.progress || 0}%</span></div>
-                        <div className="w-full bg-slate-100 rounded-full h-2">
-                          <div className="bg-indigo-600 h-2 rounded-full" style={{ width: `${task.progress || 0}%` }} />
-                        </div>
-                      </div>
-                    )}
-
                     <div className="flex items-center gap-2 text-xs text-slate-400">
                       <Calendar className="w-3.5 h-3.5" />
                       <span>Giao việc: {formatDateTime(task.createdAt || task.assignedAt)}</span>
@@ -331,8 +345,8 @@ export default function AnnotatorTasks() {
                         </button>
                       )}
                       {task.status === 'rejected' && (
-                        <button 
-                          onClick={() => handleStart(task)} 
+                        <button
+                          onClick={() => handleStart(task)}
                           className="flex-1 px-6 py-3 bg-red-600 text-white rounded-2xl hover:bg-red-700 shadow-lg font-bold flex items-center justify-center gap-2"
                         >
                           <RefreshCw className="w-4 h-4" /> Làm lại
@@ -343,7 +357,7 @@ export default function AnnotatorTasks() {
                           <CheckCircle2 className="w-4 h-4" /> {task.reviewStatus === 'rejected' ? 'Chờ sửa' : 'Xem chi tiết'}
                         </button>
                       )}
-                      <button 
+                      <button
                         onClick={() => navigate(`/annotator/tasks/${task.id}/details`)}
                         className="p-3 bg-slate-50 text-slate-400 rounded-2xl hover:bg-slate-100 border border-slate-100"
                         title="Xem chi tiết"

@@ -13,10 +13,11 @@ import {
   Tag,
   Play
 } from 'lucide-react';
-import api, { taskAPI } from '../../config/api';
+import api, { taskAPI, projectAPI } from '../../config/api';
 import { 
   normalizeTask, 
   resolveApiData,
+  resolveImageUrl,
   getLocalAssignedTasksForUser,
   getCurrentUserIdentifiers
 } from '../../utils/annotatorTaskHelpers';
@@ -34,69 +35,123 @@ export default function TaskDetails() {
       setLoading(true);
       try {
         // 1. Fetch Task Info
-        const taskRes = await taskAPI.getById(taskId);
-        const rawTask = resolveApiData(taskRes);
-        const normalized = normalizeTask(Array.isArray(rawTask) ? rawTask[0] : rawTask);
-        
-        // Try to fetch project name if missing
-        if (!normalized.projectName || normalized.projectName === 'Dự án') {
-          try {
-            const projRes = await api.get(`/projects/${normalized.projectId}`, { validateStatus: () => true });
-            if (projRes.status === 200) {
-              const p = projRes.data?.data || projRes.data || {};
-              normalized.projectName = p.name || p.projectName || normalized.projectName;
-              normalized.dueDate = p.deadline || p.dueDate || normalized.dueDate;
-            }
-          } catch {}
+        let apiTaskData = {};
+        try {
+          const taskRes = await taskAPI.getById(taskId);
+          apiTaskData = resolveApiData(taskRes);
+          if (Array.isArray(apiTaskData)) apiTaskData = apiTaskData[0];
+        } catch (e) {
+          console.warn('[TaskDetails] getById failed:', e.message);
         }
 
-        setTask(normalized);
-
-        // 2. Fetch Task Items
-        const itemsRes = await taskAPI.getItems(taskId);
-        const rawItems = resolveApiData(itemsRes);
-        setItems(Array.isArray(rawItems) ? rawItems : []);
-      } catch (err) {
-        console.error('Failed to load task details:', err);
+        const normalized = normalizeTask(apiTaskData);
         
-        // Final fallback: Check local storage and try to fetch items separately
+        // Merge with local data to get the latest progress/status
         const identifiers = getCurrentUserIdentifiers();
         const localTasks = getLocalAssignedTasksForUser(identifiers);
         const localMatch = localTasks.find(t => String(t.id) === String(taskId));
         
         if (localMatch) {
-          const normalized = normalizeTask(localMatch);
-          setTask(normalized);
-          
-          // Try to fetch items separately if getById failed
-          try {
-            const itemsRes = await taskAPI.getItems(taskId);
-            const rawItems = resolveApiData(itemsRes);
-            
-            const localItems = Array.isArray(normalized.items) ? normalized.items : [];
-            
-            if (rawItems && rawItems.length > 0) {
-              // Merge: favor local status if API says pending
-              const mergedItems = rawItems.map(apiItem => {
-                const apiId = apiItem?.taskItemId || apiItem?.id;
-                const localItem = localItems.find(li => (li?.taskItemId || li?.id) === apiId);
-                
-                if (localItem && localItem.status !== 'pending' && (!apiItem.status || apiItem.status.toLowerCase() === 'pending')) {
-                  return { ...apiItem, status: localItem.status };
-                }
-                return apiItem;
-              });
-              setItems(mergedItems);
-            } else {
-              setItems(localItems);
-            }
-          } catch (e) {
-            setItems(Array.isArray(normalized.items) ? normalized.items : []);
-          }
-          setError(null);
-        } else {
-          setError('Không thể tải thông tin chi tiết nhiệm vụ.');
+           const localNorm = normalizeTask(localMatch);
+           // Ưu tiên progress/status tiến bộ hơn từ local
+           normalized.progress = Math.max(normalized.progress || 0, localNorm.progress || 0);
+           if (['completed', 'approved', 'rejected', 'in_progress'].includes(localNorm.status)) {
+              normalized.status = localNorm.status;
+           }
+           normalized.totalItems = normalized.totalItems || localNorm.totalItems || 0;
+           normalized.processedCount = Math.max(normalized.processedCount || 0, localNorm.processedCount || 0);
+           normalized.projectName = normalized.projectName || localNorm.projectName;
+           normalized.guideline = normalized.guideline || localNorm.guideline;
         }
+
+        // Try to fetch project details (name, guideline) if still missing
+        if (!normalized.projectName || normalized.projectName === 'Dự án' || !normalized.guideline) {
+          try {
+            const projRes = await api.get(`/projects/${normalized.projectId}`, { validateStatus: () => true });
+            if (projRes.status === 200) {
+              const p = projRes.data?.data || projRes.data || {};
+              normalized.projectName = normalized.projectName === 'Dự án' ? (p.name || p.projectName || normalized.projectName) : normalized.projectName;
+              normalized.dueDate = p.deadline || p.dueDate || normalized.dueDate;
+              if (!normalized.guideline) normalized.guideline = p.guideline || "";
+            }
+          } catch {}
+          
+          if (!normalized.guideline) {
+             try {
+                const guideRes = await api.get(`/guidelines/projects/${normalized.projectId}`).catch(() => ({ data: null }));
+                const gRaw = guideRes?.data?.data || guideRes?.data;
+                normalized.guideline = (typeof gRaw === 'string' ? gRaw : gRaw?.content || gRaw?.guideline || gRaw?.text) || "";
+             } catch {}
+          }
+        }
+
+        setTask(normalized);
+
+        // 2. Fetch Task Items
+        let apiItems = [];
+        try {
+          // Try both APIs sequentially or in parallel
+          const [itemsRes, projItemsRes] = await Promise.allSettled([
+            taskAPI.getItems(taskId),
+            normalized.projectId ? projectAPI.getTaskItems(normalized.projectId) : Promise.reject('No project ID')
+          ]);
+          
+          let list1 = itemsRes.status === 'fulfilled' ? resolveApiData(itemsRes.value) : [];
+          let list2 = projItemsRes.status === 'fulfilled' ? resolveApiData(projItemsRes.value) : [];
+          
+          if (!Array.isArray(list1)) list1 = [];
+          if (!Array.isArray(list2)) list2 = [];
+          
+          // Merge based on ID
+          const itemMap = new Map();
+          [...list1, ...list2].forEach(item => {
+             const key = String(item?.taskItemId || item?.id || '').trim().toLowerCase();
+             if (key && !itemMap.has(key)) itemMap.set(key, item);
+          });
+          apiItems = Array.from(itemMap.values());
+        } catch (e) {
+          console.warn('[TaskDetails] getItems/getTaskItems failed');
+        }
+
+        const localItems = Array.isArray(localMatch?.items) ? localMatch.items : [];
+
+        if (apiItems.length > 0) {
+          const merged = apiItems.map((apiItem, idx) => {
+            const apiId = String(apiItem?.taskItemId || apiItem?.id || apiItem?.itemId || '').trim().toLowerCase();
+            const apiUrl = resolveImageUrl(apiItem);
+            
+            // Tìm localItem bằng ID hoặc URL hoặc theo thứ tự (index)
+            const localItem = localItems.find(li => {
+               const lid = String(li?.taskItemId || li?.id || li?.itemId || '').trim().toLowerCase();
+               const lUrl = resolveImageUrl(li);
+               
+               if (lid && lid === apiId) return true;
+               if (apiUrl && lUrl && apiUrl === lUrl) return true;
+               return false;
+            }) || (localItems.length === apiItems.length ? localItems[idx] : null);
+            
+            if (localItem) {
+               const lStatus = String(localItem.status || '').toLowerCase();
+               const isLocalBetter = ['done', 'completed', 'skipped', 'submitted', 'pending_review', 'rejected', 'approved'].includes(lStatus);
+               const hasWork = lStatus === 'done' || lStatus === 'completed' || lStatus === 'approved' || (Array.isArray(localItem.annotations) && localItem.annotations.length > 0);
+               
+               if (isLocalBetter || hasWork) {
+                  return { 
+                    ...apiItem, 
+                    ...localItem, 
+                    status: (localItem.status === 'pending' && hasWork) ? 'done' : localItem.status 
+                  };
+               }
+            }
+            return apiItem;
+          });
+          setItems(merged);
+        } else {
+          setItems(localItems);
+        }
+      } catch (err) {
+        console.error('Failed to load task details:', err);
+        setError('Không thể tải thông tin chi tiết nhiệm vụ.');
       } finally {
         setLoading(false);
       }
@@ -130,13 +185,24 @@ export default function TaskDetails() {
     );
   }
 
-  const annotatedItems = items.filter(it => {
-    const s = String(it.status || '').toLowerCase();
-    return s === 'done' || s === 'completed';
-  });
-  const skippedItems = items.filter(it => String(it.status).toLowerCase() === 'skipped');
-  const remainingCount = items.length - annotatedItems.length - skippedItems.length;
-  const progressPercent = items.length > 0 ? Math.round(((annotatedItems.length + skippedItems.length) / items.length) * 100) : 0;
+  const processedItems = items.filter(it => 
+    ['done', 'completed', 'skipped', 'submitted', 'hoan thanh', 'hoàn thành'].includes(
+      String(it.status || '').toLowerCase()
+    )
+  );
+  
+  const totalItems = items.length || task.totalItems || 0;
+  
+  // Lấy giá trị lớn nhất giữa việc đếm từng ảnh và thông số tiến độ của task
+  const countFromItems = processedItems.length;
+  const countFromProgress = Math.round(((task.progress || 0) * totalItems) / 100);
+  const finalProcessedCount = Math.max(countFromItems, countFromProgress);
+  
+  const remainingCount = Math.max(0, totalItems - finalProcessedCount);
+  const progressPercent = Math.max(
+    totalItems > 0 ? Math.round((finalProcessedCount / totalItems) * 100) : 0,
+    task.progress || 0
+  );
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] pb-20">
@@ -186,7 +252,7 @@ export default function TaskDetails() {
               <CheckCircle2 className="w-6 h-6" />
             </div>
             <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Đã gán nhãn</p>
-            <p className="text-4xl font-black text-emerald-600">{annotatedItems.length}</p>
+            <p className="text-4xl font-black text-emerald-600">{finalProcessedCount}</p>
           </div>
 
           <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
@@ -210,6 +276,18 @@ export default function TaskDetails() {
             </div>
           </div>
         </div>
+
+        {/* Guideline Section */}
+        {task.guideline && (
+          <div className="bg-indigo-50/50 border border-indigo-100 rounded-[3rem] p-10 mb-12">
+            <h2 className="flex items-center gap-3 text-2xl font-black text-indigo-900 mb-4">
+               <Database className="w-6 h-6" /> Hướng dẫn gán nhãn
+            </h2>
+            <div className="bg-white/60 backdrop-blur-sm rounded-3xl p-8 text-indigo-900/80 font-medium whitespace-pre-line leading-relaxed border border-white/50">
+               {task.guideline}
+            </div>
+          </div>
+        )}
 
         {/* Image Grid Section */}
         <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden mb-12">
@@ -238,19 +316,46 @@ export default function TaskDetails() {
             <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-10 gap-3">
               {items.map((item, idx) => {
                 const s = String(item.status || '').toLowerCase();
-                const isDone = s === 'done' || s === 'completed';
+                const isApproved = s === 'approved' || s === 'completed';
+                const isDone = s === 'done' || isApproved;
                 const isSkipped = s === 'skipped';
+                const isRejected = s === 'rejected';
+                const url = resolveImageUrl(item);
                 
                 return (
                   <div 
                     key={idx}
-                    className={`aspect-square rounded-xl flex items-center justify-center text-xs font-black transition-all ${
-                      isDone ? 'bg-emerald-50 text-emerald-600 border-2 border-emerald-500' :
-                      isSkipped ? 'bg-amber-50 text-amber-600 border-2 border-amber-400' :
-                      'bg-slate-50 text-slate-400 border-2 border-slate-100'
+                    className={`aspect-square rounded-xl flex items-center justify-center relative overflow-hidden transition-all border-2 ${
+                      isApproved ? 'border-emerald-500 bg-emerald-50' :
+                      isRejected ? 'border-rose-400 bg-rose-50' :
+                      isSkipped ? 'border-amber-400 bg-amber-50' :
+                      'border-slate-100 bg-slate-50'
                     }`}
                   >
-                    {idx + 1}
+                    {url ? (
+                      <img 
+                        src={url} 
+                        alt={`item-${idx}`} 
+                        className={`w-full h-full object-cover ${(isDone || isSkipped || isRejected) ? 'opacity-100' : 'opacity-40'}`}
+                      />
+                    ) : (
+                       <span className={`text-xs font-black ${isDone ? 'text-emerald-600' : isSkipped ? 'text-amber-600' : isRejected ? 'text-rose-600' : 'text-slate-400'}`}>
+                         {idx + 1}
+                       </span>
+                    )}
+                    
+                    {/* Overlay status marker */}
+                    <div className={`absolute top-1 right-1 w-2 h-2 rounded-full ${
+                      isApproved ? 'bg-emerald-500' :
+                      isRejected ? 'bg-rose-500' :
+                      isSkipped ? 'bg-amber-400' :
+                      'bg-slate-300'
+                    }`} />
+                    
+                    {/* Index marker */}
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/30 backdrop-blur-[2px] text-[8px] font-black text-white px-1 py-0.5 text-center">
+                      {idx + 1}
+                    </div>
                   </div>
                 );
               })}
