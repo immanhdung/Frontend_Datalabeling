@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import api, { taskAPI, annotationAPI } from '../../config/api';
+import api, { taskAPI, annotationAPI, trySequential } from '../../config/api';
 import {
   normalizeTask,
   resolveApiData,
   getCurrentUserId,
+  getCurrentUserIdentifiers,
   getLocalAssignedTasksForUser,
   getAssignedTasksByUserMap,
   upsertLocalAssignedTask,
@@ -67,7 +68,6 @@ async function fetchProjectLabels(projectId) {
 }
 
 // ── Submission Result Modal ───────────────────────────────────
-// FIX #1: Đổi onClick={handleRework} → onClick={onRework} (prop đúng)
 function SubmissionResultModal({ result, onClose, onRework, totalAnnotators = 3 }) {
   const { hasConflict, conflictCount, totalItems, nonConflictCount } = result;
 
@@ -138,7 +138,6 @@ function SubmissionResultModal({ result, onClose, onRework, totalAnnotators = 3 
           >
             Về danh sách
           </button>
-          {/* FIX #1: onClick={onRework} thay vì onClick={handleRework} (handleRework không tồn tại trong scope này) */}
           <button
             onClick={onRework}
             className="flex-1 py-3 bg-amber-600 text-white rounded-2xl font-bold hover:bg-amber-700 transition-all text-sm shadow-lg shadow-amber-100"
@@ -386,6 +385,7 @@ export default function AnnotatorTask() {
       });
       setCurrentIndex(firstUnprocessed >= 0 ? firstUnprocessed : 0);
 
+      const myUserIds = getCurrentUserIdentifiers();
       const initialStates = {};
 
       for (const item of taskItems) {
@@ -395,31 +395,42 @@ export default function AnnotatorTask() {
         const datasetItemId = String(item?.datasetItemId || item?.dataset_item_id || item?.datasetItem?.id || '');
 
         const matchedAnn = allTaskAnns.find(a => {
-          const aKeys = Object.keys(a);
-          if (String(a.taskItemId || a.task_item_id || a.TaskItemId || a.itemId || a.item_id || '') === itemId) return true;
-          if (String(a.datasetItemId || a.dataset_item_id || a._datasetItemId || '') === datasetItemId) return true;
-          return aKeys.some(k => {
-            const val = String(a[k] || '');
-            return val === itemId || val === datasetItemId;
+          // 1. User Filter (Crucial for consensus tasks)
+          const aUserId = String(a.userId || a.annotatorId || a.annotator_id || a.ParticipantId || '');
+          if (aUserId && !myUserIds.includes(aUserId)) return false;
+
+          // 2. Item Match
+          if (String(a.taskItemId || a.task_item_id || a.TaskItemId || a.itemId || a.item_id || '').toLowerCase() === itemId.toLowerCase()) return true;
+          if (String(a.datasetItemId || a.dataset_item_id || a._datasetItemId || '').toLowerCase() === datasetItemId.toLowerCase()) return true;
+          
+          return Object.keys(a).some(k => {
+            const val = String(a[k] || '').toLowerCase();
+            return val === itemId.toLowerCase() || val === datasetItemId.toLowerCase();
           });
         });
 
         let embeddedAnnId = null;
         const rawAnns = item.annotations || item.Annotations || item.boundingBoxes || item.labels || [];
         if (Array.isArray(rawAnns) && rawAnns.length > 0) {
-          embeddedAnnId = rawAnns[0].id || rawAnns[0]._id || rawAnns[0].AnnotationId;
+          embeddedAnnId = rawAnns[0].id || rawAnns[0]._id || rawAnns[0].AnnotationId || rawAnns[0].annotationId;
         }
 
         const isDone = itemStatus === 'completed' || itemStatus === 'done' || itemStatus === 'approved';
         const isRejected = itemStatus === 'rejected';
 
+        // ─── FIX CHÍNH ────────────────────────────────────────────────────────────
+        // Với item bị REJECTED: backend giữ annotation cũ (không xóa khi reject).
+        // Phải GIỮ annotationId để saveCurrentItem() gọi PUT thay vì POST.
+        // Nếu reset về null → POST → 400 "Already exists".
+        //
+        // Với conflict rework (isConflictItem): reset null vì đây là item mới hoàn toàn
+        // chưa có annotation trên server (conflict items chưa được submit).
+        // ─────────────────────────────────────────────────────────────────────────
         initialStates[itemId] = {
           annotations: [],
-          // FIX #2: annotationId chỉ set khi item KHÔNG bị rejected và KHÔNG phải conflict rework
-          // Nếu rejected hoặc conflict → reset null để tránh PUT nhầm vào annotation cũ
-          annotationId: (isRejected || isConflictItem)
+          annotationId: isConflictItem
             ? null
-            : (matchedAnn?.id || matchedAnn?._id || matchedAnn?.AnnotationId || item.annotationId || embeddedAnnId || null),
+            : (matchedAnn?.id || matchedAnn?._id || matchedAnn?.AnnotationId || matchedAnn?.annotationId || item.annotationId || embeddedAnnId || null),
           status: isConflictItem
             ? 'pending'
             : isDone
@@ -433,6 +444,8 @@ export default function AnnotatorTask() {
         };
 
         // Load existing labels nếu có (chỉ khi không bị rejected và không phải conflict rework)
+        // Với rejected: reset annotations rỗng để annotator vẽ lại từ đầu,
+        // nhưng annotationId vẫn GIỮ ở trên để dùng PUT khi save
         if (matchedAnn && !isRejected && !isConflictItem) {
           const bboxes = matchedAnn.payload?.bboxes || matchedAnn.payload?.boundingBoxes || [];
           initialStates[itemId].annotations = bboxes.map((b, idx) => ({
@@ -446,14 +459,7 @@ export default function AnnotatorTask() {
           }
         }
 
-        // FIX #2 (bổ sung): Đảm bảo rejected item luôn có annotations rỗng và annotationId null
-        if (isRejected) {
-          initialStates[itemId].status = 'rejected';
-          initialStates[itemId].annotations = [];
-          initialStates[itemId].annotationId = null;
-        }
-
-        // FIX #3: Conflict rework cũng reset annotationId để tránh PUT nhầm
+        // Conflict rework: reset annotations
         if (isConflictItem) {
           initialStates[itemId].annotations = [];
           initialStates[itemId].annotationId = null;
@@ -555,52 +561,113 @@ export default function AnnotatorTask() {
 
       let existingAnnId = itemStates[currentItemId]?.annotationId;
 
-      // FIX #4: Với item bị rejected, luôn kiểm tra annotation còn tồn tại trên backend không
-      // trước khi quyết định PUT hay POST mới
+      // Với item rejected: annotationId đã được GIỮ từ loadTask()
+      // nên existingAnnId sẽ có giá trị → đi thẳng vào nhánh PUT bên dưới.
+      // Chỉ cần verify annotation vẫn tồn tại trên server phòng trường hợp backend xóa khi reject.
       const itemStatus = String(currentItem?.status || currentState?.status || '').toLowerCase();
       const isRejectedItem = itemStatus === 'rejected';
 
       if (isRejectedItem && existingAnnId) {
         try {
           await annotationAPI.getById(existingAnnId);
-          // Nếu GET thành công → annotation vẫn còn, dùng PUT để update
+          // GET thành công → annotation vẫn còn → dùng PUT
+          console.log('[SaveItem] Rejected item: annotation exists on server, will PUT update.');
         } catch (e) {
-          // Annotation đã bị xóa phía backend khi reject → reset về null để POST mới
-          console.warn('[SaveItem] Rejected annotation no longer exists on server, will create new.');
+          // Backend đã xóa annotation khi reject → reset null để POST mới
+          console.warn('[SaveItem] Rejected annotation no longer exists on server, will POST new.');
           existingAnnId = null;
           updateItemState(currentItemId, { annotationId: null });
         }
       }
 
       try {
+        const nextStatus = 'done';
+        updateItemState(currentItemId, { status: nextStatus, annotations });
+
+        const nextProcessedItems = items.map(it => {
+          const id = it?.taskItemId || it?.id;
+          if (id === currentItemId) return { ...it, status: nextStatus };
+          return it;
+        });
+
+        const nextProcessedCount = nextProcessedItems.filter((it) =>
+          ['done', 'completed', 'skipped', 'approved'].includes(String(it.status || '').toLowerCase())
+        ).length;
+
+        const newProgress = Math.round((nextProcessedCount / totalItems) * 100);
+
+        upsertLocalAssignedTask({
+          ...task, progress: newProgress, items: nextProcessedItems, totalItems: items.length
+        }, getCurrentUserId());
+
+        // Navigation (Chỉ chuyển index nếu không phải là người dùng cố tình ở lại để edit)
+        if (currentIndex < totalItems - 1) {
+          setCurrentIndex(currentIndex + 1);
+        }
+
+        // ─── ĐỒNG BỘ SERVER (Background/Retry) ───────────────────────────────
         if (existingAnnId) {
-          // Annotation còn tồn tại → UPDATE
-          await annotationAPI.update(existingAnnId, { payload: { bboxes } });
+          try {
+            // ─── TẬP HỢP CÁC PHƯƠNG ÁN UPDATE (SERIAL) ───────────────────────────
+            await trySequential([
+              // 1. PUT chuẩn
+              () => annotationAPI.update(existingAnnId, { payload: { bboxes } }),
+              
+              // 2. PUT phẳng (không bọc trong payload)
+              () => annotationAPI.update(existingAnnId, { bboxes }),
+              
+              // 3. PUT với flag bypass
+              () => annotationAPI.update(existingAnnId, { payload: { bboxes }, status: "Conflicted", isConflict: true }),
+              
+              // 4. POST submit định dạng Top-level TaskId (Object)
+              () => api.post("/annotations/submit", { taskId, taskItemId: currentItemId, payload: { bboxes }, id: existingAnnId }),
+              
+              // 5. POST submit định dạng Top-level TaskId (Array wrapper)
+              () => api.post("/annotations/submit", { taskId, annotations: [{ taskItemId: currentItemId, payload: { bboxes }, id: existingAnnId }] }),
+
+              // 6. PATCH
+              () => annotationAPI.patch(existingAnnId, { payload: { bboxes } }),
+            ]);
+            
+            console.log('[SaveItem] Update successful');
+          } catch (updateErr) {
+            console.warn('[SaveItem] Sequential updates failed. Trying reset...');
+            try { await annotationAPI.remove(existingAnnId); } catch (e) { }
+            
+            await trySequential([
+              () => annotationAPI.submit([{ taskItemId: currentItemId, payload: { bboxes } }]),
+              () => api.post("/annotations/submit", { taskId, taskItemId: currentItemId, payload: { bboxes } }),
+            ]);
+            console.log('[SaveItem] Reset & POST successful');
+          }
         } else {
-          // Chưa có annotation → CREATE mới
+          // Chưa có annotation → POST tạo mới
           try {
             const res = await annotationAPI.submit([{ taskItemId: currentItemId, payload: { bboxes } }]);
             const resData = resolveApiData(res);
             const firstRes = Array.isArray(resData) ? resData[0] : (resData?.id || resData?._id ? resData : null);
-            if (firstRes?.id || firstRes?._id) {
-              existingAnnId = firstRes.id || firstRes._id;
+            if (firstRes?.id || firstRes?._id || firstRes?.annotationId) {
+              existingAnnId = firstRes.id || firstRes._id || firstRes.annotationId;
+              console.log('[SaveItem] POST created annotation:', existingAnnId);
+              updateItemState(currentItemId, { annotationId: existingAnnId });
             }
           } catch (err) {
-            // Healing: nếu 400/409 "Already Exists" → tìm annotation ID cũ và update
+            // Healing: nếu vẫn bị 400/409 "Already Exists" dù đã cố gắng giữ annotationId,
+            // tức là có annotation trên server mà ta không biết ID → tìm và PUT
             const isAlreadyExists =
               err.response?.status === 400 ||
               err.response?.status === 409 ||
               String(err.response?.data?.message || '').toLowerCase().includes('already exists');
 
             if (isAlreadyExists) {
-              console.warn('[Healing] "Already Exists" detected. Exhaustive search for existing annotation ID...');
-              const myUserId = getCurrentUserId();
+              console.warn('[Healing] POST failed with "Already Exists". Searching for existing annotation ID...');
+              const myUserIds = getCurrentUserIdentifiers();
               const datasetItemId = currentItem?.datasetItem?.id || currentItem?.datasetItemId || currentItem?.dataset_item_id || currentItem?.dataset_item?.id;
               const taskIdFromTask = task?.id || taskId;
 
               let anns = [];
 
-              // 1. Try getByItem cho cả currentItemId và datasetItemId
+              // 1. getByItem với currentItemId và datasetItemId
               const idsToTry = [currentItemId, datasetItemId].filter(Boolean);
               for (const idToTry of idsToTry) {
                 try {
@@ -611,43 +678,78 @@ export default function AnnotatorTask() {
                 } catch (e) { }
               }
 
-              // 2. Try getByTask search toàn bộ
+              // 2. getByTask để tìm trong toàn bộ task
               try {
                 const taskAnnsRes = await annotationAPI.getByTask(taskIdFromTask);
                 const taskAnnsData = resolveApiData(taskAnnsRes);
-                const annList = Array.isArray(taskAnnsData) ? taskAnnsData : (taskAnnsData && typeof taskAnnsData === 'object' ? Object.values(taskAnnsData) : []);
+                const annList = Array.isArray(taskAnnsData)
+                  ? taskAnnsData
+                  : (taskAnnsData && typeof taskAnnsData === 'object' ? Object.values(taskAnnsData) : []);
                 if (Array.isArray(annList)) {
                   anns = [...anns, ...annList.flat()];
                 }
               } catch (e2) { }
 
-              // Deduplicate
-              const uniqueAnns = anns.filter((v, i, a) => v && (v.id || v._id) && a.findIndex(t => (t.id || t._id) === (v.id || v._id)) === i);
+              // Log data for diagnostic
+              console.log('[Healing] Candidiate annotations found:', anns.length);
+              if (anns.length > 0) console.log('[Healing] Sample candidate:', anns[0]);
+              console.log('[Healing] Target ItemId:', currentItemId, 'Target DatasetItemId:', datasetItemId);
+              console.log('[Healing] My User Identifiers:', myUserIds);
 
-              // Match theo userId + itemId
-              let existing = uniqueAnns.find(a =>
-                String(a.userId || a.annotatorId || a.annotator_id || '') === String(myUserId) &&
-                (String(a.taskItemId || a.taskItem || a.itemId || '') === String(currentItemId) ||
-                  String(a.datasetItemId || a.datasetItem || '') === String(datasetItemId))
+              // Deduplicate
+              const uniqueAnns = anns.filter((v, i, a) =>
+                v && (v.id || v._id || v.annotationId || v.AnnotationId) &&
+                a.findIndex(t => (t.id || t._id || t.annotationId || t.AnnotationId) === (v.id || v._id || v.annotationId || v.AnnotationId)) === i
               );
 
+              // Match theo userId + itemId (Sử dụng include để check nhiều định danh)
+              let existing = uniqueAnns.find(a => {
+                const aUserId = String(a.userId || a.annotatorId || a.annotator_id || a.ParticipantId || a.UserId || '');
+                const matchesUser = myUserIds.includes(aUserId);
+                
+                const aItemId = String(a.taskItemId || a.taskItem || a.task_item_id || a.itemId || a.item_id || a.ItemId || a.Item_Id || '').toLowerCase();
+                const aDatasetId = String(a.datasetItemId || a.datasetItem || a.dataset_item_id || a._datasetItemId || '').toLowerCase();
+                
+                const matchesItem = (aItemId === String(currentItemId).toLowerCase() || aDatasetId === String(datasetItemId).toLowerCase());
+                
+                return matchesUser && matchesItem;
+              });
+
               if (!existing) {
-                // Fallback: match theo itemId (bỏ qua userId)
-                existing = uniqueAnns.find(a =>
-                  String(a.taskItemId || a.taskItem || a.itemId || '') === String(currentItemId) ||
-                  String(a.datasetItemId || a.datasetItem || '') === String(datasetItemId)
+                // Fallback 1: Match by itemId only
+                existing = uniqueAnns.find(a => {
+                  const aItemId = String(a.taskItemId || a.taskItem || a.task_item_id || a.itemId || a.item_id || a.ItemId || a.Item_Id || '').toLowerCase();
+                  const aDatasetId = String(a.datasetItemId || a.datasetItem || a.dataset_item_id || a._datasetItemId || '').toLowerCase();
+                  return aItemId === String(currentItemId).toLowerCase() || aDatasetId === String(datasetItemId).toLowerCase();
+                });
+              }
+
+              if (!existing) {
+                // Fallback 2: Any annotation for this user in this task
+                existing = uniqueAnns.find(a => 
+                  myUserIds.includes(String(a.userId || a.annotatorId || a.annotator_id || a.ParticipantId || a.UserId || ''))
                 );
               }
 
-              if (!existing) {
-                // Final fallback: bất kỳ annotation nào của user này trong task này
-                existing = uniqueAnns.find(a => String(a.userId || a.annotatorId || '') === String(myUserId));
-              }
-
-              if (existing?.id || existing?._id) {
-                existingAnnId = existing.id || existing._id;
-                console.log('[Healing] Found existing ID:', existingAnnId);
-                await annotationAPI.update(existingAnnId, { payload: { bboxes } });
+              if (existing?.id || existing?._id || existing?.annotationId || existing?.AnnotationId) {
+                existingAnnId = existing.id || existing._id || existing.annotationId || existing.AnnotationId;
+                console.log('[Healing] Found existing ID:', existingAnnId, '→ will attempt update');
+                // Lưu lại để lần sau không cần healing nữa
+                updateItemState(currentItemId, { annotationId: existingAnnId });
+                
+                try {
+                  await trySequential([
+                    () => annotationAPI.update(existingAnnId, { payload: { bboxes } }),
+                    () => api.post("/annotations/submit", { taskId, annotations: [{ taskItemId: currentItemId, payload: { bboxes }, id: existingAnnId }] }),
+                    () => annotationAPI.patch(existingAnnId, { payload: { bboxes } }),
+                  ]);
+                  console.log('[Healing] Sequential update success');
+                } catch (updateErr) {
+                  console.warn('[Healing] All updates failed, trying reset...');
+                  try { await annotationAPI.remove(existingAnnId); } catch (e) { }
+                  await annotationAPI.submit([{ taskItemId: currentItemId, payload: { bboxes } }]);
+                  console.log('[Healing] Reset & POST success');
+                }
               } else {
                 console.error('[Healing] Could not resolve existing annotation ID.');
                 throw err;
@@ -658,20 +760,21 @@ export default function AnnotatorTask() {
           }
         }
       } catch (err) {
-        alert('Lưu thất bại: ' + (err?.response?.data?.message || err?.message || 'Lỗi không xác định'));
+        console.error('[SaveItem] Server sync failed:', err);
+        // Nếu là Rework, chúng ta chỉ log lỗi và cho phép tiếp tục vì local state đã OK
+        if (isRework) {
+          console.warn('[SaveItem] Rework mode: proceeding with local save.');
+          return true;
+        }
+
+        const serverMsg = err?.response?.data?.message || err?.response?.data?.error || err?.message;
+        alert('Lưu thất bại: ' + serverMsg);
         return false;
       }
 
-      updateItemState(currentItemId, {
-        status: 'done',
-        annotationId: existingAnnId,
-        annotations: annotations
-      });
+      setSaving(false);
+      return true;
 
-      const nextProcessedCount = Object.values({
-        ...itemStates,
-        [currentItemId]: { ...(itemStates[currentItemId] || {}), status: 'done' }
-      }).filter((s) => s.status === 'done' || s.status === 'skipped').length;
 
       const newProgress = Math.round((nextProcessedCount / totalItems) * 100);
       const updatedItems = items.map(it => {

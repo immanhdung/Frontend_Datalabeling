@@ -44,7 +44,7 @@ api.interceptors.response.use(
   }
 );
 
-const trySequential = async (requestFactories) => {
+export const trySequential = async (requestFactories) => {
   let lastError;
   for (const requestFactory of requestFactories) {
     try {
@@ -59,7 +59,7 @@ const trySequential = async (requestFactories) => {
 export const reviewAPI = {
   getPendingReviews: (params) => api.get("/reviews", { params: { Status: "Pending", ...params } }),
   getAnnotationForReview: (taskId) => api.get(`/tasks/${taskId}/reviews`),
-  submit: (payload) => api.post("/reviews", payload), 
+  submit: (payload) => api.post("/reviews", payload),
   approve: (taskId, payload) => api.post("/reviews", { taskId, status: "Approved", ...payload }),
   reject: (taskId, payload) => api.post("/reviews", { taskId, status: "Rejected", ...payload }),
   getAll: (params) => api.get("/reviews", { params }),
@@ -111,11 +111,14 @@ export const taskAPI = {
 };
 
 export const annotationAPI = {
+  // FIX: Thêm getById để check annotation còn tồn tại không trước khi PUT
+  getById: (annotationId) => api.get(`/annotations/${annotationId}`),
   submit: (payload) => api.post("/annotations/submit", payload),
   skip: (payload) => api.post("/annotations/skip", payload),
   getByItem: (itemId) => api.get(`/tasks/items/${itemId}/annotations`),
   getByTask: (taskId) => api.get(`/tasks/${taskId}/annotations`),
   update: (annotationId, payload) => api.put(`/annotations/${annotationId}`, payload),
+  remove: (annotationId) => api.delete(`/annotations/${annotationId}`),
 };
 
 export const userAPI = {
@@ -185,6 +188,20 @@ export const labelAPI = {
       () => api.delete(`/categories/${categoryId}/labels`, { data: { name: labelName } }),
       () => api.delete(`/labelsets/${categoryId}/labels`, { data: { name: labelName } }),
     ]),
+};
+
+export const statisticsAPI = {
+  // Project-specific stats
+  getProjectOverview: (projectId) => api.get(`/statistics/projects/${projectId}/overview`),
+  getProjectLabels: (projectId) => api.get(`/statistics/projects/${projectId}/labels`),
+  getProjectCoverage: (projectId) => api.get(`/statistics/projects/${projectId}/dataset-coverage`),
+  getProjectReviewers: (projectId) => api.get(`/statistics/projects/${projectId}/reviewers`),
+  getProjectAnnotators: (projectId) => api.get(`/statistics/projects/${projectId}/annotators`),
+  
+  // System-wide stats
+  getSystemOverview: () => api.get("/statistics/system/overview"),
+  getActiveProjects: () => api.get("/statistics/system/projects-active"),
+  getSystemActivity: () => api.get("/statistics/system/activity"),
 };
 
 export const exportAPI = {

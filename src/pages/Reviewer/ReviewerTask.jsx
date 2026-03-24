@@ -385,6 +385,25 @@ const ReviewerTask = () => {
                         }
                     });
                     localStorage.setItem('assignedTasksByUser', JSON.stringify(map));
+
+                    // Sync to review history for dashboard consistency
+                    try {
+                        const historyRaw = localStorage.getItem('reviewHistory');
+                        const history = historyRaw ? JSON.parse(historyRaw) : [];
+                        const hEntry = {
+                            id: `REV-${Date.now()}`,
+                            annotationId: taskId,
+                            taskTitle: task.projectName || 'Task',
+                            annotatorName: 'Annotator',
+                            projectName: task.projectName,
+                            decision: actionType === 'approve' ? 'approved' : 'rejected',
+                            reviewedAt: new Date().toISOString(),
+                            itemCount: annotations[0]?.rawItems?.length || 0
+                        };
+                        const newHistory = [hEntry, ...history];
+                        localStorage.setItem('reviewHistory', JSON.stringify(newHistory));
+                        window.dispatchEvent(new CustomEvent('reviewHistoryUpdated'));
+                    } catch (hErr) { console.error('History sync err', hErr); }
                 }
             } catch (e) { /* ignore */ }
 
