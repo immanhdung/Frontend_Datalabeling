@@ -160,7 +160,7 @@ export default function ManagerDashboard() {
                     completedProjects: calcCompleted,
                     annotators: annotatorsList.length,
                     todayLabels: getVal(sysOverview, ['todayLabels', 'labelsToday', 'newLabelsTotal'], 0),
-                    efficiency: getVal(sysOverview, ['efficiency', 'performance', 'systemEfficiency'], "96.4%")
+                    efficiency: getVal(sysOverview, ['efficiency', 'performance', 'systemEfficiency'], "0%")
                 });
 
                 // 2. Project Progress (Top 3)
@@ -272,7 +272,7 @@ export default function ManagerDashboard() {
         ? sortProjectsByNewest(projectList).slice(0, 3).map((project) => {
             const statusMeta = getProjectStatusMeta(project);
             return {
-                name: project?.name || "Dự án không tên",
+                name: project?.name || project?.projectName || `Dự án #${String(project?.id || project?.projectId).slice(0, 5)}`,
                 type: getProjectTypeLabel(project),
                 images: getProjectItemCount(project),
                 status: statusMeta.label,
@@ -280,13 +280,9 @@ export default function ManagerDashboard() {
                 updated: formatRelativeDateVi(getProjectUpdatedAt(project)),
             };
         })
-        : fallbackProjects;
+        : [];
 
-    const fallbackProgress = [
-        { name: "Phân loại chó mèo", done: 2, total: 5, percent: 40, status: "Đang thực hiện", color: "bg-blue-500" },
-        { name: "Nhận dạng phương tiện", done: 0, total: 3, percent: 0, status: "Chờ xử lý", color: "bg-slate-300" },
-    ];
-    const progress = taskStats.length > 0 ? taskStats : fallbackProgress;
+    const progress = taskStats.length > 0 ? taskStats : [];
 
     if (loading) {
         return (
@@ -355,7 +351,12 @@ export default function ManagerDashboard() {
                             </div>
 
                             <div className="space-y-6">
-                                {projects.map((p, i) => (
+                                {projects.length === 0 ? (
+                                    <div className="text-center py-12 bg-slate-50/50 rounded-3xl border-2 border-dashed border-slate-100">
+                                        <FolderOpen className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                                        <p className="text-slate-400 font-bold">Chưa có dự án nào</p>
+                                    </div>
+                                ) : projects.map((p, i) => (
                                     <div key={i} className="group flex items-center justify-between p-6 border border-slate-50 rounded-[24px] hover:border-blue-100 hover:bg-blue-50/10 transition-all duration-300 cursor-pointer">
                                         <div className="flex items-center gap-6">
                                             <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center group-hover:bg-blue-100 transition-colors">
@@ -390,7 +391,10 @@ export default function ManagerDashboard() {
                                 ))}
                             </div>
 
-                            <button className="w-full mt-10 py-4.5 bg-slate-50 text-slate-600 rounded-2xl font-bold text-base hover:bg-blue-50 hover:text-blue-700 transition-all border border-transparent hover:border-blue-100">
+                            <button
+                                onClick={() => navigate("/manager/projects")}
+                                className="w-full mt-10 py-4.5 bg-slate-50 text-slate-600 rounded-2xl font-bold text-base hover:bg-blue-50 hover:text-blue-700 transition-all border border-transparent hover:border-blue-100"
+                            >
                                 Xem tất cả dự án
                             </button>
                         </div>
@@ -404,7 +408,12 @@ export default function ManagerDashboard() {
                             </div>
 
                             <div className="space-y-10">
-                                {progress.map((p, i) => (
+                                {progress.length === 0 ? (
+                                    <div className="text-center py-10 bg-slate-50/50 rounded-[24px] border border-dashed border-slate-100">
+                                        <BarChart3 className="w-10 h-10 text-slate-200 mx-auto mb-3" />
+                                        <p className="text-slate-400 text-sm font-bold uppercase tracking-wider">Chưa có tiến độ thực tế</p>
+                                    </div>
+                                ) : progress.map((p, i) => (
                                     <div key={i} className="space-y-4">
                                         <div className="flex justify-between items-start">
                                             <div className="max-w-[180px]">

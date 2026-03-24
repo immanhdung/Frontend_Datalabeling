@@ -21,6 +21,14 @@ import {
 import api from "../../config/api";
 import Pagination from "../../components/common/Pagination";
 
+const toArray = (value) => {
+    if (Array.isArray(value)) return value;
+    const root = value?.data ?? value?.items ?? value?.results ?? value;
+    if (Array.isArray(root)) return root;
+    if (Array.isArray(root?.items)) return root.items;
+    return [];
+};
+
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "bmp", "gif", "tif", "tiff"];
 const MIME_EXTENSION_MAP = {
     "image/jpeg": "jpg",
@@ -638,36 +646,63 @@ export default function Datasets() {
             setLoading(true);
             setError(null);
 
-            let datasetList = [];
-            let projectList = [];
+            const { getAssignedTasksByUserMap } = await import("../../utils/annotatorTaskHelpers");
+
+            let apiDatasets = [];
+            let apiProjects = [];
 
             try {
-                const datasetRes = await api.get("/datasets", { params: { pageSize: 100, page: 1 } });
-                datasetList = datasetRes.data?.items || datasetRes.data?.data || datasetRes.data || [];
-            } catch {
-                setError("Không thể tải dữ liệu dataset.");
+                const datasetRes = await api.get("/datasets", { params: { PageSize: 1000, pageSize: 1000, page: 1 } });
+                apiDatasets = toArray(datasetRes.data);
+            } catch (err) {
+                console.warn("API Datasets failed, falling back to local history", err);
             }
 
             try {
-                const projRes = await api.get("/projects");
-                projectList = projRes.data?.items || projRes.data?.data || projRes.data || [];
+                const projRes = await api.get("/projects", { params: { PageSize: 1000, pageSize: 1000 } });
+                apiProjects = toArray(projRes.data);
             } catch {
-                projectList = [];
+                apiProjects = [];
             }
 
-            const safeDatasets = Array.isArray(datasetList) ? datasetList : [];
-            setDatasets(safeDatasets);
-            setProjects(Array.isArray(projectList) ? projectList : []);
+            const localTasksMap = getAssignedTasksByUserMap();
+            const allLocalTasks = Object.values(localTasksMap).flat();
+            
+            const localDatasets = [];
+            const seenDids = new Set(apiDatasets.map(d => String(d.id || d.datasetId)));
+            
+            allLocalTasks.forEach(t => {
+                const did = String(t.datasetId || t.dataset?.id || "");
+                if (did && !seenDids.has(did)) {
+                    localDatasets.push({
+                        id: did,
+                        datasetId: did,
+                        name: t.datasetName || t.dataset?.name || `Dataset #${did.slice(0, 5)}`,
+                        imagesCount: t.totalItems || t.items?.length || 0,
+                        createdAt: t.createdAt
+                    });
+                    seenDids.add(did);
+                }
+            });
+
+            const merged = [...apiDatasets, ...localDatasets];
+            setDatasets(merged);
+            setProjects(apiProjects);
 
             const countResults = await Promise.allSettled(
-                safeDatasets.map(async (dataset) => {
+                merged.map(async (dataset) => {
                     const datasetId = getDatasetId(dataset);
                     if (!datasetId) return { datasetId: null, itemCount: 0 };
-                    const itemsRes = await api.get(`/datasets/${datasetId}/items`);
-                    return {
-                        datasetId,
-                        itemCount: normalizeDatasetItems(itemsRes?.data).length,
-                    };
+                    
+                    try {
+                      const itemsRes = await api.get(`/datasets/${datasetId}/items`, { params: { PageSize: 1 } });
+                      return {
+                          datasetId,
+                          itemCount: itemsRes?.data?.totalCount || normalizeDatasetItems(itemsRes?.data).length || dataset.imagesCount || 0,
+                      };
+                    } catch {
+                      return { datasetId, itemCount: dataset.imagesCount || 0 };
+                    }
                 })
             );
 

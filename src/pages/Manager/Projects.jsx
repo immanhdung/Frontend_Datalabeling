@@ -18,8 +18,9 @@ import Pagination from "../../components/common/Pagination";
 
 const toArray = (value) => {
   if (Array.isArray(value)) return value;
-  if (Array.isArray(value?.items)) return value.items;
-  if (Array.isArray(value?.data)) return value.data;
+  const root = value?.data ?? value?.items ?? value?.results ?? value;
+  if (Array.isArray(root)) return root;
+  if (Array.isArray(root?.items)) return root.items;
   return [];
 };
 
@@ -116,25 +117,47 @@ export default function ManagerProjects() {
       setLoading(true);
       setError(null);
 
+      // Import local helper to bridge the account gap
+      const { getAssignedTasksByUserMap } = await import("../../utils/annotatorTaskHelpers");
+
       const [projRes, catRes] = await Promise.all([
-        api.get("/projects", { params: { pageSize: 100, page: 1 } }),
-        api.get("/categories").catch(() => ({ data: [] })),
+        api.get("/projects", { params: { PageSize: 1000, pageSize: 1000, page: 1 } }),
+        api.get("/categories", { params: { PageSize: 1000, pageSize: 1000 } }).catch(() => ({ data: [] })),
       ]);
 
-      const serverProjects = toArray(projRes.data);
+      const apiProjects = toArray(projRes.data);
       const serverCategories = toArray(catRes.data);
 
-      setProjects(serverProjects);
-      // Reset to page 1 when data is fetched
+      // Sync with local working history
+      const localTasksMap = getAssignedTasksByUserMap();
+      const allLocalTasks = Object.values(localTasksMap).flat();
+      
+      const localProjects = [];
+      const seenPids = new Set(apiProjects.map(p => String(p.id || p.projectId)));
+      
+      allLocalTasks.forEach(t => {
+          const pid = String(t.projectId || t.project?.id || "");
+          if (pid && !seenPids.has(pid)) {
+              localProjects.push({
+                  id: pid,
+                  projectId: pid,
+                  name: t.projectName || t.ProjectName || t.project?.name || `Dự án #${pid.slice(0, 5)}`,
+                  status: t.project?.status || 'Active',
+                  type: t.project?.type || 'Image',
+                  itemsCount: t.totalItems || t.items?.length || 0,
+                  labelsCount: t.labels?.length || 0,
+                  updatedAt: t.updatedAt,
+                  createdAt: t.createdAt
+              });
+              seenPids.add(pid);
+          }
+      });
+
+      setProjects([...apiProjects, ...localProjects]);
       setCurrentPage(1);
       setCategories(serverCategories);
     } catch (err) {
       console.error("Fetch projects error:", err);
-      if (err.response?.status === 401) {
-        logout();
-        navigate("/login");
-        return;
-      }
       setError("Không tải được danh sách dự án");
     } finally {
       setLoading(false);
@@ -554,6 +577,9 @@ export default function ManagerProjects() {
     </div>
   );
 }
+
+
+
 
 
 
