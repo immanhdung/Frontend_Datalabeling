@@ -87,7 +87,7 @@ export const normalizeTask = (task, assignedUserId = undefined) => {
   const rawStatus = String(task?.status || task?.Status || '').toLowerCase();
   let normalizedStatus = rawStatus;
 
-  if (['assigned', 'unassigned', 'opened', 'open', 'new', 'todo'].includes(rawStatus)) {
+  if (['assigned', 'unassigned', 'opened', 'open', 'new', 'todo', 'pending'].includes(rawStatus)) {
     normalizedStatus = 'pending';
     const progressVal = Number(task?.progress ?? task?.Progress ?? 0);
     if (progressVal > 0) normalizedStatus = 'in_progress';
@@ -339,16 +339,31 @@ export const processTaskConsensus = (taskId) => {
 
     console.log(`[Consensus] Found ${submissions.length} submission(s) for task ${taskId}`);
 
-    // Need exactly 3 submissions to process consensus
-    if (submissions.length < 3) {
-      console.log(`[Consensus] Waiting for more submissions (${submissions.length}/3)`);
+    // Need all assigned annotators to submit to process consensus
+    // Try to detect total intended annotators if missing from task metadata
+    let totalAnnotators = submissions[0]?.task?.totalAnnotators;
+    if (!totalAnnotators) {
+      // Fallback: Check how many users total were assigned this task in the map
+      let assignedCount = 0;
+      Object.values(taskMap).forEach(tasks => {
+        if (Array.isArray(tasks) && tasks.some(it => String(it.id || it._id || '') === String(taskId))) {
+          assignedCount++;
+        }
+      });
+      // Reviewer is also in the map, so subtract 1 if > 1
+      totalAnnotators = assignedCount > 1 ? assignedCount - 1 : 3;
+    }
+    
+    const requiredMajority = Math.ceil((totalAnnotators + 1) / 2);
+    if (submissions.length < totalAnnotators) {
+      console.log(`[Consensus] Waiting for more submissions (${submissions.length}/${totalAnnotators})`);
       return { hasConflict: false, conflictCount: 0, totalItems: 0, ready: false };
     }
 
-    // Use first 3 submissions
-    const threeSubmissions = submissions.slice(0, 3);
+    // Use relevant submissions
+    const relevantSubmissions = submissions.slice(0, totalAnnotators);
     const itemCount = Math.max(
-      ...threeSubmissions.map(s => (s.task.items || []).length),
+      ...relevantSubmissions.map(s => (s.task.items || []).length),
       0
     );
 
@@ -357,10 +372,10 @@ export const processTaskConsensus = (taskId) => {
       return { hasConflict: false, conflictCount: 0, totalItems: 0, ready: true };
     }
 
-    console.log(`[Consensus] Processing ${itemCount} items across 3 annotators`);
+    console.log(`[Consensus] Processing ${itemCount} items across ${totalAnnotators} annotators`);
 
     // Deep copy items for each annotator
-    const updatedItemsPerUser = threeSubmissions.map(s =>
+    const updatedItemsPerUser = relevantSubmissions.map(s =>
       JSON.parse(JSON.stringify(s.task.items || []))
     );
 
@@ -369,7 +384,7 @@ export const processTaskConsensus = (taskId) => {
 
     // Process each item
     for (let i = 0; i < itemCount; i++) {
-      const fingerprints = threeSubmissions.map(s => {
+      const fingerprints = relevantSubmissions.map(s => {
         const item = (s.task.items || [])[i];
         return getItemLabelFingerprint(item);
       });
@@ -382,8 +397,8 @@ export const processTaskConsensus = (taskId) => {
         counts[fp] = (counts[fp] || 0) + 1;
       });
 
-      // Find majority (2 or 3 agreeing)
-      const majorityEntry = Object.entries(counts).find(([_, count]) => count >= 2);
+      // Find majority (requiredMajority or more agreeing)
+      const majorityEntry = Object.entries(counts).find(([_, count]) => count >= requiredMajority);
 
       if (majorityEntry) {
         // Has majority - find which annotators agree
@@ -398,24 +413,28 @@ export const processTaskConsensus = (taskId) => {
         console.log(`[Consensus] Item ${i}: majority "${majorityFingerprint}", winner index: ${winnerIdx}`);
 
         // Mark items
-        threeSubmissions.forEach((_, uIdx) => {
+        relevantSubmissions.forEach((_, uIdx) => {
           if (updatedItemsPerUser[uIdx][i]) {
             updatedItemsPerUser[uIdx][i].isConflict = false;
             updatedItemsPerUser[uIdx][i].isConsensusWinner = (uIdx === winnerIdx);
             updatedItemsPerUser[uIdx][i].consensusLabel = majorityFingerprint;
+            updatedItemsPerUser[uIdx][i].consensusCount = majorityEntry[1];
+            updatedItemsPerUser[uIdx][i].totalAnnotators = totalAnnotators;
           }
         });
       } else {
-        // All 3 differ → conflict
+        // Dissensus → conflict
         hasAnyConflict = true;
         conflictCount++;
-        console.warn(`[Consensus] Item ${i}: CONFLICT - all 3 annotators disagree`);
+        console.warn(`[Consensus] Item ${i}: CONFLICT - dissensus among ${totalAnnotators} annotators`);
 
-        threeSubmissions.forEach((_, uIdx) => {
+        relevantSubmissions.forEach((_, uIdx) => {
           if (updatedItemsPerUser[uIdx][i]) {
             updatedItemsPerUser[uIdx][i].isConflict = true;
             updatedItemsPerUser[uIdx][i].isConsensusWinner = false;
             updatedItemsPerUser[uIdx][i].consensusLabel = null;
+            updatedItemsPerUser[uIdx][i].consensusCount = Math.max(...Object.values(counts)); // max agreement found (e.g. 1 if all differ)
+            updatedItemsPerUser[uIdx][i].totalAnnotators = totalAnnotators;
           }
         });
       }
@@ -425,7 +444,7 @@ export const processTaskConsensus = (taskId) => {
     // These are ready for reviewer
     const nonConflictWinnerItems = [];
     for (let i = 0; i < itemCount; i++) {
-      for (let uIdx = 0; uIdx < 3; uIdx++) {
+      for (let uIdx = 0; uIdx < totalAnnotators; uIdx++) {
         const item = updatedItemsPerUser[uIdx][i];
         if (item && item.isConsensusWinner && !item.isConflict) {
           nonConflictWinnerItems.push({ itemIndex: i, userIdx: uIdx, item });
@@ -435,12 +454,12 @@ export const processTaskConsensus = (taskId) => {
     }
 
     // Save updated tasks back to storage
-    threeSubmissions.forEach((s, idx) => {
+    relevantSubmissions.forEach((s, idx) => {
       const hasConflictsForThisUser = updatedItemsPerUser[idx].some(it => it.isConflict);
 
       const newStatus = hasAnyConflict ? 'rejected' : 'completed';
       const feedback = hasAnyConflict
-        ? `Có ${conflictCount} ảnh bị conflict (3 annotator gán nhãn khác nhau). Vui lòng bấm "Làm lại" để gán nhãn lại những ảnh được đánh dấu đỏ.`
+        ? `Có ${conflictCount} ảnh bị conflict (${totalAnnotators} annotator không đồng nhất). Vui lòng bấm "Làm lại" để gán nhãn lại những ảnh được đánh dấu đỏ.`
         : null;
 
       const updatedTask = {
@@ -450,6 +469,7 @@ export const processTaskConsensus = (taskId) => {
         feedback: feedback,
         hasConflict: hasAnyConflict,
         conflictCount,
+        totalAnnotators,
         nonConflictItems: nonConflictWinnerItems.map(w => w.itemIndex),
         updatedAt: new Date().toISOString(),
       };
@@ -458,10 +478,9 @@ export const processTaskConsensus = (taskId) => {
     });
 
     // If there are non-conflict items, create a "reviewer task" in local storage
-    // so the reviewer can see the items ready for review
     if (nonConflictWinnerItems.length > 0) {
-      const baseTask = threeSubmissions[0].task;
-      createReviewerTask(taskId, baseTask, nonConflictWinnerItems, threeSubmissions, updatedItemsPerUser);
+      const baseTask = relevantSubmissions[0].task;
+      createReviewerTask(taskId, baseTask, nonConflictWinnerItems, relevantSubmissions, updatedItemsPerUser);
     }
 
     // Dispatch event so other components can react
@@ -514,7 +533,7 @@ const createReviewerTask = (taskId, baseTask, winnerItems, submissions, updatedI
       datasetName: baseTask.datasetName || 'Bộ dữ liệu',
       type: baseTask.type || 'image',
       status: 'pending_review',
-      annotatorCount: 3,
+      annotatorCount: baseTask.totalAnnotators || submissions.length,
       annotatorIds: submissions.map(s => s.userId),
       items: reviewItems,
       totalItems: reviewItems.length,

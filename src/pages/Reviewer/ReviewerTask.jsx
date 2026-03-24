@@ -48,10 +48,12 @@ function getLabelColor(label, idx = 0) {
 function extractAnnotations(item) {
     if (!item) return [];
 
-    // Direct annotations array (pixel coords)
+    // Prioritize direct annotations from specific annotators if available
     const rawList =
         item.annotations ||
         item.Annotations ||
+        item.payload?.bboxes ||
+        item.payload?.boundingBoxes ||
         item.bboxes ||
         item.boundingBoxes ||
         item.labels ||
@@ -61,6 +63,7 @@ function extractAnnotations(item) {
         return rawList.map((a, idx) => {
             const label = a.label || a.labelName || a.name || a.category || 'Object';
             // Support both flat and nested bbox formats
+            // Use Pixel coordinates ideally
             const x = a.x ?? a.left ?? (Array.isArray(a.bbox) ? a.bbox[0] : undefined) ?? 0;
             const y = a.y ?? a.top ?? (Array.isArray(a.bbox) ? a.bbox[1] : undefined) ?? 0;
             const width = a.width ?? a.w ?? (Array.isArray(a.bbox) ? a.bbox[2] : undefined) ?? 0;
@@ -68,6 +71,14 @@ function extractAnnotations(item) {
             const color = a.color || getLabelColor(label, idx);
             return { label, x, y, width, height, color };
         }).filter(a => a.width > 0 && a.height > 0);
+    }
+    
+    // Fallback for single classification-type task (though this component is mostly for bboxes)
+    if (item.classification || item.label) {
+       return [{
+           label: item.classification || item.label,
+           x: 0, y: 0, width: 0, height: 0, color: getLabelColor(item.classification || item.label, 0)
+       }];
     }
 
     return [];
@@ -220,7 +231,8 @@ const ReviewerTask = () => {
                     });
 
                     // Re-trigger consensus if needed
-                    if (rawSubmissions.length === 3 && !rawSubmissions.some(s => s.task.isConsensusWinner)) {
+                    const totalExpected = rawSubmissions[0]?.task?.totalAnnotators || 3;
+                    if (rawSubmissions.length >= totalExpected && !rawSubmissions.some(s => s.task.isConsensusWinner)) {
                         processTaskConsensus(taskId);
                         const updatedMap = JSON.parse(localStorage.getItem('assignedTasksByUser') || '{}');
                         rawSubmissions.forEach(rs => {
@@ -299,14 +311,15 @@ const ReviewerTask = () => {
     );
 
     const consensus = (() => {
+        const annCount = task.annotatorCount || 3;
         if (annotations.length === 1) {
             const it = annotations[0].rawItems?.[selectedItemIndex] || {};
             const val = it.classification || currentAnnotations[0]?.label || 'Unlabeled';
-            return { type: 'majority', label: val, count: 3 };
+            return { type: 'majority', label: val, count: annCount };
         }
         const it = annotations[0]?.rawItems?.[selectedItemIndex] || {};
         const val = it.classification || currentAnnotations[0]?.label || 'Unlabeled';
-        return { type: 'majority', label: val, count: annotations.length };
+        return { type: 'majority', label: val, count: annCount };
     })();
 
     const currentItemStatus = itemStatuses[selectedItemIndex];
@@ -456,7 +469,7 @@ const ReviewerTask = () => {
                             <p className="text-[8px] font-black uppercase text-slate-500 mb-3 tracking-widest">Trạng thái đồng thuận</p>
                             <div className="flex items-center gap-2 text-emerald-400">
                                 <CheckCircle2 className="w-4 h-4" />
-                                <span className="font-black text-[10px] uppercase">ĐỒNG THUẬN ({consensus.count}/3)</span>
+                                <span className="font-black text-[10px] uppercase">ĐỒNG THUẬN ({consensus.count}/{task.annotatorCount || 3})</span>
                             </div>
                             <div className="mt-4 pt-4 border-t border-slate-800">
                                 <p className="text-[8px] font-black uppercase text-slate-500 mb-2">Đang xem nhóm</p>
@@ -619,6 +632,10 @@ const ReviewerTask = () => {
                                         annotations[0]?.rawItems?.[idx] || item
                                     ).length;
                                     const status = itemStatuses[idx];
+                                    const rawItem = annotations[0]?.rawItems?.[idx] || item;
+                                    const consensusCount = rawItem.consensusCount;
+                                    const totalAnnotators = rawItem.totalAnnotators || task.annotatorCount || 3;
+                                    
                                     return (
                                         <button
                                             key={idx}
@@ -645,6 +662,18 @@ const ReviewerTask = () => {
                                             {annCount > 0 && (
                                                 <div className="absolute bottom-1 left-1 bg-indigo-600 text-white text-[9px] px-1.5 py-0.5 rounded-full font-black">
                                                     {annCount} bbox
+                                                </div>
+                                            )}
+                                            {/* Agreement Badge */}
+                                            {consensusCount !== undefined && (
+                                                <div className={`absolute bottom-1 right-1 px-1.5 py-0.5 rounded-full text-[8px] font-black border ${
+                                                    consensusCount === totalAnnotators 
+                                                        ? 'bg-emerald-500 text-white border-emerald-400' 
+                                                        : consensusCount >= 2 
+                                                            ? 'bg-amber-400 text-white border-amber-300' 
+                                                            : 'bg-rose-500 text-white border-rose-400'
+                                                }`}>
+                                                    {consensusCount}/{totalAnnotators}
                                                 </div>
                                             )}
                                             {/* Status badge */}

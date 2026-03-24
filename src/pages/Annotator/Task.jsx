@@ -67,7 +67,8 @@ async function fetchProjectLabels(projectId) {
 }
 
 // ── Submission Result Modal ───────────────────────────────────
-function SubmissionResultModal({ result, onClose, onRework }) {
+// ── Submission Result Modal ───────────────────────────────────
+function SubmissionResultModal({ result, onClose, onRework, totalAnnotators = 3 }) {
   const { hasConflict, conflictCount, totalItems, nonConflictCount } = result;
 
   if (!hasConflict) {
@@ -87,7 +88,7 @@ function SubmissionResultModal({ result, onClose, onRework }) {
           <div className="flex items-center gap-2 p-3 bg-indigo-50 rounded-2xl mb-8 text-left">
             <Users className="w-5 h-5 text-indigo-500 shrink-0" />
             <p className="text-xs text-indigo-700 font-medium">
-              3 annotator đã đồng thuận. Reviewer sẽ kiểm tra kết quả và phê duyệt cuối.
+              {totalAnnotators} annotator đã đồng thuận. Reviewer sẽ kiểm tra kết quả và phê duyệt cuối.
             </p>
           </div>
           <button
@@ -110,7 +111,7 @@ function SubmissionResultModal({ result, onClose, onRework }) {
         <h2 className="text-2xl font-black text-slate-900 mb-3">Có ảnh bị Conflict!</h2>
         <p className="text-slate-500 mb-6">
           <strong className="text-amber-600">{conflictCount}</strong> / {totalItems} ảnh bị conflict
-          (3 annotator gán nhãn khác nhau).
+          ({totalAnnotators} annotator gán nhãn khác nhau).
         </p>
 
         <div className="space-y-3 mb-8">
@@ -125,7 +126,7 @@ function SubmissionResultModal({ result, onClose, onRework }) {
           <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-2xl text-left">
             <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
             <p className="text-sm text-amber-700 font-medium">
-              <strong>{conflictCount}</strong> ảnh cần gán nhãn lại (3 annotator không đồng ý).
+              <strong>{conflictCount}</strong> ảnh cần gán nhãn lại ({totalAnnotators} annotator không đồng ý).
             </p>
           </div>
         </div>
@@ -138,7 +139,7 @@ function SubmissionResultModal({ result, onClose, onRework }) {
             Về danh sách
           </button>
           <button
-            onClick={onRework}
+            onClick={handleRework}
             className="flex-1 py-3 bg-amber-600 text-white rounded-2xl font-bold hover:bg-amber-700 transition-all text-sm shadow-lg shadow-amber-100"
           >
             Làm lại ảnh conflict
@@ -150,7 +151,8 @@ function SubmissionResultModal({ result, onClose, onRework }) {
 }
 
 // ── Waiting for other annotators modal ───────────────────────
-function WaitingModal({ submittedCount, onClose }) {
+// ── Waiting for other annotators modal ───────────────────────
+function WaitingModal({ submittedCount, onClose, totalAnnotators = 3 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-md p-10 text-center animate-in zoom-in duration-300">
@@ -159,10 +161,10 @@ function WaitingModal({ submittedCount, onClose }) {
         </div>
         <h2 className="text-2xl font-black text-slate-900 mb-3">Đã nộp thành công!</h2>
         <p className="text-slate-500 mb-4">
-          Bạn là annotator thứ <strong className="text-blue-600">{submittedCount}</strong>/3 nộp bài.
+          Bạn là annotator thứ <strong className="text-blue-600">{submittedCount}</strong>/{totalAnnotators} nộp bài.
         </p>
-        <div className="flex justify-center gap-2 mb-6">
-          {[1, 2, 3].map(n => (
+        <div className="flex justify-center flex-wrap gap-2 mb-6">
+          {Array.from({ length: totalAnnotators }, (_, i) => i + 1).map(n => (
             <div
               key={n}
               className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-sm border-2 ${n <= submittedCount
@@ -175,7 +177,7 @@ function WaitingModal({ submittedCount, onClose }) {
           ))}
         </div>
         <p className="text-sm text-slate-400 mb-8">
-          Đang chờ <strong>{3 - submittedCount}</strong> annotator còn lại nộp bài để tính đồng thuận.
+          Đang chờ <strong>{totalAnnotators - submittedCount}</strong> annotator còn lại nộp bài để tính đồng thuận.
         </p>
         <button
           onClick={onClose}
@@ -560,52 +562,68 @@ export default function AnnotatorTask() {
                existingAnnId = firstRes.id || firstRes._id;
             }
           } catch (err) {
-            // Ultimate healing: if 400, try every possible way to find the existing ID
-            if (err.response?.status === 400 || err.response?.status === 409) {
+            // Ultimate healing: if 400/409, try every possible way to find the existing ID
+            if (err.response?.status === 400 || err.response?.status === 409 || String(err.response?.data?.message).toLowerCase().includes('already exists')) {
+               console.warn('[Healing] "Already Exists" detected. Exhaustive search for existing annotation ID...');
                const myUserId = getCurrentUserId();
-               const datasetItemId = currentItem?.datasetItem?.id || currentItem?.datasetItemId || currentItem?.dataset_item_id;
-               
-               // Try getByItem with currentItemId AND datasetItemId as fallback
-               const idsToTry = [currentItemId, datasetItemId].filter(Boolean);
+               const datasetItemId = currentItem?.datasetItem?.id || currentItem?.datasetItemId || currentItem?.dataset_item_id || currentItem?.dataset_item?.id;
+               const taskIdFromTask = task?.id || taskId;
+
                let anns = [];
+               
+               // 1. Try getByItem for both currentItemId and datasetItemId
+               const idsToTry = [currentItemId, datasetItemId].filter(Boolean);
                for (const idToTry of idsToTry) {
                   try {
                     const findRes = await annotationAPI.getByItem(idToTry);
                     const findData = resolveApiData(findRes);
-                    const batch = Array.isArray(findData) ? findData : (findData?.id || findData?._id ? [findData] : []);
-                    anns = [...anns, ...batch];
+                    if (Array.isArray(findData)) anns = [...anns, ...findData];
+                    else if (findData?.id || findData?._id) anns.push(findData);
                   } catch (e) {}
                }
                
-               // Try to match by my userId first
-               let existing = anns.find(a => String(a.userId || a.annotatorId || a.annotator_id || '') === String(myUserId)) || anns[0];
+               // 2. Try exhaustive getByTask search
+               try {
+                  const taskAnnsRes = await annotationAPI.getByTask(taskIdFromTask);
+                  const taskAnnsData = resolveApiData(taskAnnsRes);
+                  const annList = Array.isArray(taskAnnsData) ? taskAnnsData : (taskAnnsData && typeof taskAnnsData === 'object' ? Object.values(taskAnnsData) : []);
+                  if (Array.isArray(annList)) {
+                     const flatL = annList.flat();
+                     anns = [...anns, ...flatL];
+                  }
+               } catch (e2) {}
                
-               // If still not found, try exhaustive getByTask search
-               if (!existing?.id && !existing?._id) {
-                  try {
-                    const taskAnnsRes = await annotationAPI.getByTask(taskId);
-                    const taskAnns = resolveApiData(taskAnnsRes);
-                    const annList = Array.isArray(taskAnns) ? taskAnns : (taskAnns && typeof taskAnns === 'object' ? Object.values(taskAnns) : []);
-                    
-                    existing = annList.find(a => 
-                       String(a.taskItemId || a.task_item_id || a.itemId || a.item_id || a.taskItem || '') === String(currentItemId) ||
-                       String(a.datasetItemId || a.dataset_item_id || a.datasetItem || '') === String(datasetItemId)
-                    );
-                    
-                    // Final desperate owner check in task-wide list
-                    if (!existing) {
-                       existing = annList.find(a => 
-                          String(a.userId || a.annotatorId || a.annotator_id || '') === String(myUserId) && 
-                          (String(a.taskItemId || a.itemId || '') === String(currentItemId) || String(a.datasetItemId || '') === String(datasetItemId))
-                       );
-                    }
-                  } catch (e2) {}
+               // Filter and prioritize
+               const uniqueAnns = anns.filter((v, i, a) => v && (v.id || v._id) && a.findIndex(t => (t.id || t._id) === (v.id || v._id)) === i);
+               
+               // Match conditions: ID match (taskItemId or datasetItemId) AND preferably userID match
+               let existing = uniqueAnns.find(a => 
+                  String(a.userId || a.annotatorId || a.annotator_id || '') === String(myUserId) && 
+                  (String(a.taskItemId || a.taskItem || a.itemId || '') === String(currentItemId) || 
+                   String(a.datasetItemId || a.datasetItem || '') === String(datasetItemId))
+               );
+               
+               if (!existing) {
+                  // Fallback: match by ID only (ignore user for now if we're desperate)
+                  existing = uniqueAnns.find(a => 
+                     String(a.taskItemId || a.taskItem || a.itemId || '') === String(currentItemId) || 
+                     String(a.datasetItemId || a.datasetItem || '') === String(datasetItemId)
+                  );
+               }
+
+               if (!existing) {
+                  // Final fallback: any annotation for this user in this task
+                  existing = uniqueAnns.find(a => String(a.userId || a.annotatorId || '') === String(myUserId));
                }
 
                if (existing?.id || existing?._id) {
                   existingAnnId = existing.id || existing._id;
+                  console.log('[Healing] Found existing ID:', existingAnnId);
                   await annotationAPI.update(existingAnnId, { payload: { bboxes } });
-               } else { throw err; }
+               } else { 
+                  console.error('[Healing] Could not resolve existing annotation ID.');
+                  throw err; 
+               }
             } else { throw err; }
           }
         }
@@ -1149,7 +1167,7 @@ export default function AnnotatorTask() {
             <h3 className="text-xl font-bold text-gray-900 mb-2">Nộp dự án?</h3>
             <p className="text-gray-600 mb-2">Bạn đã xử lý <strong>{processedCount}/{totalItems}</strong> ảnh.</p>
             <p className="text-sm text-gray-500 mb-6">
-              Sau khi nộp, hệ thống sẽ tính toán đồng thuận với 2 annotator còn lại.
+              Sau khi nộp, hệ thống sẽ tính toán đồng thuận với {task?.totalAnnotators ? task.totalAnnotators - 1 : 2} annotator còn lại.
             </p>
             <div className="flex gap-3">
               <button onClick={() => setShowSubmitConfirm(false)} className="flex-1 py-3 border border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50">Hủy</button>
@@ -1165,6 +1183,7 @@ export default function AnnotatorTask() {
       {showWaiting && (
         <WaitingModal
           submittedCount={submittedCount}
+          totalAnnotators={task?.totalAnnotators || 3}
           onClose={() => {
             setShowWaiting(false);
             navigate('/annotator/tasks');
@@ -1172,10 +1191,11 @@ export default function AnnotatorTask() {
         />
       )}
 
-      {/* Submission result modal (after all 3 submitted) */}
+      {/* Submission result modal (after all submitted) */}
       {submitResult && (
         <SubmissionResultModal
           result={submitResult}
+          totalAnnotators={task?.totalAnnotators || 3}
           onClose={handleSubmitResultClose}
           onRework={handleRework}
         />

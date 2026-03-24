@@ -347,6 +347,7 @@ export default function AssignTasks() {
           progress: 0,
           totalItems: datasetInfo?.sampleCount || datasetInfo?.imagesCount || datasetInfo?.itemsCount || 0,
           items: [],
+          totalAnnotators: selectedAnnotatorIds.length,
           _source: 'api_real',
         }, firstAnnotatorId);
 
@@ -382,6 +383,7 @@ export default function AssignTasks() {
             progress: 0,
             totalItems: datasetInfo?.sampleCount || datasetInfo?.imagesCount || datasetInfo?.itemsCount || 0,
             items: [],
+            totalAnnotators: selectedAnnotatorIds.length,
             _source: 'local_mirror',
           }, userId);
 
@@ -397,8 +399,8 @@ export default function AssignTasks() {
           setStep(1);
           setSelectedProject(null);
           setSelectedDatasetId(null);
-          setSelectedAnnotatorIds([]);
-          setSelectedReviewerId(null);
+          setSelectedAnnotators([]);
+          setSelectedReviewer(null);
         }, 3000);
       } else if (successCount > 0) {
         showMessage('warning', `Giao việc thành công một phần (${successCount}/${totalExpected}). Lỗi: ${errorDetails.join('; ')}`);
@@ -651,7 +653,7 @@ export default function AssignTasks() {
 
               <button
                 onClick={handleAssignSubmit}
-                disabled={assigning || selectedAnnotatorIds.length !== 3 || !selectedReviewerId || !deadline}
+                disabled={assigning || selectedAnnotatorIds.length < 2 || !selectedReviewerId || !deadline}
                 className="bg-slate-900 text-white px-12 py-5 rounded-3xl font-black shadow-2xl hover:bg-black transition-all disabled:opacity-20 flex items-center gap-4 border-2 border-slate-800"
               >
                 {assigning ? <Loader2 className="w-6 h-6 animate-spin" /> : <UserCheck className="w-6 h-6" />}
@@ -665,11 +667,11 @@ export default function AssignTasks() {
                 <div className="p-8 border-b-2 border-slate-50 flex items-center justify-between bg-emerald-50/30 rounded-t-[3rem]">
                   <div>
                     <h3 className="text-xl font-black text-slate-900">Annotators</h3>
-                    <p className={`text-[10px] font-black uppercase tracking-widest ${selectedAnnotatorIds.length === 3 ? 'text-emerald-600' : 'text-slate-400'}`}>
-                      {selectedAnnotatorIds.length === 3 ? 'Đã lựa chọn đủ 3 annotator' : `Đã chọn ${selectedAnnotatorIds.length}/3 annotator`}
+                    <p className={`text-[10px] font-black uppercase tracking-widest ${selectedAnnotatorIds.length >= 2 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                      {selectedAnnotatorIds.length >= 2 ? `Đã chọn ${selectedAnnotatorIds.length} annotator` : `Đã chọn ${selectedAnnotatorIds.length}/2 annotator`}
                     </p>
                   </div>
-                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${selectedAnnotatorIds.length === 3 ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white text-slate-300'}`}>
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${selectedAnnotatorIds.length >= 2 ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white text-slate-300'}`}>
                     <Users className="w-7 h-7" />
                   </div>
                 </div>
