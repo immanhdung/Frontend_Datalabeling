@@ -254,32 +254,37 @@ export default function AssignTasks() {
 
   const handleAssignSubmit = async () => {
     if (!selectedProject || !selectedDatasetId) return;
+
     if (!selectedAnnotatorIds || selectedAnnotatorIds.length < 2) {
       showMessage('warning', 'Vui lòng chọn ít nhất 2 Annotator.');
       return;
     }
+
     if (!selectedReviewerId) {
       showMessage('warning', 'Vui lòng chọn 1 Reviewer.');
       return;
     }
 
     setAssigning(true);
-    let errorDetails = [];
 
     try {
       const projectId = selectedProject.id || selectedProject.projectId;
 
-      let projectDetail = selectedProject;
       try {
-        const projRes = await api.get(`/projects/${projectId}`, { validateStatus: () => true });
+        const projRes = await api.get(`/projects/${projectId}`, {
+          validateStatus: () => true,
+        });
+
         if (projRes.status === 200) {
           projectDetail = projRes.data?.data || projRes.data || selectedProject;
         }
-      } catch { /* fallback */ }
+      } catch {
+        // ignore, fallback already set
+      }
 
+      // Combine All users
       const allSelectedUsers = [...selectedAnnotatorIds, selectedReviewerId].filter(Boolean);
 
-      // 1. Add all users to project as members (ignore errors)
       for (const userId of allSelectedUsers) {
         try {
           await api.post(`/projects/${projectId}/members/${userId}`, null, {
@@ -288,75 +293,50 @@ export default function AssignTasks() {
         } catch (e) { /* ignore */ }
       }
 
-      // 2. Attach dataset
-      const attached = await attachDatasetToProject(selectedDatasetId, projectId);
-      if (!attached) {
-        console.warn('Could not confirm dataset attachment, proceeding anyway...');
-      }
-      await new Promise(r => setTimeout(r, 400));
-
-      const datasetInfo = datasets.find(
-        (d) => String(d.id || d.datasetId) === String(selectedDatasetId)
-      );
-
-      // 3. Build payload
       const startedAt = new Date().toISOString();
       const deadlineAt = deadline
         ? new Date(deadline).toISOString()
         : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-      const allAssigned = [...selectedAnnotatorIds, selectedReviewerId].filter(Boolean);
-
-      // Build MULTIPLE assignments
       const payload = {
         projectId: String(projectId),
         datasetId: String(selectedDatasetId),
-        assigments: allAssigned.map(userId => ({
+        assigments: allSelectedUsers.map(userId => ({
           assignedTo: String(userId),
           startedAt,
           deadlineAt,
         })),
       };
 
-      console.log('[AssignTasks] Payload multi assign:', payload);
+      console.log('[AssignTasks] Payload:', payload);
 
-      let successCount = 0;
+      const res = await api.post('/tasks/assign', payload);
 
-      try {
-        const res = await api.post('/tasks/assign', payload);
+      console.log('[AssignTasks] Success:', res.data);
 
-        const resData = res.data?.assignments || [];
-        const createdAssignments = Array.isArray(resData) ? resData : [resData];
+      showMessage(
+        'success',
+        `Giao việc thành công cho ${selectedAnnotatorIds.length} Annotator và 1 Reviewer!`
+      );
 
-        successCount = createdAssignments.length;
+      // Reset UI
+      setTimeout(() => {
+        setStep(1);
+        setSelectedProject(null);
+        setSelectedDatasetId(null);
+        setSelectedAnnotators([]);
+        setSelectedReviewer(null);
+      }, 2000);
 
-        console.log('[AssignTasks] Created tasks:', createdAssignments);
-
-      } catch (err) {
-        const errMsg =
-          err.response?.data?.message ||
-          err.response?.data?.title ||
-          err.message;
-
-        console.error('[AssignTasks] API assign failed:', errMsg);
-        errorDetails.push(errMsg);
-      }
-
-      const totalExpected = allAssigned.length;
-
-      if (successCount === totalExpected) {
-        showMessage('success', 'Giao việc thành công cho tất cả người dùng!');
-      } else if (successCount > 0) {
-        showMessage(
-          'warning',
-          `Giao việc một phần (${successCount}/${totalExpected})`
-        );
-      } else {
-        showMessage('error', 'Giao việc thất bại: ' + errorDetails.join(' | '));
-      }
     } catch (err) {
-      console.error('Assignment workflow error:', err);
-      showMessage('error', 'Giao việc thất bại: ' + (err.message || 'Lỗi không xác định'));
+      const errMsg =
+        err.response?.data?.message ||
+        err.response?.data?.title ||
+        err.message;
+
+      console.error('[AssignTasks] Error:', errMsg);
+
+      showMessage('error', 'Giao việc thất bại: ' + errMsg);
     } finally {
       setAssigning(false);
     }
