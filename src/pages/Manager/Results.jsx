@@ -20,30 +20,68 @@ import {
   getAssignedTasksByUserMap
 } from "../../utils/annotatorTaskHelpers";
 
+// Define toArray helper
+const toArray = (value) => {
+  if (Array.isArray(value)) return value;
+  const root = value?.data ?? value?.items ?? value?.results ?? value;
+  if (Array.isArray(root)) return root;
+  if (Array.isArray(root?.items)) return root.items;
+  return [];
+};
+
 export default function ManagerResults() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [error, setError] = useState(null); // Added error state
   const navigate = useNavigate();
 
   const fetchProjects = async () => {
     try {
       setLoading(true);
-      const res = await api.get("/projects");
-      const data = resolveApiData(res);
+      setError(null);
+      
+      const { getAssignedTasksByUserMap } = await import("../../utils/annotatorTaskHelpers");
 
-      // Enhance projects with local stats if available
+      const [projRes, tasksRes] = await Promise.all([
+        api.get("/projects", { params: { PageSize: 1000, pageSize: 1000 } }),
+        api.get("/tasks", { params: { PageSize: 1000, pageSize: 1000 } }).catch(() => ({ data: [] })),
+      ]);
+
+      const apiProjects = toArray(projRes.data);
+      const apiTasks = toArray(tasksRes.data);
+
       const localTasksMap = getAssignedTasksByUserMap();
-      const allLocalTasks = Object.values(localTasksMap).flat();
+      const allLocalTasks = [...apiTasks, ...Object.values(localTasksMap).flat()];
 
-      const enhanced = (Array.isArray(data) ? data : []).map(p => {
+      const localProjects = [];
+      const seenPids = new Set(apiProjects.map(p => String(p.id)));
+      
+      allLocalTasks.forEach(t => {
+          const pid = String(t.projectId || t.project?.id || "");
+          if (pid && !seenPids.has(pid)) {
+              localProjects.push({
+                  id: pid,
+                  name: t.projectName || t.ProjectName || t.project?.name || `Dự án #${pid.slice(0, 5)}`,
+                  status: t.project?.status || 'Active',
+                  type: t.project?.type || 'Image',
+                  updatedAt: t.updatedAt
+              });
+              seenPids.add(pid);
+          }
+      });
+
+      const projectsList = [...apiProjects, ...localProjects];
+
+      const enhanced = projectsList.map(p => {
         const pid = String(p.id || p.projectId || '');
         const projectTasks = allLocalTasks.filter(t => String(t.projectId || t.project?.id || '') === pid);
-
-        const approvedTasks = projectTasks.filter(t => t.status === 'approved' || t.status === 'completed' || t.status === 'done');
-        const approvedCount = approvedTasks.length;
+        
         const totalTasks = projectTasks.length;
-
+        const approvedCount = projectTasks.filter(t => 
+           ['approved', 'completed', 'done'].includes(String(t.status || "").toLowerCase())
+        ).length;
+        
         // Calculate actual item counts and labels
         let assetsCount = 0;
         let totalLabels = 0;
@@ -64,7 +102,6 @@ export default function ManagerResults() {
 
         return {
           ...p,
-          approvedTasks: approvedCount,
           totalTasks: totalTasks,
           imagesCount: assetsCount || p.imagesCount || 0,
           labelsCount: totalLabels || p.labelsCount || 0,
@@ -88,9 +125,19 @@ export default function ManagerResults() {
     fetchProjects();
   }, []);
 
-  const filteredProjects = projects.filter(p =>
-    p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.description?.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredProjects = projects.filter(
+    (p) => {
+      // Show project if it has any approved tasks OR if the project itself is marked as done
+      const isActuallyDone = 
+        p.approvedTasks > 0 || 
+        ['done', 'completed', 'finished', 'hoàn thành'].includes(String(p.status || "").toLowerCase());
+      
+      const matchesSearch = 
+        p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        String(p.id).includes(searchTerm);
+
+      return isActuallyDone && matchesSearch;
+    }
   );
 
   return (
