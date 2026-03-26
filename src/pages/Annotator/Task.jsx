@@ -80,15 +80,15 @@ function SubmissionResultModal({ result, onClose, onRework, totalAnnotators = 3 
           </div>
           <h2 className="text-2xl font-black text-slate-900 mb-3">Nộp thành công!</h2>
           <p className="text-slate-500 mb-2">
-            Tất cả <strong>{totalItems}</strong> ảnh đã đạt đồng thuận.
+            Bạn đã hoàn thành gán nhãn cho <strong>{totalItems}</strong> ảnh.
           </p>
           <p className="text-sm text-slate-400 mb-8">
-            Kết quả đã được chuyển đến <strong className="text-indigo-600">Reviewer</strong> để kiểm duyệt.
+            Hệ thống đã ghi nhận bài nộp của bạn và chuyển đến <strong className="text-indigo-600">Reviewer</strong> để kiểm duyệt.
           </p>
           <div className="flex items-center gap-2 p-3 bg-indigo-50 rounded-2xl mb-8 text-left">
             <Users className="w-5 h-5 text-indigo-500 shrink-0" />
             <p className="text-xs text-indigo-700 font-medium">
-              {totalAnnotators} annotator đã đồng thuận. Reviewer sẽ kiểm tra kết quả và phê duyệt cuối.
+              Reviewer sẽ kiểm tra sự đồng nhất giữa các annotator và đưa ra quyết định cuối cùng.
             </p>
           </div>
           <button

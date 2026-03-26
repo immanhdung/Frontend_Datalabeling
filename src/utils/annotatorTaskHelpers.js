@@ -29,9 +29,9 @@ export const resolveImageUrl = (item) => {
     item?.url || item?.Url ||
     item?.path || item?.Path ||
     item?.filePath || item?.mediaUrl || '';
-  if (!candidate) { 
-    if (item?.data && typeof item.data === 'object') return resolveImageUrl(item.data); 
-    return ''; 
+  if (!candidate) {
+    if (item?.data && typeof item.data === 'object') return resolveImageUrl(item.data);
+    return '';
   }
   if (/^(https?:|data:|blob:)/i.test(candidate)) return candidate;
   const base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/api$/i, '').replace(/\/$/, '');
@@ -149,10 +149,10 @@ export const normalizeTask = (task, assignedUserId = undefined) => {
       task?.processedCount ??
       (Array.isArray(task?.items || task?.Items)
         ? (task?.items || task?.Items).filter((it) =>
-            ['done', 'completed', 'skipped', 'submitted', 'hoan thanh', 'hoàn thành'].includes(
-              String(it.status || '').toLowerCase()
-            )
-          ).length
+          ['done', 'completed', 'skipped', 'submitted', 'hoan thanh', 'hoàn thành'].includes(
+            String(it.status || '').toLowerCase()
+          )
+        ).length
         : Math.round(((task?.progress ?? task?.Progress ?? 0) * (task?.totalItems ?? 0)) / 100)),
     reviewStatus: task?.reviewStatus ?? task?.ReviewStatus ?? task?.review_status,
     feedback: task?.feedback ?? task?.Feedback,
@@ -353,7 +353,7 @@ export const processTaskConsensus = (taskId) => {
       // Reviewer is also in the map, so subtract 1 if > 1
       totalAnnotators = assignedCount > 1 ? assignedCount - 1 : 3;
     }
-    
+
     const requiredMajority = Math.ceil((totalAnnotators + 1) / 2);
     if (submissions.length < totalAnnotators) {
       console.log(`[Consensus] Waiting for more submissions (${submissions.length}/${totalAnnotators})`);
@@ -457,10 +457,12 @@ export const processTaskConsensus = (taskId) => {
     relevantSubmissions.forEach((s, idx) => {
       const hasConflictsForThisUser = updatedItemsPerUser[idx].some(it => it.isConflict);
 
-      const newStatus = hasAnyConflict ? 'rejected' : 'completed';
+      // When ready for review, the status should be 'pending_review' 
+      // regardless of conflicts, according to the new workflow.
+      const newStatus = 'pending_review';
       const feedback = hasAnyConflict
-        ? `Có ${conflictCount} ảnh bị conflict (${totalAnnotators} annotator không đồng nhất). Vui lòng bấm "Làm lại" để gán nhãn lại những ảnh được đánh dấu đỏ.`
-        : null;
+        ? `Task contains ${conflictCount} conflicted items. Reviewer decision required.`
+        : 'Submission ready for review.';
 
       const updatedTask = {
         ...s.task,
@@ -477,21 +479,19 @@ export const processTaskConsensus = (taskId) => {
       upsertLocalAssignedTask(updatedTask, s.userId);
     });
 
-    // If there are non-conflict items, create a "reviewer task" in local storage
-    if (nonConflictWinnerItems.length > 0) {
-      const baseTask = relevantSubmissions[0].task;
-      createReviewerTask(taskId, baseTask, nonConflictWinnerItems, relevantSubmissions, updatedItemsPerUser);
-    }
+    // If all annotators have submitted, the task is ready for review
+    // We do NOT create a local storage reviewer task anymore; the reviewer view 
+    // will now expand conflicts on-the-fly based on API data.
 
     // Dispatch event so other components can react
     window.dispatchEvent(new CustomEvent('consensusProcessed', {
-      detail: { taskId, hasConflict: hasAnyConflict, conflictCount, totalItems: itemCount }
+      detail: { taskId, hasConflict: false, conflictCount, totalItems: itemCount }
     }));
 
-    console.log(`[Consensus] Done. hasConflict=${hasAnyConflict}, conflictCount=${conflictCount}/${itemCount}`);
+    console.log(`[Consensus] Done. No longer alerting annotator of conflicts.`);
 
     return {
-      hasConflict: hasAnyConflict,
+      hasConflict: false, // Always false for UI success message
       conflictCount,
       totalItems: itemCount,
       nonConflictCount: itemCount - conflictCount,
