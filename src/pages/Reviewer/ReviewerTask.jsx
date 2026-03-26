@@ -1,18 +1,32 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { reviewAPI, annotationAPI } from '../../config/api';
 import Header from '../../components/common/Header';
-import { processTaskConsensus } from '../../utils/annotatorTaskHelpers';
 import {
     ArrowLeft, ArrowRight, ZoomIn, ZoomOut, Check, X,
-    FileText, Image as ImageIcon, Calendar, CheckCircle2,
-    AlertCircle, Tag, Eye,
+    CheckCircle2, AlertCircle,
 } from 'lucide-react';
+
+// ── API ───────────────────────────────────────────────────────────────────────
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+
+async function apiFetch(path, options = {}) {
+    const token = localStorage.getItem('token') || localStorage.getItem('accessToken') || '';
+    const res = await fetch(`${API_BASE}${path}`, {
+        ...options,
+        headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            ...(options.headers || {}),
+        },
+    });
+    if (!res.ok) throw new Error(`API ${path} → ${res.status}`);
+    return res.json();
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function resolveImageUrl(item) {
     if (!item) return '';
-    const nested = item?.datasetItem || item?.DatasetItem;
+    const nested = item?.datasetItem || item?.DatasetItem || item?.taskItem?.datasetItem;
     if (nested) { const u = resolveImageUrl(nested); if (u) return u; }
     const candidate =
         item?.storageUri || item?.StorageUri ||
@@ -21,9 +35,12 @@ function resolveImageUrl(item) {
         item?.url || item?.Url ||
         item?.path || item?.Path ||
         item?.filePath || item?.mediaUrl || '';
-    if (!candidate) { if (item?.data && typeof item.data === 'object') return resolveImageUrl(item.data); return ''; }
+    if (!candidate) {
+        if (item?.data && typeof item.data === 'object') return resolveImageUrl(item.data);
+        return '';
+    }
     if (/^(https?:|data:|blob:)/i.test(candidate)) return candidate;
-    const base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/api$/i, '').replace(/\/$/, '');
+    const base = API_BASE.replace(/\/api$/i, '');
     return candidate.startsWith('/') ? `${base}${candidate}` : `${base}/${candidate}`;
 }
 
@@ -52,21 +69,19 @@ function extractAnnotations(item) {
         item.boundingBoxes ||
         item.labels ||
         [];
-
-    if (Array.isArray(rawList)) {
-        return rawList.map((a, idx) => {
-            const label = a.label || a.labelName || a.name || a.category || 'Object';
-            const x = a.x ?? a.left ?? (Array.isArray(a.bbox) ? a.bbox[0] : undefined) ?? 0;
-            const y = a.y ?? a.top ?? (Array.isArray(a.bbox) ? a.bbox[1] : undefined) ?? 0;
-            const width = a.width ?? a.w ?? (Array.isArray(a.bbox) ? a.bbox[2] : undefined) ?? 0;
-            const height = a.height ?? a.h ?? (Array.isArray(a.bbox) ? a.bbox[3] : undefined) ?? 0;
-            const color = a.color || getLabelColor(label, idx);
-            return { label, x, y, width, height, color };
-        }).filter(a => a.width > 0 && a.height > 0);
-    }
-    return [];
+    if (!Array.isArray(rawList)) return [];
+    return rawList.map((a, idx) => {
+        const label = a.label || a.labelName || a.name || a.category || 'Object';
+        const x = a.x ?? a.left ?? (Array.isArray(a.bbox) ? a.bbox[0] : undefined) ?? 0;
+        const y = a.y ?? a.top ?? (Array.isArray(a.bbox) ? a.bbox[1] : undefined) ?? 0;
+        const width = a.width ?? a.w ?? (Array.isArray(a.bbox) ? a.bbox[2] : undefined) ?? 0;
+        const height = a.height ?? a.h ?? (Array.isArray(a.bbox) ? a.bbox[3] : undefined) ?? 0;
+        const color = a.color || getLabelColor(label, idx);
+        return { label, x, y, width, height, color };
+    }).filter(a => a.width > 0 && a.height > 0);
 }
 
+// ── BBox Canvas ───────────────────────────────────────────────────────────────
 function BBoxCanvas({ annotations, imgRef, imgNaturalSize }) {
     const canvasRef = useRef(null);
     const draw = useCallback(() => {
@@ -81,28 +96,23 @@ function BBoxCanvas({ annotations, imgRef, imgNaturalSize }) {
         canvas.height = dispH;
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, dispW, dispH);
-        if (!annotations) return;
+        if (!annotations?.length) return;
         const scaleX = dispW / natW;
         const scaleY = dispH / natH;
-        annotations.forEach((ann) => {
-            const x = ann.x * scaleX;
-            const y = ann.y * scaleY;
-            const w = ann.width * scaleX;
-            const h = ann.height * scaleY;
-            const color = ann.color;
-            ctx.fillStyle = color + '28';
+        annotations.forEach(ann => {
+            const x = ann.x * scaleX, y = ann.y * scaleY;
+            const w = ann.width * scaleX, h = ann.height * scaleY;
+            ctx.fillStyle = ann.color + '28';
             ctx.fillRect(x, y, w, h);
-            ctx.strokeStyle = color;
+            ctx.strokeStyle = ann.color;
             ctx.lineWidth = 2;
             ctx.strokeRect(x, y, w, h);
             if (ann.label) {
                 ctx.font = 'bold 12px system-ui, sans-serif';
                 const tw = ctx.measureText(ann.label).width;
-                const bw = tw + 10;
-                const bh = 20;
-                const bx = x;
+                const bw = tw + 10, bh = 20, bx = x;
                 const by = y > bh + 2 ? y - bh - 2 : y + 2;
-                ctx.fillStyle = color;
+                ctx.fillStyle = ann.color;
                 ctx.beginPath();
                 if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, 3);
                 else ctx.rect(bx, by, bw, bh);
@@ -120,116 +130,217 @@ function BBoxCanvas({ annotations, imgRef, imgNaturalSize }) {
     return <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none" style={{ width: '100%', height: '100%' }} />;
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────────
+// ── Right Bar Thumbnail ───────────────────────────────────────────────────────
+function RightBarThumb({ item, idx, isSelected, status, onClick }) {
+    const bboxCount = extractAnnotations(item).length;
+    const isConflict = item.isConflict === true;
+    return (
+        <button
+            onClick={onClick}
+            className={`w-full relative rounded-[2rem] overflow-hidden border-4 transition-all duration-300 ${isSelected
+                ? 'border-blue-500 shadow-2xl scale-[1.02]'
+                : status === 'approved'
+                    ? 'border-emerald-400 opacity-80'
+                    : status === 'rejected'
+                        ? 'border-rose-400 opacity-80'
+                        : 'border-transparent opacity-60 hover:opacity-100'
+                }`}
+        >
+            <img
+                src={resolveImageUrl(item)}
+                alt={`item-${idx}`}
+                className="w-full h-36 object-cover bg-slate-100"
+            />
+            {/* Index */}
+            <div className="absolute top-3 left-3 bg-black/50 backdrop-blur-md text-white text-[8px] font-black px-2.5 py-1 rounded-full shadow-lg">
+                #{item.itemIndex + 1}
+            </div>
+            {/* CONFLICT badge */}
+            {isConflict && (
+                <div className="absolute top-3 right-3 bg-rose-600 text-white text-[7px] font-black px-2.5 py-1 rounded-full animate-pulse shadow-xl border border-rose-400">
+                    CONFLICT
+                </div>
+            )}
+            {/* Annotator name — conflict only */}
+            {isConflict && item.annotatorName && (
+                <div className="absolute bottom-3 right-3 bg-slate-900/90 backdrop-blur-md text-white text-[7px] font-black px-2.5 py-1.5 rounded-xl max-w-[90px] truncate shadow-lg">
+                    {item.annotatorName}
+                </div>
+            )}
+            {/* Consensus badge */}
+            {!isConflict && item.consensusCount > 1 && (
+                <div className="absolute bottom-3 left-3 bg-emerald-600 text-white text-[7px] font-black px-2.5 py-1 rounded-full shadow-lg">
+                    {item.consensusCount} đồng thuận
+                </div>
+            )}
+            {/* BBox badge */}
+            {bboxCount > 0 && !isConflict && (
+                <div className="absolute bottom-3 left-3 bg-indigo-600 text-white text-[7px] font-black px-2.5 py-1 rounded-full shadow-lg">
+                    {bboxCount} BBOX
+                </div>
+            )}
+            {status === 'approved' && (
+                <div className="absolute inset-0 bg-emerald-500/10 flex items-center justify-center backdrop-blur-[2px]">
+                    <Check className="w-10 h-10 text-emerald-500 drop-shadow-lg" />
+                </div>
+            )}
+            {status === 'rejected' && (
+                <div className="absolute inset-0 bg-rose-500/10 flex items-center justify-center backdrop-blur-[2px]">
+                    <X className="w-10 h-10 text-rose-500 drop-shadow-lg" />
+                </div>
+            )}
+        </button>
+    );
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
 const ReviewerTask = () => {
     const { taskId } = useParams();
     const navigate = useNavigate();
+
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-
-    const [task, setTask] = useState({ id: taskId, title: 'Loading...', projectName: 'Processing...' });
+    const [task, setTask] = useState({ id: taskId, title: 'Loading...', projectName: '...' });
     const [items, setItems] = useState([]);
     const [selectedItemIndex, setSelectedItemIndex] = useState(0);
     const [itemStatuses, setItemStatuses] = useState({});
-
     const [zoom, setZoom] = useState(1);
     const [imgNaturalSize, setImgNaturalSize] = useState({ w: 800, h: 600 });
     const imgRef = useRef(null);
-
     const [showFeedbackModal, setShowFeedbackModal] = useState(false);
     const [actionType, setActionType] = useState('');
-    const [reviewData, setReviewData] = useState({ feedback: '', issues: [] });
+    const [feedback, setFeedback] = useState('');
 
-    useEffect(() => { loadAnnotation(); }, [taskId]);
+    useEffect(() => { loadData(); }, [taskId]);
 
-    const loadAnnotation = async () => {
+    const loadData = async () => {
         try {
             setLoading(true);
             setError(null);
 
-            // 1. Gather all unique submissions for this task
-            const submissionsMap = new Map();
+            // ── 1. Task info ──────────────────────────────────────────────────
+            const taskRes = await apiFetch(`/api/tasks/${taskId}`).catch(() => null);
+            if (taskRes) {
+                const t = taskRes.data || taskRes;
+                setTask(prev => ({
+                    ...prev,
+                    title: t.title || t.name || `Task #${String(taskId).slice(0, 8)}`,
+                    projectName: t.projectName || t.project?.name || 'Dự án',
+                    totalItems: t.totalItems || t.itemCount || 0,
+                }));
+            }
 
-            // From API (if available)
-            try {
-                const res = await reviewAPI.getAnnotationForReview(taskId);
-                const data = res.data.data || res.data;
-                const apiSubs = Array.isArray(data) ? data : (data.submissions || [data]);
-                apiSubs.forEach((s, idx) => {
-                    const sid = s.userId || s.annotatorId || `api-${idx}`;
-                    submissionsMap.set(sid, s);
-                });
-                if (data.task) taskMeta = data.task;
-            } catch (err) { console.warn('[ReviewerTask] API fetch failed'); }
+            // ── 2. Task items list (for ordered itemIds + image URLs) ─────────
+            // GET /api/tasks/{taskId}/items
+            const itemsRes = await apiFetch(`/api/tasks/${taskId}/items`).catch(() => null);
+            const taskItemsArr = Array.isArray(itemsRes?.data)
+                ? itemsRes.data
+                : Array.isArray(itemsRes?.items)
+                    ? itemsRes.items
+                    : Array.isArray(itemsRes)
+                        ? itemsRes
+                        : [];
 
-            // From Local assignedTasksByUser (Merge/Discover)
-            try {
-                const rawMap = JSON.parse(localStorage.getItem('assignedTasksByUser') || '{}');
-                Object.entries(rawMap).forEach(([uid, list]) => {
-                    const mt = list.find(t => String(t.id) === String(taskId));
-                    if (mt && ['completed', 'pending_review', 'submitted'].includes(mt.status)) {
-                        // Use local data if it has more items or is the only source
-                        if (!submissionsMap.has(uid) || (mt.items?.length || 0) >= (submissionsMap.get(uid).items?.length || 0)) {
-                            submissionsMap.set(uid, mt);
-                        }
-                        if (!taskMeta) taskMeta = mt;
-                    }
-                });
-            } catch (e) { }
-
-            submissions = Array.from(submissionsMap.values());
-
-            if (submissions.length === 0) {
-                setError('Không tìm thấy dữ liệu gán nhãn nào.');
+            if (taskItemsArr.length === 0) {
+                setError('Task này không có item nào.');
                 return;
             }
 
-            // Expansion & Conflict Logic
-            const rawItemCount = Math.max(...submissions.map(s => (s.items || []).length));
-            const expanded = [];
+            // ── 3. For each task item: try consensus first, fallback to conflicted ──
+            const rightBarEntries = [];
 
-            for (let i = 0; i < rawItemCount; i++) {
-                const versions = submissions.map((s, sIdx) => {
-                    const it = (s.items || [])[i];
-                    if (!it) return null;
-                    return {
-                        ...it,
-                        annotatorName: s.annotatorName || `Annotator ${sIdx + 1}`,
-                        annotatorId: s.userId || s.annotatorId || sIdx
-                    };
-                }).filter(v => v !== null);
+            await Promise.all(
+                taskItemsArr.map(async (taskItem, i) => {
+                    const itemId = taskItem.id || taskItem.taskItemId || taskItem.itemId;
 
-                // Robust conflict check: Compare labels AND bbox coordinates
-                const fingerprints = versions.map(v => {
-                    const anns = extractAnnotations(v);
-                    return anns.map(a => `${a.label}_${Math.round(a.x)}_${Math.round(a.y)}_${Math.round(a.width)}_${Math.round(a.height)}`)
-                        .sort().join('|') || 'empty';
-                });
+                    // 3a. Try GET /api/consensuses/task-items/{taskItemId}
+                    const consensusRes = await apiFetch(`/api/consensuses/task-items/${itemId}`)
+                        .catch(() => null);
 
-                const distinctFingerprints = [...new Set(fingerprints)];
-                // Conflict if we have multiple versions AND they aren't identical
-                const isConflict = versions.length > 1 && distinctFingerprints.length > 1;
+                    const consensus = consensusRes?.data || consensusRes;
 
-                if (!isConflict && versions.length > 0) {
-                    expanded.push({ ...versions[0], isConflict: false, itemIndex: i, consensusCount: versions.length });
-                } else {
-                    // Conflict detected: Add ALL versions to the list
-                    versions.forEach(v => {
-                        expanded.push({ ...v, isConflict: true, itemIndex: i });
+                    // If a consensus exists and is valid (not conflicted), show 1 entry
+                    if (
+                        consensus &&
+                        !consensus.isConflict &&
+                        consensus.status !== 'Conflicted' &&
+                        consensus.status !== 'conflicted'
+                    ) {
+                        rightBarEntries.push({
+                            // image URL: prefer taskItem, then consensus
+                            ...taskItem,
+                            ...consensus,
+                            isConflict: false,
+                            itemIndex: i,
+                            taskItemId: String(itemId),
+                            consensusCount: consensus.annotatorCount || consensus.agreementCount || 1,
+                            totalAnnotators: consensus.totalAnnotators || undefined,
+                            annotatorName: undefined, // hide for non-conflict
+                        });
+                        return;
+                    }
+
+                    // 3b. Conflicted → GET /api/tasks/items/{itemId}/annotations?Status=Conflicted
+                    const conflictRes = await apiFetch(
+                        `/api/tasks/items/${itemId}/annotations?Status=Conflicted`
+                    ).catch(() => null);
+
+                    const conflictAnns = Array.isArray(conflictRes?.data)
+                        ? conflictRes.data
+                        : Array.isArray(conflictRes)
+                            ? conflictRes
+                            : [];
+
+                    if (conflictAnns.length > 0) {
+                        // One entry per conflicting annotator
+                        conflictAnns.forEach(ann => {
+                            rightBarEntries.push({
+                                ...taskItem,   // base image URL from taskItem
+                                ...ann,        // annotation data (may also contain image URL)
+                                isConflict: true,
+                                itemIndex: i,
+                                taskItemId: String(itemId),
+                                annotationId: ann.id || ann.annotationId,
+                                annotatorName:
+                                    ann.annotatorName ||
+                                    ann.userName ||
+                                    ann.userEmail ||
+                                    `Annotator ${ann.userId || '?'}`,
+                                annotatorId: ann.userId || ann.annotatorId,
+                            });
+                        });
+                        return;
+                    }
+
+                    // 3c. Fallback: no consensus, no conflicted annotations yet
+                    //     (e.g. only 1 annotator submitted so far) — show as pending
+                    rightBarEntries.push({
+                        ...taskItem,
+                        isConflict: false,
+                        itemIndex: i,
+                        taskItemId: String(itemId),
+                        consensusCount: 1,
+                        annotatorName: undefined,
                     });
-                }
+                })
+            );
+
+            // Sort by itemIndex to preserve original order (Promise.all may resolve out of order)
+            rightBarEntries.sort((a, b) => a.itemIndex - b.itemIndex);
+
+            if (rightBarEntries.length === 0) {
+                setError('Không có dữ liệu annotation nào cho task này.');
+                return;
             }
 
-            setItems(expanded);
-            if (taskMeta) {
-                setTask({
-                    id: taskMeta.id,
-                    title: taskMeta.title || taskMeta.name || `Task #${String(taskId).slice(0, 8)}`,
-                    projectName: taskMeta.projectName || 'Dự án',
-                    totalItems: rawItemCount
-                });
-            }
+            setItems(rightBarEntries);
+            setTask(prev => ({
+                ...prev,
+                totalItems: prev.totalItems || taskItemsArr.length,
+            }));
+
         } catch (err) {
+            console.error(err);
             setError(err.message || 'Lỗi tải dữ liệu');
         } finally {
             setLoading(false);
@@ -241,94 +352,169 @@ const ReviewerTask = () => {
     const currentAnnotations = extractAnnotations(currentItem);
     const currentItemStatus = itemStatuses[selectedItemIndex];
     const allDecided = items.length > 0 && Object.keys(itemStatuses).length >= items.length;
+    const conflictCount = items.filter(it => it.isConflict === true).length;
+    const nonConflictCount = items.filter(it => it.isConflict === false).length;
 
     const handleApproveItem = () => {
         setItemStatuses(prev => ({ ...prev, [selectedItemIndex]: 'approved' }));
-        if (selectedItemIndex < items.length - 1) setSelectedItemIndex(prev => prev + 1);
+        if (selectedItemIndex < items.length - 1) setSelectedItemIndex(p => p + 1);
     };
 
     const handleRejectItem = () => {
         setItemStatuses(prev => ({ ...prev, [selectedItemIndex]: 'rejected' }));
-        if (selectedItemIndex < items.length - 1) setSelectedItemIndex(prev => prev + 1);
+        if (selectedItemIndex < items.length - 1) setSelectedItemIndex(p => p + 1);
     };
 
     const handleSubmitReview = async () => {
         try {
-            const payload = {
-                feedback: reviewData.feedback,
-                issues: reviewData.issues,
-                action: actionType,
-                reviewedAt: new Date().toISOString()
-            };
+            const approvedItems = items
+                .filter((_, idx) => itemStatuses[idx] === 'approved')
+                .map(it => ({ taskItemId: it.taskItemId, annotationId: it.annotationId, annotatorId: it.annotatorId }));
+            const rejectedItems = items
+                .filter((_, idx) => itemStatuses[idx] === 'rejected')
+                .map(it => ({ taskItemId: it.taskItemId, annotationId: it.annotationId, annotatorId: it.annotatorId }));
 
-            // Discard rejected
-            const rejectedItems = items.filter((_, idx) => itemStatuses[idx] === 'rejected');
-            for (const it of rejectedItems) {
-                const id = it.id || it.annotationId;
-                if (id) await annotationAPI.remove(id).catch(e => console.warn('Discard failed', id));
-            }
+            // POST /api/reviews
+            await apiFetch('/api/reviews', {
+                method: 'POST',
+                body: JSON.stringify({
+                    taskId: Number(taskId) || taskId,
+                    action: actionType,
+                    feedback,
+                    approvedItems,
+                    rejectedItems,
+                    reviewedAt: new Date().toISOString(),
+                }),
+            });
 
-            if (actionType === 'approve') await reviewAPI.approve(taskId, payload);
-            else await reviewAPI.reject(taskId, payload);
-
-            alert(`Duyệt thành công! Đã loại bỏ ${rejectedItems.length} phiên bản lỗi.`);
+            alert(`Hoàn tất! Duyệt ${approvedItems.length} ảnh, loại bỏ ${rejectedItems.length} phiên bản.`);
             navigate('/reviewer/dashboard');
         } catch (err) {
-            alert('Lỗi khi gửi kết quả review');
+            alert('Lỗi khi gửi kết quả review: ' + err.message);
         }
     };
 
-    if (loading) return <div className="h-screen flex items-center justify-center font-black uppercase text-slate-400">Loading...</div>;
-    if (error) return <div className="h-screen flex items-center justify-center font-black uppercase text-rose-500 p-10">{error}</div>;
+    // ── Render ────────────────────────────────────────────────────────────────
+    if (loading) return (
+        <div className="h-screen flex flex-col items-center justify-center gap-3 text-slate-400">
+            <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <p className="font-black uppercase text-sm tracking-widest">Đang tải...</p>
+        </div>
+    );
+
+    if (error) return (
+        <div className="h-screen flex flex-col items-center justify-center gap-4 p-10 text-center">
+            <AlertCircle className="w-16 h-16 text-rose-500" />
+            <p className="font-black uppercase text-rose-500">{error}</p>
+            <button onClick={() => navigate('/reviewer/dashboard')} className="px-6 py-3 bg-slate-900 text-white rounded-2xl font-black">
+                Quay lại
+            </button>
+        </div>
+    );
 
     return (
-        <div className="min-h-screen bg-white flex flex-col font-sans">
-            <Header title="Kiểm duyệt" userName="Reviewer" userRole="reviewer" />
+        <div className="min-h-screen bg-[#F8FAFC] flex flex-col font-sans">
+            <Header title="Review Annotation" userName="Reviewer" userRole="reviewer" />
+
             <main className="flex-1 p-8 max-w-screen-2xl mx-auto w-full grid grid-cols-12 gap-8">
-                {/* Left: Info */}
+
+                {/* ── Left info ── */}
                 <div className="col-span-2 space-y-6">
                     <button onClick={() => navigate('/reviewer/dashboard')} className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400 hover:text-blue-500 transition-all">
                         <ArrowLeft className="w-3 h-3" /> Dashboard
                     </button>
-                    <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
-                        <p className="text-[10px] font-black text-slate-400 uppercase mb-2">Project</p>
-                        <p className="text-sm font-black text-slate-800 mb-4">{task.projectName}</p>
-                        <p className="text-[10px] font-black text-slate-400 uppercase mb-2">Task</p>
-                        <p className="text-xs font-bold text-slate-600 truncate">{task.title}</p>
+
+                    <div className="p-6 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-4">
+                        <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Project</p>
+                            <p className="text-sm font-black text-slate-800">{task.projectName}</p>
+                        </div>
+                        <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Task</p>
+                            <p className="text-xs font-bold text-slate-600 truncate">{task.title}</p>
+                        </div>
+                        <div className="border-t border-slate-100 pt-4 space-y-2">
+                            <div className="flex items-center justify-between text-xs">
+                                <span className="font-bold text-slate-500">Tổng ảnh</span>
+                                <span className="font-black text-slate-800">{task.totalItems}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-xs">
+                                <span className="font-bold text-emerald-600">Đồng thuận</span>
+                                <span className="font-black text-emerald-700">{nonConflictCount}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-xs">
+                                <span className="font-bold text-rose-600">Conflict</span>
+                                <span className="font-black text-rose-700">{conflictCount} entries</span>
+                            </div>
+                        </div>
                     </div>
-                    {currentItem.isConflict && (
-                        <div className="p-4 bg-rose-600 rounded-2xl text-white animate-pulse">
+
+                    <div className="p-4 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-2">
+                        <p className="text-[10px] font-black text-slate-400 uppercase mb-3">Chú thích</p>
+                        <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full bg-emerald-500" />
+                            <span className="text-[10px] font-bold text-slate-600">1 ảnh = đồng thuận</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full bg-rose-500 animate-pulse" />
+                            <span className="text-[10px] font-bold text-slate-600">CONFLICT: nhiều phiên bản</span>
+                        </div>
+                    </div>
+
+                    {currentItem.isConflict === true && (
+                        <div className="p-4 bg-rose-600 rounded-2xl text-white">
                             <div className="flex items-center gap-2 mb-1">
                                 <AlertCircle className="w-4 h-4" />
-                                <p className="text-[10px] font-black uppercase">Conflict Detect</p>
+                                <p className="text-[10px] font-black uppercase">Conflict</p>
                             </div>
-                            <p className="text-[9px] font-bold opacity-80 uppercase tracking-tighter">Reviewer must choose one version or discard all.</p>
+                            <p className="text-[9px] font-bold opacity-80 uppercase tracking-tighter">
+                                Phiên bản của {currentItem.annotatorName}. Hãy chấp nhận hoặc loại bỏ.
+                            </p>
                         </div>
                     )}
                 </div>
 
-                {/* Center: Viewer */}
+                {/* ── Center canvas ── */}
                 <div className="col-span-8 space-y-6">
-                    <div className="bg-slate-50 rounded-[40px] p-10 border border-slate-100 min-h-[700px] flex flex-col">
+                    <div className="bg-white rounded-[2.5rem] p-10 shadow-xl shadow-slate-200/50 border border-slate-100 min-h-[700px] flex flex-col">
                         <div className="flex items-center justify-between mb-8">
                             <div>
-                                <h1 className="text-3xl font-black text-slate-800 uppercase tracking-tighter italic">Review Canvas</h1>
+                                <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter italic">Review Canvas</h1>
                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
-                                    Item #{currentItem.itemIndex + 1} / {task.totalItems}
-                                    {currentItem.isConflict && <span className="text-rose-500 ml-2">[{currentItem.annotatorName}]</span>}
+                                    Ảnh #{(currentItem.itemIndex ?? 0) + 1} / {task.totalItems}
+                                    {currentItem.isConflict === true && (
+                                        <span className="text-rose-500 ml-2 bg-rose-50 px-2 py-0.5 rounded-full">
+                                            [{currentItem.annotatorName}] — CONFLICT
+                                        </span>
+                                    )}
+                                    {currentItem.isConflict === false && currentItem.consensusCount > 1 && (
+                                        <span className="text-emerald-600 ml-2 bg-emerald-50 px-2 py-0.5 rounded-full">
+                                            {currentItem.consensusCount} annotators đồng thuận ✓
+                                        </span>
+                                    )}
                                 </p>
                             </div>
-                            <div className="flex items-center gap-2 bg-white p-1 rounded-2xl shadow-sm border border-slate-100">
-                                <button onClick={() => setZoom(z => Math.max(0.5, z - 0.2))} className="p-3 hover:bg-slate-50 rounded-xl transition-all text-slate-400"><ZoomOut className="w-4 h-4" /></button>
+                            <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-2xl border border-slate-100">
+                                <button onClick={() => setZoom(z => Math.max(0.5, z - 0.2))} className="p-3 hover:bg-white rounded-xl transition-all text-slate-400 hover:text-slate-600 shadow-sm">
+                                    <ZoomOut className="w-4 h-4" />
+                                </button>
                                 <span className="text-[10px] font-black text-slate-500 w-10 text-center">{Math.round(zoom * 100)}%</span>
-                                <button onClick={() => setZoom(z => Math.min(3, z + 0.2))} className="p-3 hover:bg-slate-50 rounded-xl transition-all text-slate-400"><ZoomIn className="w-4 h-4" /></button>
+                                <button onClick={() => setZoom(z => Math.min(3, z + 0.2))} className="p-3 hover:bg-white rounded-xl transition-all text-slate-400 hover:text-slate-600 shadow-sm">
+                                    <ZoomIn className="w-4 h-4" />
+                                </button>
                             </div>
                         </div>
 
-                        <div className="flex-1 bg-slate-900 rounded-[32px] overflow-hidden relative shadow-inner">
+                        <div className="flex-1 bg-slate-900 rounded-[2rem] overflow-hidden relative shadow-inner">
                             <div className="absolute inset-0 overflow-auto flex items-center justify-center p-10">
                                 <div className="relative inline-block transition-transform duration-200" style={{ transform: `scale(${zoom})` }}>
-                                    <img ref={imgRef} src={imageUrl} alt="img" className="max-w-none shadow-2xl rounded-lg" onLoad={e => setImgNaturalSize({ w: e.target.naturalWidth, h: e.target.naturalHeight })} />
+                                    <img
+                                        ref={imgRef}
+                                        src={imageUrl}
+                                        alt="img"
+                                        className="max-w-none shadow-2xl rounded-lg"
+                                        onLoad={e => setImgNaturalSize({ w: e.target.naturalWidth, h: e.target.naturalHeight })}
+                                    />
                                     <BBoxCanvas annotations={currentAnnotations} imgRef={imgRef} imgNaturalSize={imgNaturalSize} />
                                 </div>
                             </div>
@@ -337,22 +523,32 @@ const ReviewerTask = () => {
                         <div className="mt-8 flex items-center justify-between">
                             <div className="flex gap-4">
                                 {currentItemStatus === 'approved' ? (
-                                    <div className="px-10 py-4 bg-emerald-50 text-emerald-600 rounded-3xl font-black uppercase text-xs flex items-center gap-3">
+                                    <div className="px-10 py-4 bg-emerald-50 text-emerald-600 rounded-[1.5rem] font-black uppercase text-[10px] flex items-center gap-3 border border-emerald-100">
                                         <CheckCircle2 className="w-5 h-5" /> Approved
                                     </div>
                                 ) : currentItemStatus === 'rejected' ? (
-                                    <div className="px-10 py-4 bg-rose-50 text-rose-600 rounded-3xl font-black uppercase text-xs flex items-center gap-3">
+                                    <div className="px-10 py-4 bg-rose-50 text-rose-600 rounded-[1.5rem] font-black uppercase text-[10px] flex items-center gap-3 border border-rose-100">
                                         <X className="w-5 h-5" /> Discarded
                                     </div>
                                 ) : (
                                     <>
-                                        <button onClick={handleApproveItem} className="px-10 py-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-[24px] font-black uppercase text-xs shadow-xl shadow-emerald-200 transition-all flex items-center gap-3"><Check className="w-5 h-5" /> Chấp nhận</button>
-                                        <button onClick={handleRejectItem} className="px-10 py-5 bg-white border-2 border-slate-200 hover:border-rose-500 hover:text-rose-600 rounded-[24px] font-black uppercase text-xs transition-all flex items-center gap-3"><X className="w-5 h-5" /> Loại bỏ</button>
+                                        <button onClick={handleApproveItem} className="px-10 py-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-[1.5rem] font-black uppercase text-[10px] shadow-lg shadow-emerald-200 transition-all flex items-center gap-3">
+                                            <Check className="w-5 h-5" /> Chấp nhận
+                                        </button>
+                                        <button onClick={handleRejectItem} className="px-10 py-5 bg-white border-2 border-slate-100 hover:border-rose-500 hover:text-rose-600 rounded-[1.5rem] font-black uppercase text-[10px] transition-all flex items-center gap-3">
+                                            <X className="w-5 h-5" /> Loại bỏ
+                                        </button>
                                     </>
                                 )}
                             </div>
                             {allDecided && (
-                                <button onClick={() => { setActionType(Object.values(itemStatuses).includes('rejected') ? 'reject' : 'approve'); setShowFeedbackModal(true); }} className="px-10 py-5 bg-slate-900 hover:bg-black text-white rounded-[24px] font-black uppercase text-xs shadow-xl transition-all flex items-center gap-3">
+                                <button
+                                    onClick={() => {
+                                        setActionType(Object.values(itemStatuses).includes('rejected') ? 'reject' : 'approve');
+                                        setShowFeedbackModal(true);
+                                    }}
+                                    className="px-10 py-5 bg-slate-900 hover:bg-black text-white rounded-[1.5rem] font-black uppercase text-[10px] shadow-2xl transition-all flex items-center gap-3"
+                                >
                                     Hoàn tất <ArrowRight className="w-5 h-5" />
                                 </button>
                             )}
@@ -360,35 +556,55 @@ const ReviewerTask = () => {
                     </div>
                 </div>
 
-                {/* Right: List */}
-                <div className="col-span-2 space-y-6">
-                    <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-2">Stream</h3>
-                    <div className="space-y-3 max-h-[700px] overflow-y-auto pr-2 custom-scrollbar">
-                        {items.map((it, idx) => {
-                            const st = itemStatuses[idx];
-                            return (
-                                <button key={idx} onClick={() => setSelectedItemIndex(idx)} className={`w-full group relative rounded-3xl overflow-hidden border-2 transition-all ${selectedItemIndex === idx ? 'border-blue-500 shadow-xl' : st === 'approved' ? 'border-emerald-400' : st === 'rejected' ? 'border-rose-400' : 'border-transparent opacity-40 hover:opacity-100'}`}>
-                                    <img src={resolveImageUrl(it)} alt="t" className="w-full h-32 object-cover" />
-                                    <div className="absolute top-3 left-3 bg-black/50 text-white text-[8px] font-black px-2 py-0.5 rounded-full">#{it.itemIndex + 1}</div>
-                                    {it.isConflict && <div className="absolute top-3 right-3 bg-rose-600 text-white text-[7px] font-black px-2 py-0.5 rounded-full animate-pulse shadow-lg">CONFLICT</div>}
-                                    {it.isConflict && <div className="absolute bottom-3 right-3 bg-slate-900/90 text-white text-[7px] font-bold px-2 py-0.5 rounded-lg max-w-[80px] truncate">{it.annotatorName}</div>}
-                                    {st === 'approved' && <div className="absolute inset-0 bg-emerald-500/20 flex items-center justify-center"><Check className="w-8 h-8 text-emerald-500 drop-shadow-lg" /></div>}
-                                    {st === 'rejected' && <div className="absolute inset-0 bg-rose-500/20 flex items-center justify-center"><X className="w-8 h-8 text-rose-500 drop-shadow-lg" /></div>}
-                                </button>
-                            );
-                        })}
+                {/* ── Right image list ── */}
+                <div className="col-span-2 space-y-4">
+                    <div className="space-y-1">
+                        <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Danh sách ảnh</h3>
+                        <p className="text-[8px] font-bold text-slate-300 uppercase tracking-widest px-1">
+                            Conflict → hiện tất cả annotator
+                        </p>
+                    </div>
+                    <div className="space-y-4 max-h-[700px] overflow-y-auto pr-3 custom-scrollbar">
+                        {items.map((item, idx) => (
+                            <RightBarThumb
+                                key={`${item.taskItemId}-${item.annotatorId || idx}`}
+                                item={item}
+                                idx={idx}
+                                isSelected={selectedItemIndex === idx}
+                                status={itemStatuses[idx]}
+                                onClick={() => setSelectedItemIndex(idx)}
+                            />
+                        ))}
                     </div>
                 </div>
             </main>
 
+            {/* ── Feedback modal ── */}
             {showFeedbackModal && (
-                <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-50 p-6">
-                    <div className="bg-white rounded-[40px] shadow-2xl max-w-lg w-full p-12 text-center">
-                        <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter mb-4">Gửi kết quả</h2>
-                        <p className="text-slate-500 mb-10 font-bold uppercase text-[10px] tracking-widest">Hệ thống sẽ cập nhật bộ dữ liệu và loại bỏ các phiên bản bị từ chối.</p>
+                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xl flex items-center justify-center z-50 p-6">
+                    <div className="bg-white rounded-[3rem] shadow-2xl max-w-lg w-full p-12 border border-slate-100">
+                        <div className="w-20 h-20 bg-blue-50 rounded-[2rem] flex items-center justify-center mx-auto mb-8 border border-blue-100">
+                            <ArrowRight className="w-10 h-10 text-blue-600" />
+                        </div>
+                        <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter mb-2 text-center">Gửi kết quả Review</h2>
+                        <p className="text-slate-400 mb-6 font-bold uppercase text-[9px] tracking-widest text-center">
+                            Duyệt {Object.values(itemStatuses).filter(s => s === 'approved').length} ảnh •
+                            Loại bỏ {Object.values(itemStatuses).filter(s => s === 'rejected').length} phiên bản
+                        </p>
+                        <textarea
+                            value={feedback}
+                            onChange={e => setFeedback(e.target.value)}
+                            placeholder="Ghi chú / nhận xét (tuỳ chọn)..."
+                            className="w-full border border-slate-200 rounded-2xl p-4 text-sm text-slate-700 resize-none mb-6 focus:outline-none focus:border-blue-300"
+                            rows={3}
+                        />
                         <div className="flex gap-4">
-                            <button onClick={() => setShowFeedbackModal(false)} className="flex-1 py-5 bg-slate-100 text-slate-400 rounded-3xl font-black uppercase text-xs">Quay lại</button>
-                            <button onClick={handleSubmitReview} className="flex-[2] py-5 bg-blue-600 text-white rounded-3xl shadow-xl shadow-blue-100 font-black uppercase text-xs">Xác nhận gửi</button>
+                            <button onClick={() => setShowFeedbackModal(false)} className="flex-1 py-5 bg-slate-50 text-slate-400 hover:text-slate-600 rounded-[1.5rem] font-black uppercase text-[10px] transition-all">
+                                Quay lại
+                            </button>
+                            <button onClick={handleSubmitReview} className="flex-[2] py-5 bg-blue-600 text-white rounded-[1.5rem] shadow-2xl shadow-blue-200 font-black uppercase text-[10px] hover:bg-blue-700 transition-all">
+                                Xác nhận gửi
+                            </button>
                         </div>
                     </div>
                 </div>
