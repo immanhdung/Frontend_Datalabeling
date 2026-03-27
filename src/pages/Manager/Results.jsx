@@ -40,7 +40,7 @@ export default function ManagerResults() {
     try {
       setLoading(true);
       setError(null);
-      
+
       const { getAssignedTasksByUserMap } = await import("../../utils/annotatorTaskHelpers");
 
       const [projRes, tasksRes] = await Promise.all([
@@ -56,33 +56,41 @@ export default function ManagerResults() {
 
       const localProjects = [];
       const seenPids = new Set(apiProjects.map(p => String(p.id)));
-      
+
       allLocalTasks.forEach(t => {
-          const pid = String(t.projectId || t.project?.id || "");
-          if (pid && !seenPids.has(pid)) {
-              localProjects.push({
-                  id: pid,
-                  name: t.projectName || t.ProjectName || t.project?.name || `Dự án #${pid.slice(0, 5)}`,
-                  status: t.project?.status || 'Active',
-                  type: t.project?.type || 'Image',
-                  updatedAt: t.updatedAt
-              });
-              seenPids.add(pid);
-          }
+        const pid = String(t.projectId || t.project?.id || "");
+        if (pid && !seenPids.has(pid)) {
+          localProjects.push({
+            id: pid,
+            name: t.projectName || t.ProjectName || t.project?.name || `Dự án #${pid.slice(0, 5)}`,
+            status: t.project?.status || 'Active',
+            type: t.project?.type || 'Image',
+            updatedAt: t.updatedAt
+          });
+          seenPids.add(pid);
+        }
       });
 
       const projectsList = [...apiProjects, ...localProjects];
 
       const enhanced = projectsList.map(p => {
-        const pid = String(p.id || p.projectId || '');
-        const projectTasks = allLocalTasks.filter(t => String(t.projectId || t.project?.id || '') === pid);
-        
+        const pid = String(p.id || p._id || p.projectId || '');
+        const projectTasks = allLocalTasks.filter(t => {
+          const tpid = String(t.projectId || t.project?.id || t.project_id || t.ProjectID || '');
+          return tpid === pid && pid !== "";
+        });
+
         const totalTasks = projectTasks.length;
-        const approvedCount = projectTasks.filter(t => 
-           ['approved', 'completed', 'done'].includes(String(t.status || "").toLowerCase())
+        const reviewedCount = projectTasks.filter(t => {
+          const s = String(t.status || "").toLowerCase();
+          return ['approved', 'completed', 'done', 'rejected', 'finished', 'submitted'].includes(s);
+        }).length;
+
+        const approvedCount = projectTasks.filter(t =>
+          ['approved', 'completed', 'done', 'finished'].includes(String(t.status || "").toLowerCase())
         ).length;
-        
-        // Calculate actual item counts and labels
+
+        // ... calculate counts ...
         let assetsCount = 0;
         let totalLabels = 0;
         let latestUpdate = p.updatedAt || p.createdAt;
@@ -103,15 +111,20 @@ export default function ManagerResults() {
         return {
           ...p,
           totalTasks: totalTasks,
+          reviewedTasks: reviewedCount,
+          approvedTasks: approvedCount,
           imagesCount: assetsCount || p.imagesCount || 0,
           labelsCount: totalLabels || p.labelsCount || 0,
           updatedAt: latestUpdate,
-          completionRate: totalTasks > 0 ? Math.round((approvedCount / totalTasks) * 100) : (p.status === 'completed' ? 100 : 0)
+          completionRate: totalTasks > 0 ? Math.round((reviewedCount / totalTasks) * 100) : (p.status === 'completed' ? 100 : 0)
         };
       });
 
-      // Filter for projects that have at least one approved task or are marked as completed
-      const results = enhanced.filter(p => p.approvedTasks > 0 || p.status?.toLowerCase() === 'approved' || p.status?.toLowerCase() === 'completed');
+      // Filter for projects that have at least one reviewed task
+      const results = enhanced.filter(p =>
+        p.reviewedTasks > 0 ||
+        ['approved', 'completed', 'done', 'finished'].includes(String(p.status || "").toLowerCase())
+      );
 
       setProjects(results);
     } catch (err) {
@@ -127,16 +140,11 @@ export default function ManagerResults() {
 
   const filteredProjects = projects.filter(
     (p) => {
-      // Show project if it has any approved tasks OR if the project itself is marked as done
-      const isActuallyDone = 
-        p.approvedTasks > 0 || 
-        ['done', 'completed', 'finished', 'hoàn thành'].includes(String(p.status || "").toLowerCase());
-      
-      const matchesSearch = 
+      const matchSearch =
         p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         String(p.id).includes(searchTerm);
 
-      return isActuallyDone && matchesSearch;
+      return matchSearch;
     }
   );
 
@@ -179,10 +187,7 @@ export default function ManagerResults() {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <button className="flex items-center gap-2 bg-white border border-slate-200 px-6 py-4 rounded-[1.5rem] hover:bg-slate-50 transition-all font-bold text-slate-700 shadow-sm">
-            <Filter className="w-5 h-5 text-slate-500" />
-            Lọc nâng cao
-          </button>
+
         </div>
 
         {/* Results Grid */}

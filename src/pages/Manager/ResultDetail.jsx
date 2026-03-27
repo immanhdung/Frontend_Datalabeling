@@ -65,120 +65,101 @@ function getLabelColor(label, idx = 0) {
 function extractAnnotations(item) {
   if (!item) return [];
 
-  // Case 1: item is already an array of bboxes
-  if (Array.isArray(item)) {
-    return normalize(item);
-  }
-
-  // Case 2: item is an object containing a list
-  const rawList =
-    item.annotations || item.Annotations ||
-    item.bboxes || item.boundingBoxes ||
-    item.labels || item.payload?.bboxes || item.payload?.annotations || [];
-
-  if (Array.isArray(rawList)) {
-    return normalize(rawList);
-  }
-
-  // Case 3: item itself is a single bbox
-  if (item.x !== undefined || item.left !== undefined || item.bbox) {
-    return normalize([item]);
-  }
-
-  return [];
-
-  function normalize(list) {
+  const normalize = (list) => {
     if (!Array.isArray(list)) return [];
     return list.map((a, idx) => {
+      if (!a) return null;
+      // Handle potentially serialized item
+      let dataObj = a;
+      if (typeof a === 'string') {
+        try { dataObj = JSON.parse(a); } catch (e) { return null; }
+      }
+      
       const findProp = (obj, keys) => {
         if (!obj) return null;
         for (const k of keys) {
-          if (obj[k] !== undefined) return obj[k];
-          // Try case insensitive match in current object
-          const lowerK = k.toLowerCase();
-          const match = Object.keys(obj).find(ok => ok.toLowerCase() === lowerK);
-          if (match !== undefined) return obj[match];
+          if (obj[k] !== undefined && obj[k] !== null) return obj[k];
+          for (const rk in obj) { if (rk.toLowerCase() === k.toLowerCase()) return obj[rk]; }
         }
+        // Deep check for common nested patterns
+        if (obj.payload) { const res = findProp(obj.payload, keys); if (res !== null) return res; }
+        if (obj.data) { const res = findProp(obj.data, keys); if (res !== null) return res; }
         return null;
       };
 
-      // Recursive deep search helper for specific fields
-      const deepFind = (obj, field) => {
-        if (!obj || typeof obj !== 'object') return null;
-        if (obj[field] !== undefined) return obj[field];
-        // Check case-insensitive
-        const match = Object.keys(obj).find(k => k.toLowerCase() === field.toLowerCase());
-        if (match) return obj[match];
-
-        for (const key in obj) {
-          const res = deepFind(obj[key], field);
-          if (res !== null) return res;
-        }
-        return null;
-      };
-
-      // ── Label Search ────────────────────────────────────────────────────────
+      // ── Label ──
       let label = 'Object';
-      const labelCandidates = ['label', 'category', 'categoryName', 'labelName', 'name', 'category_name', 'className', 'category_id', 'value', 'tag'];
-      let rawLabel = findProp(a, labelCandidates);
-
-      // If found an object, try to get its name
+      const labelCands = ['label', 'category', 'labelName', 'name', 'categoryName', 'text', 'value', 'tag'];
+      let rawLabel = findProp(dataObj, labelCands);
       if (rawLabel && typeof rawLabel === 'object') {
-        rawLabel = rawLabel.name || rawLabel.label || rawLabel.id || rawLabel.value || 'Object';
+        rawLabel = rawLabel.name || rawLabel.label || rawLabel.value || 'Object';
       }
+      if (rawLabel) label = String(rawLabel);
 
-      if (rawLabel) {
-        label = String(rawLabel);
-      } else {
-        // Search deeper if not found at top level
-        const deepLabel = deepFind(a, 'label') || deepFind(a, 'category') || deepFind(a, 'name');
-        if (deepLabel) label = String(deepLabel);
-      }
+      // ── Coordinates ──
+      const x = parseFloat(findProp(dataObj, ['x', 'left', 'x1', 'x_min', 'x_center', 'centerX']) ?? (Array.isArray(dataObj.bbox) ? dataObj.bbox[0] : 0));
+      const y = parseFloat(findProp(dataObj, ['y', 'top', 'y1', 'y_min', 'y_center', 'centerY']) ?? (Array.isArray(dataObj.bbox) ? dataObj.bbox[1] : 0));
+      let w = parseFloat(findProp(dataObj, ['width', 'w', 'boxWidth', 'rectWidth', 'span_x']) ?? (Array.isArray(dataObj.bbox) ? dataObj.bbox[2] : 0));
+      let h = parseFloat(findProp(dataObj, ['height', 'h', 'boxHeight', 'rectHeight', 'span_y']) ?? (Array.isArray(dataObj.bbox) ? dataObj.bbox[3] : 0));
 
-      // ── Coordinate Search ───────────────────────────────────────────────────
-      const rawX = findProp(a, ['x', 'left', 'x1', 'x_center', 'centerX', 'point_x']);
-      const rawY = findProp(a, ['y', 'top', 'y1', 'y_center', 'centerY', 'point_y']);
-      const rawW = findProp(a, ['width', 'w', 'boxWidth', 'rectWidth', 'span_x']);
-      const rawH = findProp(a, ['height', 'h', 'boxHeight', 'rectHeight', 'span_y']);
-
-      let x = parseFloat(rawX ?? (a.payload?.x || a.data?.x || (Array.isArray(a.bbox) ? a.bbox[0] : 0)));
-      let y = parseFloat(rawY ?? (a.payload?.y || a.data?.y || (Array.isArray(a.bbox) ? a.bbox[1] : 0)));
-      let width = parseFloat(rawW ?? (a.payload?.width || a.data?.width || (Array.isArray(a.bbox) ? a.bbox[2] : 0)));
-      let height = parseFloat(rawH ?? (a.payload?.height || a.data?.height || (Array.isArray(a.bbox) ? a.bbox[3] : 0)));
-
-      // If coordinates missing, try deep search
-      if (!x && !y && !width) {
-        x = parseFloat(deepFind(a, 'x') || 0);
-        y = parseFloat(deepFind(a, 'y') || 0);
-        width = parseFloat(deepFind(a, 'width') || deepFind(a, 'w') || 0);
-        height = parseFloat(deepFind(a, 'height') || deepFind(a, 'h') || 0);
-      }
-
-      // If width/height missing but x2/y2 exist
-      if ((width <= 0 || height <= 0)) {
-        const x2 = findProp(a, ['x2', 'right', 'x_max']);
-        const y2 = findProp(a, ['y2', 'bottom', 'y_max']);
+      if (w <= 0 || h <= 0) {
+        const x2 = findProp(dataObj, ['x2', 'right', 'x_max']);
+        const y2 = findProp(dataObj, ['y2', 'bottom', 'y_max']);
         if (x2 !== null && y2 !== null) {
-          width = Math.abs(parseFloat(x2) - x);
-          height = Math.abs(parseFloat(y2) - y);
+          w = Math.abs(parseFloat(x2) - x);
+          h = Math.abs(parseFloat(y2) - y);
         }
       }
+      if (w <= 0) w = 50; 
+      if (h <= 0) h = 50;
 
-      // Absolute fallback
-      if (width <= 0) width = 80;
-      if (height <= 80) height = 80;
-
-      const color = a.color || getLabelColor(label, idx);
+      const color = dataObj.color || getLabelColor(label, idx);
       return {
         label: label.toUpperCase(),
         x: Number(x) || 0,
         y: Number(y) || 0,
-        width: Number(width),
-        height: Number(height),
+        width: Number(w),
+        height: Number(h),
         color
       };
-    }).filter(a => a.width > 2 && a.height > 2);
+    }).filter(Boolean);
+  };
+
+  // 1. If already an array, normalize it
+  if (Array.isArray(item)) return normalize(item);
+
+  // 2. Handle potentially serialized containers
+  let container = item;
+  if (typeof item === 'string') {
+    try { container = JSON.parse(item); } catch (e) { return []; }
   }
+
+  // 3. Scan possible containers
+  let rawList = null;
+  const listCands = ['results', 'annotations', 'Annotations', 'bboxes', 'boundingBoxes', 'labels', 'points', 'versions'];
+  
+  for (const cand of listCands) {
+    const val = container[cand] || (container.payload && container.payload[cand]) || (container.data && container.data[cand]);
+    if (val && Array.isArray(val)) {
+      rawList = val;
+      break;
+    }
+    // Check serialized results (common in some backends)
+    if (typeof val === 'string' && val.trim().startsWith('[')) {
+      try { rawList = JSON.parse(val); break; } catch(e) {}
+    }
+  }
+
+  if (Array.isArray(rawList) && rawList.length > 0) {
+    return normalize(rawList);
+  }
+
+  // 4. Fallback: container itself as single bbox
+  if (container.x !== undefined || container.left !== undefined || container.bbox || container.label) {
+    return normalize([container]);
+  }
+
+  return [];
 }
 
 function BBoxCanvas({ annotations, imgRef, imgNaturalSize }) {
@@ -187,33 +168,38 @@ function BBoxCanvas({ annotations, imgRef, imgNaturalSize }) {
     const canvas = canvasRef.current;
     const img = imgRef.current;
     if (!canvas || !img) return;
+
     const dispW = img.clientWidth;
     const dispH = img.clientHeight;
+    if (dispW === 0 || dispH === 0) return;
+
     const natW = img.naturalWidth || imgNaturalSize.w || 1;
     const natH = img.naturalHeight || imgNaturalSize.h || 1;
+    
     canvas.width = dispW;
     canvas.height = dispH;
+
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, dispW, dispH);
     if (!annotations || annotations.length === 0) return;
+
     const scaleX = dispW / natW;
     const scaleY = dispH / natH;
+
     annotations.forEach((ann) => {
-      // ── Smart Coordinate Scaling ───────────────────────────────────────────
-      // Detect if coordinates are normalized (0..1) or absolute pixels
-      // Threshold: if any value > 1.5, we assume pixels.
+      // Coordinate scaling logic
       const isNormalized =
-        Math.abs(ann.x) <= 1.5 &&
-        Math.abs(ann.y) <= 1.5 &&
-        Math.abs(ann.width) <= 1.5 &&
-        Math.abs(ann.height) <= 1.5 &&
-        (ann.width > 0 || ann.height > 0);
+        Math.abs(ann.x) <= 1.05 &&
+        Math.abs(ann.y) <= 1.05 &&
+        Math.abs(ann.width) <= 1.05 &&
+        Math.abs(ann.height) <= 1.05;
 
       const x = isNormalized ? ann.x * dispW : ann.x * scaleX;
       const y = isNormalized ? ann.y * dispH : ann.y * scaleY;
       const w = isNormalized ? ann.width * dispW : ann.width * scaleX;
       const h = isNormalized ? ann.height * dispH : ann.height * scaleY;
 
+      // Draw box with nice rounded effects if possible
       ctx.strokeStyle = ann.color;
       ctx.lineWidth = 2;
       ctx.strokeRect(x, y, w, h);
@@ -221,18 +207,35 @@ function BBoxCanvas({ annotations, imgRef, imgNaturalSize }) {
       ctx.fillStyle = ann.color + '22';
       ctx.fillRect(x, y, w, h);
 
-      ctx.fillStyle = ann.color;
-      ctx.font = 'bold 10px Inter, sans-serif';
-      const labelText = String(ann.label).toUpperCase();
-      ctx.fillText(labelText, x, y > 15 ? y - 5 : y + 15);
+      // Draw label with background badge
+      if (ann.label) {
+        ctx.font = 'bold 10px sans-serif';
+        const labelText = String(ann.label).toUpperCase();
+        const tw = ctx.measureText(labelText).width;
+        const bw = tw + 8;
+        const bh = 14;
+        const bx = x;
+        const by = y > bh ? y - bh : y;
+
+        ctx.fillStyle = ann.color;
+        ctx.fillRect(bx, by, bw, bh);
+
+        ctx.fillStyle = '#fff';
+        ctx.fillText(labelText, bx + 4, by + 11);
+      }
     });
-  }, [annotations, imgRef, imgNaturalSize]);
+  }, [annotations, imgNaturalSize, imgRef]);
+
   useEffect(() => {
-    draw();
+    const timer = setTimeout(draw, 100); // Small delay to ensure img size is stable
     window.addEventListener('resize', draw);
-    return () => window.removeEventListener('resize', draw);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', draw);
+    };
   }, [draw]);
-  return <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none" />;
+
+  return <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-20" />;
 }
 
 // ── Components ────────────────────────────────────────────────────────────────
@@ -240,24 +243,28 @@ function GalleryItem({ item, onSelect }) {
   const imgRef = useRef(null);
   const [imgNaturalSize, setImgNaturalSize] = useState({ w: 0, h: 0 });
 
+  useEffect(() => {
+    // If image is already cached, naturalWidth might be available immediately
+    if (imgRef.current?.complete && imgRef.current.naturalWidth) {
+      setImgNaturalSize({ w: imgRef.current.naturalWidth, h: imgRef.current.naturalHeight });
+    }
+  }, []);
+
   return (
-    <div
-      className="group bg-white rounded-3xl border border-slate-200/60 overflow-hidden hover:shadow-2xl hover:border-indigo-200 transition-all duration-300 flex flex-col"
-    >
-      {/* Container with fixed aspect ratio, using object-contain to show full image like Reviewer view */}
+    <div className="group bg-white rounded-3xl border border-slate-200/60 overflow-hidden hover:shadow-2xl hover:border-indigo-200 transition-all duration-300 flex flex-col">
       <div className="relative aspect-[4/3] bg-slate-900 overflow-hidden flex items-center justify-center p-1">
-        <div className="relative max-w-full max-h-full">
+        <div className="relative max-w-full max-h-full inline-block">
           <img
             ref={imgRef}
             src={resolveImageUrl(item)}
-            className="max-w-full max-h-full object-contain block group-hover:scale-105 transition-transform duration-700"
+            className="max-w-full max-h-full object-contain block group-hover:scale-[1.02] transition-transform duration-700"
             alt="result"
             onLoad={(e) => {
               setImgNaturalSize({ w: e.target.naturalWidth, h: e.target.naturalHeight });
             }}
             onError={(e) => { e.target.src = 'https://placehold.co/400x300?text=No+Preview'; }}
           />
-          {/* ✅ Precision BBox Overlay (Same as Reviewer view) */}
+          {/* ✅ Precision Overlay */}
           <BBoxCanvas
             annotations={item.bboxes}
             imgRef={imgRef}
@@ -265,7 +272,7 @@ function GalleryItem({ item, onSelect }) {
           />
         </div>
 
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-30">
           <button
             onClick={() => onSelect(item)}
             className="p-3 bg-white text-slate-900 rounded-full shadow-xl hover:scale-110 active:scale-95 transition-all"
@@ -273,7 +280,6 @@ function GalleryItem({ item, onSelect }) {
             <Maximize2 className="w-5 h-5" />
           </button>
         </div>
-        <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg text-[9px] font-black text-slate-600 shadow-sm uppercase">#{item.id?.slice(-4)}</div>
       </div>
 
       <div className="p-4 flex-1 flex flex-col">
@@ -294,7 +300,7 @@ function GalleryItem({ item, onSelect }) {
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
             Verified
           </div>
-          <div className="text-[10px] text-slate-300 font-medium">By {item.annotations[0]?.assignedBy || 'Consensus'}</div>
+          <div className="text-[10px] text-slate-300 font-medium">Approved</div>
         </div>
       </div>
     </div>
@@ -383,15 +389,18 @@ export default function ManagerResultDetail() {
           taskItems.forEach(item => {
             const itemId = String(item.id || item.itemId || item.taskItemId || '');
 
-            // Aggregate ALL relevant annotations for this item (to show multiple labels)
+            // ── Enhanced Annotation Source Discovery ──
+            // We need to find the "Approved" or "Winner" annotations.
+            // Local data (from Reviewer's Task.jsx) often merges the winner into the item itself.
             let sourceAnns = [];
 
-            // Check local first (often contains the full set from the latest work)
-            if (item.annotations && item.annotations.length > 0) {
-              // If it's already an array of bboxes, wrap it in a session or pass directly
-              sourceAnns = item.annotations;
+            // 1. Direct result fields on the item (Winner content)
+            const directResults = item.results || item.bboxes || item.Annotations || item.annotations || item.payload?.results;
+            
+            if (directResults && (Array.isArray(directResults) ? directResults.length > 0 : true)) {
+              sourceAnns = Array.isArray(directResults) ? directResults : [directResults];
             } else {
-              // Fallback to API annotations
+              // 2. Fallback to API annotations if local results aren't found
               const itemAnns = taskAnns.filter(a =>
                 String(a.itemId || a.item_id || a.taskItemId || '') === itemId
               );
@@ -400,25 +409,26 @@ export default function ManagerResultDetail() {
               sourceAnns = winners.length > 0 ? winners : itemAnns;
             }
 
-            // Extract labels from ALL source annotations
             const labelSet = new Set();
             const rawBBoxes = [];
 
-            // handle both single and multiple sources
-            const listToProcess = Array.isArray(sourceAnns) ? sourceAnns : [sourceAnns];
-            listToProcess.forEach(sa => {
+            // Process all detected sources
+            sourceAnns.forEach(sa => {
+              if (!sa) return;
+              
+              // Extract bboxes
               const bboxes = extractAnnotations(sa);
               bboxes.forEach(b => {
                 rawBBoxes.push(b);
-                labelSet.add(b.label);
+                if (b.label) labelSet.add(b.label.toUpperCase());
               });
 
-              // Also check for classification on the session itself
-              const cls = sa.classification || sa.label || sa.category;
+              // Also check for category/classification on the session/item object
+              const cls = sa.classification || sa.category || sa.label || item.label || item.classification;
               if (cls && typeof cls === 'string') labelSet.add(cls.toUpperCase());
             });
 
-            // Status check
+            // Status check: Skip rejected items (User request: Don't show rejected)
             const isRejected = (item.status || '').toLowerCase() === 'rejected';
             if (isRejected) return;
 
@@ -426,10 +436,10 @@ export default function ManagerResultDetail() {
               ...item,
               taskTitle: task.title || task.name,
               taskId: taskId,
-              annotations: listToProcess,
+              annotations: sourceAnns,
               allLabels: Array.from(labelSet),
               bboxes: rawBBoxes,
-              classification: listToProcess[0]?.classification || ''
+              classification: Array.from(labelSet)[0] || ''
             });
           });
         } catch (err) {
@@ -599,7 +609,7 @@ export default function ManagerResultDetail() {
                 />
                 {/* ✅ Professional BBox Canvas (Pixel-accurate scaling) */}
                 <BBoxCanvas
-                  annotations={selectedItem.bboxes}
+                  annotations={selectedItem.bboxes || []}
                   imgRef={imgRef}
                   imgNaturalSize={imgNaturalSize}
                 />
@@ -620,12 +630,18 @@ export default function ManagerResultDetail() {
                   <div className="space-y-3 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
                     {(selectedItem.bboxes || []).map((b, i) => (
                       <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5">
-                        <span className="text-xs font-bold text-white/80 uppercase">{b.label}</span>
-                        <span className="text-[10px] text-white/30 font-mono">[{Math.round(b.width)}x{Math.round(b.height)}]</span>
+                        <div className="flex items-center gap-3">
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: b.color }}></div>
+                          <span className="text-xs font-bold text-white/80 uppercase">{b.label}</span>
+                        </div>
+                        <span className="text-[10px] text-white/30 font-mono">[{Math.round(b.x)}, {Math.round(b.y)}, {Math.round(b.width)}x{Math.round(b.height)}]</span>
                       </div>
                     ))}
                     {(selectedItem.bboxes || []).length === 0 && (
-                      <p className="text-xs text-white/20 italic text-center py-4">Không có dữ liệu bounding box.</p>
+                      <div className="flex flex-col items-center py-8 text-white/20 italic text-center">
+                        <Loader2 className="w-6 h-6 animate-spin mb-2 opacity-10" />
+                        <p className="text-xs">Không có dữ liệu bounding box.</p>
+                      </div>
                     )}
                   </div>
                 </div>

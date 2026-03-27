@@ -131,26 +131,26 @@ export default function ManagerProjects() {
       // Sync with local working history
       const localTasksMap = getAssignedTasksByUserMap();
       const allLocalTasks = Object.values(localTasksMap).flat();
-      
+
       const localProjects = [];
       const seenPids = new Set(apiProjects.map(p => String(p.id || p.projectId)));
-      
+
       allLocalTasks.forEach(t => {
-          const pid = String(t.projectId || t.project?.id || "");
-          if (pid && !seenPids.has(pid)) {
-              localProjects.push({
-                  id: pid,
-                  projectId: pid,
-                  name: t.projectName || t.ProjectName || t.project?.name || `Dự án #${pid.slice(0, 5)}`,
-                  status: t.project?.status || 'Active',
-                  type: t.project?.type || 'Image',
-                  itemsCount: t.totalItems || t.items?.length || 0,
-                  labelsCount: t.labels?.length || 0,
-                  updatedAt: t.updatedAt,
-                  createdAt: t.createdAt
-              });
-              seenPids.add(pid);
-          }
+        const pid = String(t.projectId || t.project?.id || "");
+        if (pid && !seenPids.has(pid)) {
+          localProjects.push({
+            id: pid,
+            projectId: pid,
+            name: t.projectName || t.ProjectName || t.project?.name || `Dự án #${pid.slice(0, 5)}`,
+            status: t.project?.status || 'Active',
+            type: t.project?.type || 'Image',
+            itemsCount: t.totalItems || t.items?.length || 0,
+            labelsCount: t.labels?.length || 0,
+            updatedAt: t.updatedAt,
+            createdAt: t.createdAt
+          });
+          seenPids.add(pid);
+        }
       });
 
       setProjects([...apiProjects, ...localProjects]);
@@ -302,10 +302,7 @@ export default function ManagerProjects() {
             className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </div>
-        <button className="flex items-center gap-2 border px-4 py-2 rounded-lg hover:bg-gray-50">
-          <Filter className="w-4 h-4" />
-          Lọc
-        </button>
+
       </div>
 
       {loading && (

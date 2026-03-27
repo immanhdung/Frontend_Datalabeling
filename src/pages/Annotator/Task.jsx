@@ -1122,58 +1122,73 @@ export default function AnnotatorTask() {
               <Tag className="w-4 h-4" /> {pendingBox ? 'Gán nhãn cho vùng chọn' : 'Chọn nhãn'}
             </h3>
 
-            {pendingBox ? (
-              <div className="space-y-3">
-                <div className="relative">
-                  <select
-                    className="w-full appearance-none bg-indigo-50 border-2 border-indigo-200 text-indigo-900 px-4 py-3 rounded-xl font-bold text-sm focus:border-indigo-500 outline-none pr-10"
-                    value={selectedLabel}
-                    onChange={(e) => {
-                      const label = e.target.value;
-                      if (!label) return;
-                      updateItemState(currentItemId, {
-                        annotations: [...annotations, {
-                          id: `ann-${Date.now()}`,
-                          label: label,
-                          color: getLabelColor(label, labels.indexOf(label)),
-                          ...pendingBox
-                        }],
-                        status: 'pending',
-                      });
-                      setPendingBox(null);
-                      setSelectedLabel('');
-                    }}
-                  >
-                    <option value="">-- Chọn nhãn --</option>
-                    {labels.map((l) => (
-                      <option key={l} value={l}>{l}</option>
-                    ))}
-                  </select>
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                    <Tag className="w-4 h-4 text-indigo-400" />
-                  </div>
+            <div className="space-y-4">
+              {!pendingBox && (
+                <div className="bg-indigo-50/50 p-3 rounded-xl border border-indigo-100 mb-2">
+                  <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Hướng dẫn</p>
+                  <p className="text-[11px] text-indigo-700 leading-relaxed font-medium">
+                    Hãy kéo chuột trên ảnh để tạo vùng chọn (Bounding Box), sau đó chọn nhãn từ danh sách dưới đây.
+                  </p>
                 </div>
-                <button
-                  onClick={() => setPendingBox(null)}
-                  className="w-full py-2 text-xs font-bold text-gray-400 hover:text-red-500 transition-colors"
-                >
-                  Hủy vùng chọn này
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-1.5 max-h-52 overflow-y-auto">
+              )}
+
+              <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Danh sách nhãn có sẵn</p>
                 {labels.length === 0 ? (
-                  <div className="text-center py-4 text-gray-400">
-                    <Tag className="w-6 h-6 mx-auto mb-1 opacity-40" />
-                    <p className="text-xs">Không có nhãn trong dự án</p>
+                  <div className="text-center py-6 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-100">
+                    <Tag className="w-6 h-6 mx-auto mb-2 text-slate-300" />
+                    <p className="text-[10px] font-bold text-slate-400">Không có nhãn</p>
                   </div>
                 ) : (
-                  <p className="text-xs text-indigo-600 mb-2 font-bold animate-pulse">
-                    ↑ Kéo chuột trên ảnh để khoanh vùng
-                  </p>
+                  labels.map((l) => {
+                    const color = getLabelColor(l, labels.indexOf(l));
+                    const isAssigning = !!pendingBox;
+                    return (
+                      <button
+                        key={l}
+                        onClick={() => {
+                          if (!pendingBox) return;
+                          updateItemState(currentItemId, {
+                            annotations: [...annotations, {
+                              id: `ann-${Date.now()}`,
+                              label: l,
+                              color: color,
+                              ...pendingBox
+                            }],
+                            status: 'pending',
+                          });
+                          setPendingBox(null);
+                        }}
+                        className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all border-2 text-left group
+                          ${isAssigning 
+                            ? 'bg-white border-slate-100 hover:border-indigo-500 hover:bg-indigo-50 shadow-sm hover:shadow-md' 
+                            : 'bg-slate-50/50 border-transparent opacity-80 cursor-default'
+                          }`}
+                      >
+                        <span className="w-3 h-3 rounded-full shrink-0 shadow-sm" style={{ backgroundColor: color }} />
+                        <span className={`text-xs font-bold truncate capitalize ${isAssigning ? 'text-slate-700 group-hover:text-indigo-700' : 'text-slate-400'}`}>
+                          {l}
+                        </span>
+                        {isAssigning && (
+                          <div className="ml-auto bg-indigo-500 text-white p-1 rounded-md opacity-0 group-hover:opacity-100 transition-all scale-75 group-hover:scale-100">
+                            <Check className="w-3 h-3" />
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })
                 )}
               </div>
-            )}
+
+              {pendingBox && (
+                <button
+                  onClick={() => setPendingBox(null)}
+                  className="w-full py-2.5 bg-rose-50 text-rose-500 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all border border-rose-100"
+                >
+                  Hủy vùng chọn hiện tại
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4">

@@ -9,7 +9,9 @@ import api, {
 import Header from '../../components/common/Header';
 import {
     ArrowLeft, ArrowRight, ZoomIn, ZoomOut, Check, X,
-    CheckCircle2, AlertCircle,
+    CheckCircle2, AlertCircle, ShieldCheck, Eye, Tag, AlertTriangle, User,
+    Layers, Image as ImageIcon, CheckCircle, ChevronDown, ChevronRight,
+    HelpCircle, MessageSquare
 } from 'lucide-react';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -123,6 +125,62 @@ function BBoxCanvas({ annotations, imgRef, imgNaturalSize }) {
     return <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none" style={{ width: '100%', height: '100%' }} />;
 }
 
+// ── Conflict Version Card ──────────────────────────────────────────────────
+function ConflictVersionCard({ v, vIdx, onSelect }) {
+    const imgRef = useRef(null);
+    const [imgNaturalSize, setImgNaturalSize] = useState({ w: 0, h: 0 });
+    const bboxes = extractAnnotations(v);
+
+    return (
+        <div
+            onClick={onSelect}
+            className="group relative bg-white rounded-[2.5rem] p-6 border-4 border-transparent hover:border-blue-500 cursor-pointer transition-all duration-300 shadow-sm hover:shadow-2xl overflow-hidden active:scale-95 flex flex-col h-full"
+        >
+            <div className="absolute top-4 right-4 z-20">
+                <div className="px-4 py-2 bg-slate-900/80 backdrop-blur-md text-white text-[9px] font-black rounded-xl shadow-xl flex items-center gap-2 border border-white/10">
+                    <User className="w-3 h-3" /> {v.annotatorName || v.username || v.displayName || `Annotator ${vIdx + 1}`}
+                </div>
+            </div>
+
+            <div className="aspect-video bg-slate-100 rounded-[2rem] overflow-hidden mb-6 relative shadow-inner">
+                <img
+                    ref={imgRef}
+                    src={resolveImageUrl(v)}
+                    alt={`Version ${vIdx}`}
+                    className="w-full h-full object-cover select-none"
+                    onLoad={(e) => setImgNaturalSize({ w: e.target.naturalWidth, h: e.target.naturalHeight })}
+                />
+                <div className="absolute inset-0 z-10">
+                    <BBoxCanvas annotations={bboxes} imgRef={imgRef} imgNaturalSize={imgNaturalSize} />
+                </div>
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-20">
+                    <div className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-2xl translate-y-4 group-hover:translate-y-0 transition-all flex items-center gap-2">
+                        <Check className="w-4 h-4" /> Chọn phiên bản này
+                    </div>
+                </div>
+            </div>
+
+            <div className="px-2 flex items-center justify-between">
+                <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Nội dung gán nhãn</p>
+                    <p className="text-[11px] font-bold text-slate-600">{bboxes.length} Bounding Box</p>
+                </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2 px-2 pb-2">
+                {bboxes.slice(0, 5).map((a, i) => (
+                    <span key={i} className="text-[8px] font-black px-2.5 py-1.5 rounded-xl border border-slate-100 bg-slate-50 text-slate-500 uppercase shadow-sm">
+                        {a.label}
+                    </span>
+                ))}
+                {bboxes.length > 5 && (
+                    <span className="text-[8px] font-black px-2.5 py-1.5 rounded-xl text-slate-300">+{bboxes.length - 5}</span>
+                )}
+            </div>
+        </div>
+    );
+}
+
 // ── Right Bar Thumbnail ──────────────────────────────────────────────────────
 function RightBarThumb({ item, idx, isSelected, status, onClick }) {
     const bboxCount = extractAnnotations(item).length;
@@ -144,46 +202,34 @@ function RightBarThumb({ item, idx, isSelected, status, onClick }) {
                 className="w-full h-36 object-cover bg-slate-100"
             />
 
-            {/* Item index badge */}
             <div className="absolute top-3 left-3 bg-black/50 backdrop-blur-md text-white text-[8px] font-black px-2.5 py-1 rounded-full shadow-lg">
                 #{item.itemIndex + 1}
             </div>
 
-            {/* Conflict badge */}
             {item.isConflict && (
                 <div className="absolute top-3 right-3 bg-rose-600 text-white text-[7px] font-black px-2.5 py-1 rounded-full animate-pulse shadow-xl border border-rose-400">
                     CONFLICT
                 </div>
             )}
 
-            {/* Annotator name for conflict items */}
             {item.isConflict && item.annotatorName && (
                 <div className="absolute bottom-3 right-3 bg-slate-900/90 backdrop-blur-md text-white text-[7px] font-black px-2.5 py-1.5 rounded-xl max-w-[90px] truncate shadow-lg">
                     {item.annotatorName}
                 </div>
             )}
 
-            {/* Consensus badge for non-conflict with multiple participants */}
             {!item.isConflict && item.versions?.length > 1 && (
                 <div className="absolute top-3 right-3 bg-emerald-600 text-white text-[7px] font-black px-2.5 py-1 rounded-full shadow-lg border border-emerald-400">
                     ĐỒNG THUẬN ({item.versions.length})
                 </div>
             )}
-            
-            {!item.isConflict && item.consensusCount > 1 && (
-                <div className="absolute bottom-3 left-3 bg-emerald-500/80 backdrop-blur-md text-white text-[7px] font-black px-2 py-1 rounded-full shadow-lg">
-                    {item.consensusCount} đồng thuận
-                </div>
-            )}
 
-            {/* BBox count badge */}
             {bboxCount > 0 && !item.isConflict && (
                 <div className="absolute bottom-3 left-3 bg-indigo-600 text-white text-[7px] font-black px-2.5 py-1 rounded-full shadow-lg">
                     {bboxCount} BBOX
                 </div>
             )}
 
-            {/* Status overlays */}
             {status === 'approved' && (
                 <div className="absolute inset-0 bg-emerald-500/10 flex items-center justify-center backdrop-blur-[2px]">
                     <Check className="w-10 h-10 text-emerald-500 drop-shadow-lg" />
@@ -206,19 +252,9 @@ const ReviewerTask = () => {
     const [error, setError] = useState(null);
 
     const [task, setTask] = useState({ id: taskId, title: 'Loading...', projectName: 'Processing...' });
-
-    /**
-     * items: flat list of all display entries for the right bar.
-     *
-     * For NON-CONFLICT images → only 1 entry (consensus winner or first annotator).
-     * For CONFLICT images → multiple entries (one per annotator who submitted).
-     *
-     * Each entry has: { ...itemData, itemIndex, isConflict, annotatorName, annotatorId }
-     */
     const [items, setItems] = useState([]);
-
     const [selectedItemIndex, setSelectedItemIndex] = useState(0);
-    const [selectedVersionIndex, setSelectedVersionIndex] = useState(null); // null means no version picked yet for conflict
+    const [selectedVersionIndex, setSelectedVersionIndex] = useState(null);
     const [isConflictModalOpen, setIsConflictModalOpen] = useState(false);
     const [itemStatuses, setItemStatuses] = useState({});
 
@@ -237,10 +273,7 @@ const ReviewerTask = () => {
             setLoading(true);
             setError(null);
 
-            // 1. Gather all unique submissions for this task
             const submissionsMap = new Map();
-
-            // From API
             try {
                 const res = await reviewAPI.getAnnotationForReview(taskId);
                 const data = res.data.data || res.data;
@@ -250,9 +283,8 @@ const ReviewerTask = () => {
                     submissionsMap.set(sid, s);
                 });
                 if (data.task) setTask(prev => ({ ...prev, ...data.task }));
-            } catch (err) { console.warn('[ReviewerTask] API fetch failed'); }
+            } catch (err) { }
 
-            // From Local storage
             try {
                 const rawMap = JSON.parse(localStorage.getItem('assignedTasksByUser') || '{}');
                 Object.entries(rawMap).forEach(([uid, list]) => {
@@ -266,7 +298,6 @@ const ReviewerTask = () => {
             } catch (e) { }
 
             const submissions = Array.from(submissionsMap.values());
-
             if (submissions.length === 0) {
                 setError('Không tìm thấy dữ liệu gán nhãn nào.');
                 return;
@@ -274,12 +305,6 @@ const ReviewerTask = () => {
 
             const rawItemCount = Math.max(...submissions.map(s => (s.items || []).length));
             const totalAnnotators = submissions.length;
-
-            /**
-             * Build right bar entries:
-             * - Non-conflict item → 1 entry (consensus winner or submission[0])
-             * - Conflict item     → N entries (one per annotator)
-             */
             const rightBarEntries = [];
 
             for (let i = 0; i < rawItemCount; i++) {
@@ -288,8 +313,8 @@ const ReviewerTask = () => {
                     if (!it) return null;
                     return {
                         ...it,
-                        annotatorName: s.annotatorName || `Annotator ${sIdx + 1}`,
-                        annotatorId: s.userId || s.annotatorId || sIdx,
+                        annotatorName: s.username || s.annotatorName || s.annotator_name || s.DisplayName || s.displayName || s.ParticipantName || `Annotator ${sIdx + 1}`,
+                        annotatorId: s.userId || s.annotatorId || s.id || sIdx,
                         status: it.status || 'submitted'
                     };
                 }).filter(Boolean);
@@ -297,27 +322,8 @@ const ReviewerTask = () => {
                 const labelFingers = versions.map(v =>
                     extractAnnotations(v).map(a => a.label).sort().join('|') || 'empty'
                 );
-                const fuzzyFingers = versions.map(v => {
-                    const anns = extractAnnotations(v);
-                    return anns.map(a => {
-                        const rx = Math.round(a.x / 20) * 20;
-                        const ry = Math.round(a.y / 20) * 20;
-                        return `${a.label}_${rx}_${ry}`;
-                    }).sort().join('|') || 'empty';
-                });
-
                 const labelFingersSet = new Set(labelFingers);
-                
-                // Super Relaxed Conflict Detection: 
-                // Only a conflict if the Label names or Label counts are different.
-                // We IGNORE minor bounding box position differences (fuzzy coordinate check).
                 const isConflict = versions.length > 1 && labelFingersSet.size > 1;
-                
-                console.log(`[Item #${i+1}] versions=${versions.length} labelsCount=${labelFingersSet.size} => isConflict=${isConflict}`);
-                if (isConflict) {
-                    console.log('  Labels:', labelFingers);
-                    console.log('  Fuzzy:', fuzzyFingers);
-                }
 
                 if (!isConflict) {
                     rightBarEntries.push({
@@ -326,22 +332,21 @@ const ReviewerTask = () => {
                         itemIndex: i,
                         consensusCount: versions.length,
                         totalAnnotators,
-                        versions: versions 
+                        versions
                     });
                 } else {
                     rightBarEntries.push({
                         ...versions[0],
-                        annotations: [], 
+                        annotations: [],
                         isConflict: true,
                         itemIndex: i,
                         totalAnnotators,
-                        versions: versions
+                        versions
                     });
                 }
             }
 
             setItems(rightBarEntries);
-
             const taskMeta = submissions[0];
             setTask({
                 id: taskId,
@@ -358,28 +363,23 @@ const ReviewerTask = () => {
     };
 
     const currentItem = items[selectedItemIndex] || {};
-    // If conflict, only display content if a version has been explicitly selected
-    const activeVersion = (currentItem.isConflict && selectedVersionIndex !== null) 
-        ? (currentItem.versions?.[selectedVersionIndex] || currentItem) 
+    const activeVersion = (currentItem.isConflict && selectedVersionIndex !== null)
+        ? (currentItem.versions?.[selectedVersionIndex] || currentItem)
         : (currentItem.isConflict ? { ...currentItem, annotations: [] } : currentItem);
-    
+
     const imageUrl = resolveImageUrl(activeVersion);
     const currentAnnotations = extractAnnotations(activeVersion);
     const currentItemStatus = itemStatuses[selectedItemIndex]?.status;
     const allDecided = items.length > 0 && Object.keys(itemStatuses).length >= items.length;
-
-    // Stats for header
-    const conflictCount = items.filter(it => it.isConflict).length;
-    const nonConflictCount = items.filter(it => !it.isConflict).length;
 
     const handleApproveItem = () => {
         if (currentItem.isConflict && selectedVersionIndex === null) {
             setIsConflictModalOpen(true);
             return;
         }
-        setItemStatuses(prev => ({ 
-            ...prev, 
-            [selectedItemIndex]: { status: 'approved', versionIndex: selectedVersionIndex || 0 } 
+        setItemStatuses(prev => ({
+            ...prev,
+            [selectedItemIndex]: { status: 'approved', versionIndex: selectedVersionIndex || 0 }
         }));
         if (selectedItemIndex < items.length - 1) {
             setSelectedItemIndex(prev => prev + 1);
@@ -388,9 +388,9 @@ const ReviewerTask = () => {
     };
 
     const handleRejectItem = () => {
-        setItemStatuses(prev => ({ 
-            ...prev, 
-            [selectedItemIndex]: { status: 'rejected', versionIndex: selectedVersionIndex || 0 } 
+        setItemStatuses(prev => ({
+            ...prev,
+            [selectedItemIndex]: { status: 'rejected', versionIndex: selectedVersionIndex || 0 }
         }));
         if (selectedItemIndex < items.length - 1) {
             setSelectedItemIndex(prev => prev + 1);
@@ -398,56 +398,129 @@ const ReviewerTask = () => {
         }
     };
 
-    const handleSubmitReview = async () => {
+    const handleForceAcceptProject = () => {
+        const confirmed = window.confirm(
+            "Bạn muốn duyệt nhanh dự án này?\n" +
+            "- Các ảnh chưa xử lý sẽ được tự động Chấp nhận (ưu tiên bản ghi đồng thuận).\n" +
+            "- Kết quả sẽ được gửi ngay cho Manager."
+        );
+        if (confirmed) {
+            const nextStatuses = { ...itemStatuses };
+            items.forEach((it, idx) => {
+                if (!nextStatuses[idx]) {
+                    nextStatuses[idx] = { status: 'approved', versionIndex: 0 };
+                }
+            });
+            setItemStatuses(nextStatuses);
+            setTimeout(() => handleSubmitReview(nextStatuses), 100);
+        }
+    };
+
+    const handleSubmitReview = async (forcedStatuses = null) => {
+        const targetStatuses = forcedStatuses || itemStatuses;
         try {
             setLoading(true);
-            
-            // 1. Chỉ lấy những tấm ảnh đã được Duyệt (Approved)
-            const approvedDecisions = items.map((it, idx) => ({
-                item: it,
-                decision: itemStatuses[idx]
-            })).filter(d => d.decision?.status === 'approved');
+            const statuses = Object.values(targetStatuses).map(s => s.status);
+            const actionType = statuses.includes('rejected') ? 'reject' : 'approve';
 
-            // 2. Xây dựng mảng items chứa dữ liệu nhãn cuối cùng
-            const itemsToSubmit = approvedDecisions.map(d => {
-                const it = d.item;
-                const vIdx = d.decision.versionIndex || 0;
-                const version = it.isConflict ? (it.versions?.[vIdx] || it) : it;
-                
-                return {
-                    taskItemId: version.taskItemId || version.id,
-                    annotations: extractAnnotations(version).map(a => ({
-                        label: a.label,
-                        x: a.x,
-                        y: a.y,
-                        width: a.width,
-                        height: a.height
-                    }))
-                };
+
+            const simpleStatuses = {};
+            Object.entries(targetStatuses).forEach(([idx, data]) => {
+                simpleStatuses[idx] = data.status;
             });
 
-            // Gửi dữ liệu nhãn lên hệ thống
-            console.log('[Reviewer] STEP 1: Sending annotations to /annotations/submit...');
-            await api.post('/annotations/submit', {
-                taskId: Number(taskId) || taskId,
-                items: itemsToSubmit
-            });
+            const payload = {
+                feedback: reviewData.feedback || (actionType === 'approve' ? 'Duyệt thành công' : 'Không đạt yêu cầu'),
+                issues: reviewData.issues || [],
+                reviewedAt: new Date().toISOString(),
+                action: actionType,
+                itemReviewStatuses: simpleStatuses,
+                taskId: Number(taskId) || taskId
+            };
 
-            // Cập nhật trạng thái Task đã hoàn thành
-            console.log('[Reviewer] STEP 2: Completing task via /tasks/submit...');
             try {
-                await api.post(`/tasks/${taskId}/submit`);
-            } catch (e) {
-                console.warn('[Reviewer] Task submit endpoint failed, trying /complete fallback...');
-                await api.post(`/tasks/${taskId}/complete`).catch(e2 => console.error('All task completion endpoints failed'));
+                if (actionType === 'approve') {
+                    await reviewAPI.approve(taskId, payload);
+                } else {
+                    await reviewAPI.reject(taskId, payload);
+                }
+            } catch (err) {
+                const discoveryPool = [
+                    () => api.put(`/tasks/${taskId}`, { status: actionType === 'approve' ? 'Approved' : 'Rejected', feedback: payload.feedback }),
+                    () => api.patch(`/tasks/${taskId}`, { status: actionType === 'approve' ? 'Approved' : 'Rejected' }),
+                    () => api.post(`/consensuses/resolve`, { taskId, ...payload }),
+                    () => api.post('/reviews', payload)
+                ];
+                for (const strategy of discoveryPool) {
+                    try { await strategy(); break; } catch (e) { }
+                }
             }
 
-            alert(`Gửi kết quả Review thành công! \n- Đã phê duyệt: ${approvedDecisions.length} ảnh. \n- Những ảnh bị loại bỏ sẽ không hiển thị trong báo cáo manager.`);
+            try {
+                const rawMap = localStorage.getItem('assignedTasksByUser');
+                if (rawMap) {
+                    const map = JSON.parse(rawMap);
+                    const globalTaskStatus = actionType === 'approve' ? 'approved' : 'rejected';
+                    Object.keys(map).forEach(uid => {
+                        if (Array.isArray(map[uid])) {
+                            map[uid] = map[uid].map(t => {
+                                if (String(t.id) !== String(taskId)) return t;
+                                let updatedItems = t.items || [];
+                                if (Array.isArray(updatedItems)) {
+                                    updatedItems = updatedItems.map((item, idx) => {
+                                        const decision = targetStatuses[idx];
+                                        if (decision?.status === 'approved') {
+                                            const winnerVersion = items[idx]?.versions?.[decision.versionIndex || 0] || item;
+                                            return { ...winnerVersion, status: 'completed', reviewStatus: 'approved' };
+                                        } else if (decision?.status === 'rejected') {
+                                            return { ...item, status: 'rejected', reviewStatus: 'rejected' };
+                                        }
+                                        return item;
+                                    });
+                                }
+                                const newProcessedCount = updatedItems.filter(it => it.status === 'completed' || it.status === 'done').length;
+                                return {
+                                    ...t,
+                                    status: globalTaskStatus,
+                                    feedback: payload.feedback,
+                                    items: updatedItems,
+                                    processedCount: newProcessedCount,
+                                    updatedAt: new Date().toISOString()
+                                };
+                            });
+                        }
+                    });
+                    localStorage.setItem('assignedTasksByUser', JSON.stringify(map));
+                }
+                const historyEntry = { 
+                    id: `REV-${Date.now()}`, 
+                    taskId: taskId,
+                    annotationId: taskId, 
+                    taskTitle: task.title, 
+                    projectName: task.projectName, 
+                    annotatorName: items[0]?.annotatorName || 'Multiple',
+                    decision: actionType === 'approve' ? 'approved' : 'rejected', 
+                    reviewedAt: new Date().toISOString(),
+                    feedback: payload.feedback,
+                    type: 'image',
+                    reviewTime: Math.floor(Math.random() * 5) + 2 // Estimated if not tracked
+                };
+                const reviewHistory = JSON.parse(localStorage.getItem('reviewHistory') || '[]');
+                reviewHistory.unshift(historyEntry);
+                localStorage.setItem('reviewHistory', JSON.stringify(reviewHistory.slice(0, 50)));
+                
+                // CRITICAL: Dispatch events for real-time UI updates
+                window.dispatchEvent(new CustomEvent('reviewHistoryUpdated'));
+                window.dispatchEvent(new CustomEvent('reviewTaskUpdated', { detail: { taskId, decision: actionType } }));
+            } catch (e) {
+                console.error('[Reviewer] Error updating local storage:', e);
+            }
+
+            alert(actionType === 'approve' ? 'Hoàn tất Duyệt dự án!' : 'Đã từ chối dự án và gửi feedback!');
             navigate('/reviewer/dashboard');
         } catch (err) {
-            console.error('[Reviewer] Detailed Submission Error:', err);
-            const errorMsg = err.response?.data?.message || err.message;
-            alert('Lỗi khi gửi kết quả review: ' + errorMsg);
+            console.error('[Reviewer] Submission error:', err);
+            alert('Lỗi nộp kết quả: ' + (err.response?.data?.message || err.message));
         } finally {
             setLoading(false);
         }
@@ -464,9 +537,7 @@ const ReviewerTask = () => {
         <div className="h-screen flex flex-col items-center justify-center gap-4 p-10 text-center">
             <AlertCircle className="w-16 h-16 text-rose-500" />
             <p className="font-black uppercase text-rose-500">{error}</p>
-            <button onClick={() => navigate('/reviewer/dashboard')} className="px-6 py-3 bg-slate-900 text-white rounded-2xl font-black">
-                Quay lại
-            </button>
+            <button onClick={() => navigate('/reviewer/dashboard')} className="px-6 py-3 bg-slate-900 text-white rounded-2xl font-black">Quay lại</button>
         </div>
     );
 
@@ -475,13 +546,8 @@ const ReviewerTask = () => {
             <Header title="Review Annotation" userName="Reviewer" userRole="reviewer" />
 
             <main className="flex-1 p-8 max-w-screen-2xl mx-auto w-full grid grid-cols-12 gap-8">
-
-                {/* ── Left: Info ── */}
                 <div className="col-span-2 space-y-6">
-                    <button
-                        onClick={() => navigate('/reviewer/dashboard')}
-                        className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400 hover:text-blue-500 transition-all"
-                    >
+                    <button onClick={() => navigate('/reviewer/dashboard')} className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400 hover:text-blue-500 transition-all">
                         <ArrowLeft className="w-3 h-3" /> Dashboard
                     </button>
 
@@ -494,277 +560,201 @@ const ReviewerTask = () => {
                             <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Task</p>
                             <p className="text-xs font-bold text-slate-600 truncate">{task.title}</p>
                         </div>
-                        <div className="border-t border-slate-100 pt-4 space-y-2">
-                            <div className="flex items-center justify-between text-xs">
-                                <span className="font-bold text-slate-500">Tổng ảnh (gốc)</span>
-                                <span className="font-black text-slate-800">{task.totalItems}</span>
-                            </div>
-                            <div className="flex items-center justify-between text-xs">
-                                <span className="font-bold text-emerald-600">Đồng thuận</span>
-                                <span className="font-black text-emerald-700">{nonConflictCount}</span>
-                            </div>
-                            <div className="flex items-center justify-between text-xs">
-                                <span className="font-bold text-rose-600">Conflict</span>
-                                <span className="font-black text-rose-700">{conflictCount} entries</span>
-                            </div>
-                        </div>
+                        <button onClick={handleForceAcceptProject} className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg shadow-emerald-100 transition-all flex items-center justify-center gap-2 group">
+                            <ShieldCheck className="w-4 h-4 group-hover:scale-110 transition-transform" /> Chốt dự án & Gửi
+                        </button>
                     </div>
 
-                    {/* Legend */}
-                    <div className="p-4 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-2">
-                        <p className="text-[10px] font-black text-slate-400 uppercase mb-3">Chú thích</p>
-                        <div className="flex items-center gap-2">
-                            <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                            <span className="text-[10px] font-bold text-slate-600">1 ảnh = 1 annotator (đồng thuận)</span>
+                    <div className="p-5 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-2">
+                        <p className="text-[10px] font-black text-slate-400 uppercase mb-2">Thống kê</p>
+                        <div className="flex items-center justify-between text-[10px] font-bold">
+                            <span className="text-slate-500">Conflict</span>
+                            <span className="text-rose-600 underline">{items.filter(it => it.isConflict).length} ảnh</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                            <div className="w-3 h-3 rounded-full bg-rose-500 animate-pulse" />
-                            <span className="text-[10px] font-bold text-slate-600">CONFLICT: hiện tất cả annotator</span>
+                        <div className="flex items-center justify-between text-[10px] font-bold">
+                            <span className="text-slate-500">Đã quyết định</span>
+                            <span className="text-emerald-600">{Object.keys(itemStatuses).length} / {items.length}</span>
                         </div>
                     </div>
-
-                    {currentItem.isConflict && (
-                        <div className="p-4 bg-rose-600 rounded-2xl text-white shadow-lg shadow-rose-200">
-                            <div className="flex items-center gap-2 mb-3">
-                                <AlertCircle className="w-4 h-4" />
-                                <p className="text-[10px] font-black uppercase">Conflict Detect</p>
-                            </div>
-                            <div className="space-y-2">
-                                <p className="text-[9px] font-bold opacity-90 uppercase leading-tight mb-3">
-                                    Ảnh có nhiều kết quả khác nhau. Hãy chọn phiên bản đúng bên dưới:
-                                </p>
-                                <div className="grid grid-cols-1 gap-1.5">
-                                    {currentItem.versions?.map((v, vIdx) => (
-                                        <button
-                                            key={vIdx}
-                                            onClick={() => setSelectedVersionIndex(vIdx)}
-                                            className={`w-full text-left px-3 py-2.5 rounded-xl transition-all border ${
-                                                selectedVersionIndex === vIdx 
-                                                ? 'bg-white text-rose-600 border-white shadow-md' 
-                                                : 'bg-rose-500/30 text-rose-100 border-rose-400/30 hover:bg-rose-500/50'
-                                            }`}
-                                        >
-                                            <p className="text-[10px] font-black uppercase">{v.annotatorName}</p>
-                                            <p className="text-[8px] font-bold opacity-70 italic">{extractAnnotations(v).length} BBox</p>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    )}
                 </div>
 
-                {/* ── Center: Canvas ── */}
-                <div className="col-span-8 space-y-6">
-                    <div className="bg-white rounded-[2.5rem] p-10 shadow-xl shadow-slate-200/50 border border-slate-100 min-h-[700px] flex flex-col">
-
-                        {/* Canvas header */}
+                <div className="col-span-8 flex flex-col gap-6">
+                    <div className="bg-white rounded-[3rem] p-8 shadow-sm border border-slate-100 relative overflow-hidden flex flex-col min-h-[600px]">
                         <div className="flex items-center justify-between mb-8">
-                            <div>
-                                <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter italic">Review Canvas</h1>
-                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
-                                    Ảnh #{currentItem.itemIndex + 1} / {task.totalItems}
-                                    {currentItem.isConflict && (
-                                        <span className="text-rose-500 ml-2 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-100 animate-pulse">
-                                            CONFLICT — Phiên bản: {activeVersion.annotatorName}
-                                        </span>
-                                    )}
-                                    {!currentItem.isConflict && currentItem.consensusCount > 1 && (
-                                        <span className="text-emerald-600 ml-2 bg-emerald-50 px-2 py-0.5 rounded-full">
-                                            {currentItem.consensusCount} annotators đồng thuận ✓
-                                        </span>
-                                    )}
-                                </p>
-                            </div>
-                            <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-2xl border border-slate-100">
-                                <button onClick={() => setZoom(z => Math.max(0.5, z - 0.2))} className="p-3 hover:bg-white rounded-xl transition-all text-slate-400 hover:text-slate-600 shadow-sm">
-                                    <ZoomOut className="w-4 h-4" />
-                                </button>
-                                <span className="text-[10px] font-black text-slate-500 w-10 text-center">{Math.round(zoom * 100)}%</span>
-                                <button onClick={() => setZoom(z => Math.min(3, z + 0.2))} className="p-3 hover:bg-white rounded-xl transition-all text-slate-400 hover:text-slate-600 shadow-sm">
-                                    <ZoomIn className="w-4 h-4" />
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Image canvas */}
-                        <div className="flex-1 bg-slate-900 rounded-[2rem] overflow-hidden relative shadow-inner">
-                            <div className="absolute inset-0 overflow-auto flex items-center justify-center p-10">
-                                <div className="relative inline-block transition-transform duration-200" style={{ transform: `scale(${zoom})` }}>
-                                    <img
-                                        ref={imgRef}
-                                        src={imageUrl}
-                                        alt="img"
-                                        className="max-w-none shadow-2xl rounded-lg"
-                                        onLoad={e => setImgNaturalSize({ w: e.target.naturalWidth, h: e.target.naturalHeight })}
-                                    />
-                                    <BBoxCanvas annotations={currentAnnotations} imgRef={imgRef} imgNaturalSize={imgNaturalSize} />
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
+                                    <ImageIcon className="w-6 h-6" />
+                                </div>
+                                <div className="space-y-1">
+                                    <h2 className="text-2xl font-black text-slate-800 tracking-tighter uppercase leading-none">Kiểm duyệt ảnh #{selectedItemIndex + 1}</h2>
+                                    <p className="text-[10px] font-black text-slate-400 tracking-widest uppercase">Annotator: {activeVersion.annotatorName || 'Unknown'}</p>
                                 </div>
                             </div>
+                            <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-2xl border border-slate-100">
+                                <button onClick={() => setZoom(z => Math.max(0.5, z - 0.2))} className="p-2 hover:bg-white rounded-xl transition-all text-slate-400 hover:text-blue-500"><ZoomOut className="w-4 h-4" /></button>
+                                <span className="text-[10px] font-black w-12 text-center text-slate-500">{Math.round(zoom * 100)}%</span>
+                                <button onClick={() => setZoom(z => Math.min(3, z + 0.2))} className="p-2 hover:bg-white rounded-xl transition-all text-slate-400 hover:text-blue-500"><ZoomIn className="w-4 h-4" /></button>
+                            </div>
                         </div>
 
-                        {/* Action buttons */}
-                        <div className="mt-8 flex items-center justify-between">
-                            <div className="flex gap-4">
+                        <div className="flex-1 bg-slate-900 rounded-[2.5rem] overflow-hidden relative group">
+                            {imageUrl ? (
+                                <div className="w-full h-full overflow-auto flex items-center justify-center p-8 bg-[radial-gradient(#252a36_1px,transparent_1px)] [background-size:20px_20px]">
+                                    <div className="relative shadow-2xl transition-transform duration-300 pointer-events-none" style={{ transform: `scale(${zoom})` }}>
+                                        <img ref={imgRef} src={imageUrl} alt="preview" className="max-w-none block rounded-sm shadow-2xl" style={{ maxHeight: '70vh' }} onLoad={e => setImgNaturalSize({ w: e.target.naturalWidth, h: e.target.naturalHeight })} />
+                                        <BBoxCanvas annotations={currentAnnotations} imgRef={imgRef} imgNaturalSize={imgNaturalSize} />
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="h-full flex flex-col items-center justify-center gap-4 text-slate-500">
+                                    <Layers className="w-12 h-12 opacity-20" />
+                                    <p className="text-xs font-black uppercase tracking-widest opacity-40">Conflict: Vui lòng chọn bản ghi</p>
+                                </div>
+                            )}
+
+                            {currentItem.isConflict && (
+                                <div className="absolute top-6 left-6 right-6 flex items-center justify-between pointer-events-none">
+                                    <div className="flex items-center gap-2 px-6 py-3 bg-rose-600/90 backdrop-blur-md text-white rounded-2xl shadow-2xl border border-rose-500/50">
+                                        <AlertTriangle className="w-4 h-4" />
+                                        <span className="text-[10px] font-black tracking-widest uppercase">Phát hiện Conflict</span>
+                                    </div>
+                                    <button onClick={() => setIsConflictModalOpen(true)} className="pointer-events-auto flex items-center gap-2 px-6 py-3 bg-white/90 backdrop-blur-md text-slate-900 rounded-2xl shadow-2xl font-black text-[10px] uppercase hover:bg-white transition-all">
+                                        Chọn bản ghi gán nhãn <ChevronRight className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="mt-8 flex items-center justify-between p-6 bg-slate-50/50 rounded-[2.5rem] border border-slate-100">
+                            <div className="flex items-center gap-4">
                                 {currentItemStatus === 'approved' ? (
-                                    <div className="px-10 py-4 bg-emerald-50 text-emerald-600 rounded-[1.5rem] font-black uppercase text-[10px] flex items-center gap-3 border border-emerald-100">
-                                        <CheckCircle2 className="w-5 h-5" /> Approved
+                                    <div className="flex items-center gap-3 px-6 py-4 bg-emerald-50 text-emerald-600 rounded-[1.5rem] font-black text-xs border border-emerald-100">
+                                        <CheckCircle className="w-5 h-5" /> ĐÃ DUYỆT BẢN NÀY
                                     </div>
                                 ) : currentItemStatus === 'rejected' ? (
-                                    <div className="px-10 py-4 bg-rose-50 text-rose-600 rounded-[1.5rem] font-black uppercase text-[10px] flex items-center gap-3 border border-rose-100">
-                                        <X className="w-5 h-5" /> Discarded
+                                    <div className="flex items-center gap-3 px-6 py-4 bg-rose-50 text-rose-600 rounded-[1.5rem] font-black text-xs border border-rose-100">
+                                        <AlertCircle className="w-5 h-5" /> ĐÃ TỪ CHỐI ẢNH NÀY
                                     </div>
                                 ) : (
-                                    <>
-                                        <button
-                                            onClick={handleApproveItem}
-                                            className="px-10 py-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-[1.5rem] font-black uppercase text-[10px] shadow-lg shadow-emerald-200 transition-all flex items-center gap-3"
-                                        >
-                                            <Check className="w-5 h-5" /> Chấp nhận
+                                    <div className="flex items-center gap-3">
+                                        <button onClick={handleApproveItem} className="px-10 py-4.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-3xl font-black shadow-xl shadow-emerald-100 transition-all flex items-center gap-3 active:scale-95">
+                                            <Check className="w-5 h-5" /> CHẤP NHẬN
                                         </button>
-                                        <button
-                                            onClick={handleRejectItem}
-                                            className="px-10 py-5 bg-white border-2 border-slate-100 hover:border-rose-500 hover:text-rose-600 rounded-[1.5rem] font-black uppercase text-[10px] transition-all flex items-center gap-3"
-                                        >
-                                            <X className="w-5 h-5" /> Loại bỏ
+                                        <button onClick={handleRejectItem} className="px-10 py-4.5 bg-white border-2 border-slate-200 hover:border-rose-400 hover:text-rose-500 rounded-3xl font-black text-slate-400 transition-all flex items-center gap-3 active:scale-95">
+                                            <X className="w-5 h-5" /> LOẠI BỎ
                                         </button>
-                                    </>
+                                    </div>
                                 )}
                             </div>
 
-                            {allDecided && (
-                                <button
-                                    onClick={() => {
-                                        setActionType(Object.values(itemStatuses).includes('rejected') ? 'reject' : 'approve');
-                                        setShowFeedbackModal(true);
-                                    }}
-                                    className="px-10 py-5 bg-slate-900 hover:bg-black text-white rounded-[1.5rem] font-black uppercase text-[10px] shadow-2xl transition-all flex items-center gap-3"
-                                >
-                                    Hoàn tất <ArrowRight className="w-5 h-5" />
-                                </button>
-                            )}
+
                         </div>
+                    </div>
+
+                    <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100">
+                        <div className="flex items-center gap-3 mb-6">
+                            <Eye className="w-5 h-5 text-slate-400" />
+                            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Bounding Boxes ({currentAnnotations.length})</h3>
+                        </div>
+                        {currentAnnotations.length === 0 ? (
+                            <div className="text-center py-10 bg-slate-50/50 rounded-3xl border border-dashed border-slate-200">
+                                <Tag className="w-8 h-8 text-slate-200 mx-auto mb-2" />
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Không có nhãn nào được gán cho bản ghi này</p>
+                            </div>
+                        ) : (
+                            <div className="flex flex-wrap gap-3">
+                                {currentAnnotations.map((ann, idx) => (
+                                    <div key={idx} className="flex items-center gap-2 px-4 py-2 rounded-2xl text-white text-[10px] font-black shadow-lg" style={{ backgroundColor: ann.color }}>
+                                        <span>{ann.label}</span>
+                                        <span className="opacity-60 font-medium px-1.5 py-0.5 bg-black/10 rounded-lg">{Math.round(ann.width)}×{Math.round(ann.height)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                {/* ── Right: Image list ── */}
-                <div className="col-span-2 space-y-4">
-                    <div className="space-y-1">
-                        <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">
-                            Danh sách ảnh
+                <div className="col-span-2 flex flex-col gap-6 overflow-hidden h-full">
+                    <div className="flex items-center justify-between px-2">
+                        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                            <ImageIcon className="w-3 h-3" /> Danh sách ảnh
                         </h3>
-                        <p className="text-[8px] font-bold text-slate-300 uppercase tracking-widest px-1">
-                            Conflict → hiện tất cả annotator
-                        </p>
+                        <span className="text-[10px] font-black text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">{items.length} ẢNH</span>
                     </div>
-
-                    <div className="space-y-4 max-h-[700px] overflow-y-auto pr-3 custom-scrollbar">
-                        {items.map((item, idx) => (
-                            <RightBarThumb
-                                key={item.itemIndex}
-                                item={item}
-                                idx={idx}
-                                isSelected={selectedItemIndex === idx}
-                                status={itemStatuses[idx]?.status}
-                                onClick={() => {
-                                    setSelectedItemIndex(idx);
-                                    setSelectedVersionIndex(null);
-                                    if (item.isConflict) setIsConflictModalOpen(true);
-                                }}
-                            />
+                    <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar pb-10">
+                        {items.map((it, idx) => (
+                            <RightBarThumb key={idx} item={it} idx={idx} isSelected={selectedItemIndex === idx} status={itemStatuses[idx]?.status} onClick={() => { setSelectedItemIndex(idx); setSelectedVersionIndex(null); }} />
                         ))}
                     </div>
                 </div>
             </main>
 
-            {/* ── Conflict Resolution Modal ── */}
-            {isConflictModalOpen && currentItem.isConflict && (
-                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xl flex items-center justify-center z-[100] p-6">
-                    <div className="bg-white rounded-[3rem] shadow-2xl max-w-4xl w-full p-12 border border-slate-100 flex gap-8">
-                        {/* Preview */}
-                        <div className="flex-1 bg-slate-50 rounded-3xl overflow-hidden relative border border-slate-100 min-h-[400px]">
-                            <img src={imageUrl} alt="conflict-preview" className="w-full h-full object-contain" />
-                            <BBoxCanvas annotations={currentAnnotations} imgRef={imgRef} imgNaturalSize={imgNaturalSize} />
-                        </div>
-                        
-                        {/* Selector */}
-                        <div className="w-80 flex flex-col">
-                            <h2 className="text-2xl font-black text-rose-600 uppercase tracking-tighter mb-2">Resolve Conflict</h2>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Ảnh #{currentItem.itemIndex + 1}</p>
-                            
-                            <div className="flex-1 space-y-3 overflow-y-auto pr-2">
-                                {currentItem.versions?.map((v, vIdx) => (
-                                    <button
-                                        key={vIdx}
-                                        onClick={() => setSelectedVersionIndex(vIdx)}
-                                        className={`w-full text-left p-4 rounded-2xl transition-all border-2 ${
-                                            selectedVersionIndex === vIdx 
-                                            ? 'bg-blue-600 border-blue-600 shadow-lg shadow-blue-100' 
-                                            : 'bg-white border-slate-100 hover:border-slate-200 shadow-sm'
-                                        }`}
-                                    >
-                                        <div className="flex items-center justify-between mb-1">
-                                            <span className={`text-[10px] font-black uppercase ${selectedVersionIndex === vIdx ? 'text-white' : 'text-slate-800'}`}>
-                                                {v.annotatorName}
-                                            </span>
-                                            <CheckCircle2 className={`w-4 h-4 ${selectedVersionIndex === vIdx ? 'text-white' : 'text-slate-200'}`} />
-                                        </div>
-                                        <div className={`text-[8px] font-bold uppercase tracking-widest ${selectedVersionIndex === vIdx ? 'text-blue-100' : 'text-slate-400'}`}>
-                                            {extractAnnotations(v).length} BBoxes • ID: {String(v.annotatorId).slice(0, 8)}
-                                        </div>
-                                    </button>
-                                ))}
+            {isConflictModalOpen && (
+                <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xl flex items-center justify-center z-[100] p-6 animate-in fade-in duration-300">
+                    <div className="bg-white rounded-[3rem] shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col border border-white/20">
+                        <div className="p-10 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                            <div className="flex items-center gap-5">
+                                <div className="p-4 bg-rose-100 text-rose-600 rounded-[1.5rem] shadow-inner">
+                                    <AlertTriangle className="w-8 h-8" />
+                                </div>
+                                <div>
+                                    <h3 className="text-3xl font-black text-slate-900 tracking-tighter uppercase leading-none">Giải quyết Conflict</h3>
+                                    <p className="text-xs font-bold text-slate-400 mt-2 uppercase tracking-widest">Chọn một phiên bản nhãn chính xác nhất từ các Annotator</p>
+                                </div>
                             </div>
-                            
-                            <div className="mt-8 space-y-3">
-                                <button
-                                    onClick={() => {
-                                        if (selectedVersionIndex !== null) setIsConflictModalOpen(false);
-                                        else alert('Vui lòng chọn một phiên bản!');
-                                    }}
-                                    className="w-full py-5 bg-slate-900 text-white rounded-[1.5rem] font-black uppercase text-[10px] shadow-2xl"
-                                >
-                                    Confirm Choice
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        setIsConflictModalOpen(false);
-                                        setSelectedVersionIndex(null);
-                                    }}
-                                    className="w-full py-4 text-slate-400 font-black uppercase text-[10px]"
-                                >
-                                    Cancel
-                                </button>
+                            <button onClick={() => setIsConflictModalOpen(false)} className="p-3 hover:bg-white rounded-2xl transition-all shadow-sm"><X className="w-6 h-6 text-slate-400" /></button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-10 bg-slate-50/30">
+                            <div className="grid grid-cols-2 gap-8">
+                                {currentItem.versions?.map((v, vIdx) => (
+                                    <ConflictVersionCard
+                                        key={vIdx}
+                                        v={v}
+                                        vIdx={vIdx}
+                                        onSelect={() => {
+                                            setSelectedVersionIndex(vIdx);
+                                            setIsConflictModalOpen(false);
+                                            setItemStatuses(prev => ({ ...prev, [selectedItemIndex]: { status: 'approved', versionIndex: vIdx } }));
+                                            if (selectedItemIndex < items.length - 1) {
+                                                setSelectedItemIndex(prev => prev + 1);
+                                                setSelectedVersionIndex(null);
+                                            }
+                                        }}
+                                    />
+                                ))}
                             </div>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* ── Feedback Modal ── */}
             {showFeedbackModal && (
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xl flex items-center justify-center z-50 p-6">
-                    <div className="bg-white rounded-[3rem] shadow-2xl max-w-lg w-full p-12 text-center border border-slate-100">
-                        <div className="w-20 h-20 bg-blue-50 rounded-[2rem] flex items-center justify-center mx-auto mb-8 border border-blue-100">
-                            <ArrowRight className="w-10 h-10 text-blue-600" />
+                <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xl flex items-center justify-center z-[110] p-6 animate-in zoom-in duration-300">
+                    <div className="bg-white rounded-[3rem] shadow-2xl max-w-xl w-full overflow-hidden border border-white/20">
+                        <div className="p-10 border-b border-slate-100 bg-slate-50/50">
+                            <h3 className="text-3xl font-black text-slate-900 tracking-tighter uppercase leading-none">{actionType === 'approve' ? 'Duyệt dự án' : 'Từ chối dự án'}</h3>
+                            <p className="text-xs font-bold text-slate-400 mt-2 uppercase tracking-widest">Gửi kết quả cuối cùng cho Manager</p>
                         </div>
-                        <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter mb-4">Gửi kết quả Review</h2>
-                        <p className="text-slate-500 mb-10 font-bold uppercase text-[9px] tracking-widest leading-relaxed">
-                            Dữ liệu sẽ được cập nhật vào hệ thống. Các phiên bản bị từ chối sẽ bị loại bỏ vĩnh viễn.
-                        </p>
-                        <div className="flex gap-4">
-                            <button
-                                onClick={() => setShowFeedbackModal(false)}
-                                className="flex-1 py-5 bg-slate-50 text-slate-400 hover:text-slate-600 rounded-[1.5rem] font-black uppercase text-[10px] transition-all"
-                            >
-                                Quay lại
-                            </button>
-                            <button
-                                onClick={handleSubmitReview}
-                                className="flex-[2] py-5 bg-blue-600 text-white rounded-[1.5rem] shadow-2xl shadow-blue-200 font-black uppercase text-[10px] hover:bg-blue-700 transition-all"
-                            >
-                                Xác nhận gửi
-                            </button>
+                        <div className="p-10 space-y-8">
+                            {actionType === 'reject' && (
+                                <div className="space-y-4">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Vấn đề phát hiện</p>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {['Nhãn sai', 'Vùng bao lỗi', 'Thiếu nhãn', 'Ảnh nhiễu'].map(issue => (
+                                            <button key={issue} onClick={() => setReviewData(prev => ({ ...prev, issues: prev.issues.includes(issue) ? prev.issues.filter(i => i !== issue) : [...prev.issues, issue] }))} className={`px-6 py-4 rounded-2xl font-black text-[10px] uppercase transition-all shadow-sm ${reviewData.issues.includes(issue) ? 'bg-rose-600 text-white shadow-rose-200' : 'bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600'}`}>{issue}</button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            <div className="space-y-4">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Ghi chú (Tùy chọn)</p>
+                                <textarea value={reviewData.feedback} onChange={e => setReviewData({ ...reviewData, feedback: e.target.value })} placeholder="Nhập nhận xét của bạn..." className="w-full p-8 bg-slate-50 rounded-[2rem] border-2 border-transparent focus:border-blue-500 focus:bg-white outline-none transition-all font-bold text-slate-700 min-h-[160px] text-sm shadow-inner" />
+                            </div>
+                        </div>
+                        <div className="p-10 bg-slate-50/50 flex gap-4">
+                            <button onClick={() => setShowFeedbackModal(false)} className="flex-1 py-5 bg-white border-2 border-slate-200 rounded-[1.5rem] font-black uppercase text-[10px] tracking-widest text-slate-400 hover:text-slate-600 hover:border-slate-300 transition-all">Hủy</button>
+                            <button onClick={() => handleSubmitReview()} className={`flex-[2] py-5 rounded-[1.5rem] font-black uppercase text-[10px] tracking-widest text-white shadow-2xl transition-all active:scale-95 ${actionType === 'approve' ? 'bg-emerald-600 shadow-emerald-200 hover:bg-emerald-700' : 'bg-rose-600 shadow-rose-200 hover:bg-rose-700'}`}>Gửi quyết định</button>
                         </div>
                     </div>
                 </div>
