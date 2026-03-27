@@ -20,7 +20,6 @@ import {
   getAssignedTasksByUserMap
 } from "../../utils/annotatorTaskHelpers";
 
-// Define toArray helper
 const toArray = (value) => {
   if (Array.isArray(value)) return value;
   const root = value?.data ?? value?.items ?? value?.results ?? value;
@@ -33,7 +32,7 @@ export default function ManagerResults() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [error, setError] = useState(null); // Added error state
+  const [error, setError] = useState(null);
   const navigate = useNavigate();
 
   const fetchProjects = async () => {
@@ -90,7 +89,6 @@ export default function ManagerResults() {
           ['approved', 'completed', 'done', 'finished'].includes(String(t.status || "").toLowerCase())
         ).length;
 
-        // ... calculate counts ...
         let assetsCount = 0;
         let totalLabels = 0;
         let latestUpdate = p.updatedAt || p.createdAt;
@@ -120,7 +118,6 @@ export default function ManagerResults() {
         };
       });
 
-      // Filter for projects that have at least one reviewed task
       const results = enhanced.filter(p =>
         p.reviewedTasks > 0 ||
         ['approved', 'completed', 'done', 'finished'].includes(String(p.status || "").toLowerCase())
@@ -212,7 +209,6 @@ export default function ManagerResults() {
                 key={p.id || p.projectId}
                 className="group bg-white rounded-[2rem] border border-slate-200/60 shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all duration-500 flex flex-col overflow-hidden"
               >
-                {/* Visual Header */}
                 <div className="h-24 bg-gradient-to-br from-slate-900 via-indigo-950 to-indigo-900 p-6 relative flex items-center justify-between">
                   <div className="bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/20">
                     <p className="text-[10px] font-black text-white/80 uppercase tracking-widest">{p.type || 'IMAGE'}</p>
@@ -220,7 +216,6 @@ export default function ManagerResults() {
                   <div className="bg-emerald-500 text-white p-2 rounded-full shadow-lg shadow-emerald-500/30">
                     <CheckCircle2 className="w-4 h-4" />
                   </div>
-                  {/* Sub-decorative icons */}
                   <TrendingUp className="absolute bottom-2 right-4 w-12 h-12 text-white/5" />
                 </div>
 

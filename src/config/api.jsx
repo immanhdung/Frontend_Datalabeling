@@ -82,7 +82,6 @@ export const consensusAPI = {
 export const taskAPI = {
   getAll: (params) => api.get("/tasks", { params }),
 
-  // Fetch tasks assigned to current user
   getMyTasks: () =>
     trySequential([
       () => api.get("/tasks"),
@@ -101,7 +100,6 @@ export const taskAPI = {
       timeLimitMinutes,
     }),
 
-  // Submit completed task
   submit: (taskId, payload = {}) =>
     trySequential([
       () => api.post("/annotations/submit", { ...payload, taskId }),
@@ -111,7 +109,6 @@ export const taskAPI = {
 };
 
 export const annotationAPI = {
-  // FIX: Thêm getById để check annotation còn tồn tại không trước khi PUT
   getById: (annotationId) => api.get(`/annotations/${annotationId}`),
   submit: (payload) => api.post("/annotations/submit", payload),
   skip: (payload) => api.post("/annotations/skip", payload),
@@ -191,14 +188,12 @@ export const labelAPI = {
 };
 
 export const statisticsAPI = {
-  // Project-specific stats
   getProjectOverview: (projectId) => api.get(`/statistics/projects/${projectId}/overview`),
   getProjectLabels: (projectId) => api.get(`/statistics/projects/${projectId}/labels`),
   getProjectCoverage: (projectId) => api.get(`/statistics/projects/${projectId}/dataset-coverage`),
   getProjectReviewers: (projectId) => api.get(`/statistics/projects/${projectId}/reviewers`),
   getProjectAnnotators: (projectId) => api.get(`/statistics/projects/${projectId}/annotators`),
-  
-  // System-wide stats
+
   getSystemOverview: () => api.get("/statistics/system/overview"),
   getActiveProjects: () => api.get("/statistics/system/projects-active"),
   getSystemActivity: () => api.get("/statistics/system/activity"),

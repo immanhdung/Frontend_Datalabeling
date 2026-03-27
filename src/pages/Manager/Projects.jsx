@@ -117,7 +117,6 @@ export default function ManagerProjects() {
       setLoading(true);
       setError(null);
 
-      // Import local helper to bridge the account gap
       const { getAssignedTasksByUserMap } = await import("../../utils/annotatorTaskHelpers");
 
       const [projRes, catRes] = await Promise.all([
@@ -128,7 +127,6 @@ export default function ManagerProjects() {
       const apiProjects = toArray(projRes.data);
       const serverCategories = toArray(catRes.data);
 
-      // Sync with local working history
       const localTasksMap = getAssignedTasksByUserMap();
       const allLocalTasks = Object.values(localTasksMap).flat();
 
@@ -297,7 +295,7 @@ export default function ManagerProjects() {
             value={searchTerm}
             onChange={(e) => {
               setSearchTerm(e.target.value);
-              setCurrentPage(1); // Reset to page 1 on search
+              setCurrentPage(1);
             }}
             className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />

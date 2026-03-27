@@ -11,8 +11,6 @@ import {
     ArrowLeft, ArrowRight, ZoomIn, ZoomOut, Check, X,
     CheckCircle2, AlertCircle,
 } from 'lucide-react';
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 function resolveImageUrl(item) {
     if (!item) return '';
     const nested = item?.datasetItem || item?.DatasetItem;
@@ -123,7 +121,6 @@ function BBoxCanvas({ annotations, imgRef, imgNaturalSize }) {
     return <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none" style={{ width: '100%', height: '100%' }} />;
 }
 
-// ── Right Bar Thumbnail ──────────────────────────────────────────────────────
 function RightBarThumb({ item, idx, isSelected, status, onClick }) {
     const bboxCount = extractAnnotations(item).length;
     return (
@@ -192,7 +189,6 @@ function RightBarThumb({ item, idx, isSelected, status, onClick }) {
     );
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────────
 const ReviewerTask = () => {
     const { taskId } = useParams();
     const navigate = useNavigate();
@@ -325,7 +321,6 @@ const ReviewerTask = () => {
     const currentAnnotations = extractAnnotations(activeVersion);
     const currentItemStatus = itemStatuses[selectedItemIndex]?.status;
 
-    // FIX #1: allDecided phải kiểm tra đúng — mỗi index trong items đều có quyết định
     const allDecided = items.length > 0 && items.every((_, idx) => !!itemStatuses[idx]?.status);
 
     const conflictCount = items.filter(it => it.isConflict).length;
@@ -357,7 +352,6 @@ const ReviewerTask = () => {
         }
     };
 
-    // ── FIX #2: handleSubmitReview với endpoint đúng + fallback ──────────────
     const handleSubmitReview = async () => {
         try {
             setLoading(true);
@@ -394,8 +388,6 @@ const ReviewerTask = () => {
                 rejectedItems,
                 reviewedAt: new Date().toISOString()
             };
-
-            // Endpoint đúng theo Swagger: POST /api/reviews
             console.log('[Reviewer] Submitting review to POST /reviews...');
             await api.post('/reviews', reviewPayload);
 
@@ -436,7 +428,6 @@ const ReviewerTask = () => {
 
             <main className="flex-1 p-8 max-w-screen-2xl mx-auto w-full grid grid-cols-12 gap-8">
 
-                {/* ── Left: Info ── */}
                 <div className="col-span-2 space-y-6">
                     <button
                         onClick={() => navigate('/reviewer/dashboard')}
@@ -470,7 +461,6 @@ const ReviewerTask = () => {
                         </div>
                     </div>
 
-                    {/* Legend */}
                     <div className="p-4 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-2">
                         <p className="text-[10px] font-black text-slate-400 uppercase mb-3">Chú thích</p>
                         <div className="flex items-center gap-2">
@@ -499,8 +489,8 @@ const ReviewerTask = () => {
                                             key={vIdx}
                                             onClick={() => setSelectedVersionIndex(vIdx)}
                                             className={`w-full text-left px-3 py-2.5 rounded-xl transition-all border ${selectedVersionIndex === vIdx
-                                                    ? 'bg-white text-rose-600 border-white shadow-md'
-                                                    : 'bg-rose-500/30 text-rose-100 border-rose-400/30 hover:bg-rose-500/50'
+                                                ? 'bg-white text-rose-600 border-white shadow-md'
+                                                : 'bg-rose-500/30 text-rose-100 border-rose-400/30 hover:bg-rose-500/50'
                                                 }`}
                                         >
                                             <p className="text-[10px] font-black uppercase">{v.annotatorName}</p>
@@ -513,7 +503,7 @@ const ReviewerTask = () => {
                     )}
                 </div>
 
-                {/* ── Center: Canvas ── */}
+                {/*Center*/}
                 <div className="col-span-8 space-y-6">
                     <div className="bg-white rounded-[2.5rem] p-10 shadow-xl shadow-slate-200/50 border border-slate-100 min-h-[700px] flex flex-col">
 
@@ -588,11 +578,9 @@ const ReviewerTask = () => {
                                 )}
                             </div>
 
-                            {/* FIX #1: allDecided dùng items.every() thay vì Object.keys().length */}
                             {allDecided && (
                                 <button
                                     onClick={() => {
-                                        // FIX #3: so sánh đúng với s.status thay vì Object.values().includes('rejected')
                                         const hasRejected = Object.values(itemStatuses).some(s => s.status === 'rejected');
                                         setActionType(hasRejected ? 'reject' : 'approve');
                                         setShowFeedbackModal(true);
@@ -655,8 +643,8 @@ const ReviewerTask = () => {
                                         key={vIdx}
                                         onClick={() => setSelectedVersionIndex(vIdx)}
                                         className={`w-full text-left p-4 rounded-2xl transition-all border-2 ${selectedVersionIndex === vIdx
-                                                ? 'bg-blue-600 border-blue-600 shadow-lg shadow-blue-100'
-                                                : 'bg-white border-slate-100 hover:border-slate-200 shadow-sm'
+                                            ? 'bg-blue-600 border-blue-600 shadow-lg shadow-blue-100'
+                                            : 'bg-white border-slate-100 hover:border-slate-200 shadow-sm'
                                             }`}
                                     >
                                         <div className="flex items-center justify-between mb-1">

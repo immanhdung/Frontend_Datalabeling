@@ -48,8 +48,6 @@ export default function ManagerDashboard() {
             try {
                 setLoading(true);
 
-                // 1. Fetch System Overview + Base Data
-                // Use PageSize=1000 to ensure we get all data (backend defaults to small pages)
                 const results = await Promise.allSettled([
                     statisticsAPI.getSystemOverview(),
                     api.get("/projects", { params: { PageSize: 1000, pageSize: 1000 } }),
@@ -58,7 +56,6 @@ export default function ManagerDashboard() {
                     api.get("/roles", { params: { PageSize: 1000, pageSize: 1000 } })
                 ]);
 
-                // Destructure with safety
                 const sysRes = results[0];
                 const projRes = results[1];
                 const actRes = results[2];
@@ -71,11 +68,8 @@ export default function ManagerDashboard() {
                 const users = usrRes.status === "fulfilled" ? toArrayData(usrRes.value?.data) : [];
                 const roles = roleRes.status === "fulfilled" ? toArrayData(roleRes.value?.data) : [];
 
-                // ── Deep Sync with Local Data (Crucial for Managers) ──────────────
                 const localTasksMap = getAssignedTasksByUserMap();
                 const allLocalTasks = Object.values(localTasksMap).flat();
-
-                // Extract unique projects from local tasks
                 const localProjects = [];
                 const seenPids = new Set(apiProjects.map(p => String(p.id || p.projectId)));
 
@@ -97,14 +91,12 @@ export default function ManagerDashboard() {
                 const projects = [...apiProjects, ...localProjects];
                 setProjectList(projects);
                 setRecentActivity(Array.isArray(activity) ? activity.slice(0, 5) : []);
-
-                // Helper to find key regardless of case
                 const getVal = (obj, keys, fallback = 0) => {
                     if (!obj) return fallback;
                     for (const k of keys) {
                         const val = obj[k];
                         if (val !== undefined && val !== null && val !== 0) return val;
-                        // Try case insensitive
+
                         const lowerK = k.toLowerCase();
                         const match = Object.keys(obj).find(ok => ok.toLowerCase() === lowerK);
                         if (match !== undefined && obj[match] !== 0) return obj[match];
@@ -112,7 +104,6 @@ export default function ManagerDashboard() {
                     return fallback;
                 };
 
-                // Annotator calculation strictly from users/roles (as requested)
                 const roleMap = {};
                 roles.forEach(r => {
                     const id = String(r.id || r.roleId || "");
@@ -123,11 +114,9 @@ export default function ManagerDashboard() {
                 const annotatorsList = users.filter(u => {
                     const rName = String(u.roleName || u.role?.name || "").toLowerCase();
                     const rId = String(u.roleId || u.role?.id || "");
-                    // Match by name 'annotator' or check mapped role ID
                     return rName === "annotator" || rName === "người gán nhãn" || roleMap[rId] === "annotator" || roleMap[rId] === "người gán nhãn";
                 });
 
-                // Active projects: Count EVERYTHING that is not completed
                 const calcCompleted = projects.filter(p => {
                     const pid = String(p.id || p.projectId || '');
                     const projectTasks = allLocalTasks.filter(t => String(t.projectId || t.project?.id || '') === pid);
@@ -141,19 +130,14 @@ export default function ManagerDashboard() {
                     return approvedTasksCount > 0 || isStatusDone;
                 }).length;
 
-                // Active = Everything NOT completed and NOT deleted/cancelled
                 const calcActive = projects.filter(p => {
                     const statusVal = normalizeProjectStatus(p.status);
                     const isDone = calcCompleted > 0 && (allLocalTasks.some(t => String(t.projectId || t.project?.id || "") === String(p.id || p.projectId) && ['approved', 'completed', 'done'].includes(String(t.status || "").toLowerCase())) || ["completed", "done", "approved", "hoàn thành"].includes(statusVal));
 
                     if (isDone) return false;
 
-                    // Exclude only explicitly cancelled/archived if you want, but user wants it to add up to 28
-                    // So we count everything else as "Active/Pending"
                     return statusVal !== "deleted" && statusVal !== "archived" && statusVal !== "cancelled";
                 }).length;
-
-                // Sync counts and set state
                 setStatsData({
                     totalProjects: projects.length,
                     activeProjects: calcActive,
@@ -163,10 +147,7 @@ export default function ManagerDashboard() {
                     efficiency: getVal(sysOverview, ['efficiency', 'performance', 'systemEfficiency'], "0%")
                 });
 
-                // 2. Project Progress (Top 3)
                 const topProjects = sortProjectsByNewest(projects).slice(0, 3);
-
-                // Only if project stats API is working, otherwise we could do manual task scan fallback
                 if (topProjects.length > 0) {
                     const progressData = await Promise.all(topProjects.map(async (proj) => {
                         try {
@@ -185,7 +166,7 @@ export default function ManagerDashboard() {
                                     color: percent === 100 ? "bg-emerald-500" : percent > 0 ? "bg-blue-500" : "bg-slate-300"
                                 };
                             }
-                        } catch (e) { /* ignore individual project stats failure */ }
+                        } catch (e) { }
                         return null;
                     }));
 

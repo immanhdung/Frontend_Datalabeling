@@ -152,7 +152,6 @@ export default function Categories() {
         return;
       }
 
-      // ✅ Sử dụng API /api/categories/{id}/labels để lấy label cho từng category theo yêu cầu từ ảnh
       const categoriesWithLabels = await Promise.all(rawCategories.map(async (cat, index) => {
         const id = getCategoryIdValue(cat);
         let labels = [];
@@ -210,8 +209,7 @@ export default function Categories() {
   useEffect(() => {
     if (!selectedCategoryId) return;
     fetchCategoryProjects(selectedCategoryId);
-    
-    // ✅ Luôn làm mới labels của category đang chọn bằng API yêu cầu: /api/categories/{id}/labels
+
     const refreshLabels = async () => {
       try {
         const res = await api.get(`/categories/${selectedCategoryId}/labels`);
@@ -530,9 +528,8 @@ export default function Categories() {
                       setSelectedCategoryId(String(category.id));
                       setActiveLabelFilter("");
                     }}
-                    className={`w-full text-left p-4 border rounded-lg transition-all ${
-                      isActive ? "border-blue-500 bg-blue-50" : "hover:bg-gray-50"
-                    }`}
+                    className={`w-full text-left p-4 border rounded-lg transition-all ${isActive ? "border-blue-500 bg-blue-50" : "hover:bg-gray-50"
+                      }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div>
@@ -612,11 +609,10 @@ export default function Categories() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => setActiveLabelFilter("")}
-                      className={`px-3 py-1 rounded-full text-xs font-semibold border ${
-                        activeLabelFilter === ""
+                      className={`px-3 py-1 rounded-full text-xs font-semibold border ${activeLabelFilter === ""
                           ? "bg-slate-900 text-white border-slate-900"
                           : "bg-white text-slate-700 border-slate-200"
-                      }`}
+                        }`}
                     >
                       Tất cả
                     </button>
@@ -627,11 +623,10 @@ export default function Categories() {
                       return (
                         <div
                           key={label.id}
-                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 ${
-                            activeLabelFilter === label.name
+                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 ${activeLabelFilter === label.name
                               ? "bg-indigo-600 text-white border-indigo-600"
                               : "bg-white text-indigo-700 border-indigo-200"
-                          }`}
+                            }`}
                         >
                           {isEditing ? (
                             <>

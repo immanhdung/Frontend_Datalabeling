@@ -51,7 +51,6 @@ export default function ReviewInbox() {
 
         let allFound = [];
 
-        // 1. API
         try {
           const response = await reviewAPI.getPendingReviews();
           const data = response?.data?.data || response?.data || [];
@@ -59,8 +58,6 @@ export default function ReviewInbox() {
         } catch (err) {
           console.warn('[ReviewInbox] API failed');
         }
-
-        // 2. Discover from Local storage
         try {
           const rawMap = localStorage.getItem('assignedTasksByUser');
           if (rawMap) {
@@ -136,7 +133,7 @@ export default function ReviewInbox() {
       <Header title="Nhận task review" userName="Reviewer" userRole="reviewer" />
 
       <main className="max-w-7xl mx-auto px-6 py-10">
-        {/* Welcome Hero */}
+        {/* Welcome */}
         <div className="mb-12 relative overflow-hidden p-10 rounded-[3rem] bg-gradient-to-br from-blue-700 via-indigo-700 to-blue-800 text-white shadow-2xl shadow-blue-200">
           <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-8">
             <div>
@@ -319,7 +316,6 @@ export default function ReviewInbox() {
                     </button>
                   </div>
 
-                  {/* Decorative element */}
                   <div className="absolute top-0 right-0 w-24 h-24 bg-slate-50 rounded-full translate-x-12 -translate-y-12 -z-10 group-hover:scale-150 transition-transform duration-700" />
                 </div>
               );

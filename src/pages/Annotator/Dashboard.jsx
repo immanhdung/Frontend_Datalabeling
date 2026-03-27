@@ -26,8 +26,6 @@ import {
   FolderOpen
 } from 'lucide-react';
 
-// No mock projects needed
-
 const getDaysUntilDue = (dueDate) =>
   Math.ceil((new Date(dueDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 
@@ -65,13 +63,9 @@ export default function AnnotatorDashboard() {
         const normalizedLocalTasks = normalizeTasks(localAssignedTasks, currentUserId);
 
         const mergedMap = new Map();
-
-        // 1. Local tasks first
         normalizedLocalTasks.forEach((task) => {
           if (task.id) mergedMap.set(String(task.id), task);
         });
-
-        // 2. API tasks overlay (API is source of truth, but don't overwrite advanced local status)
         apiTasks.forEach((task) => {
           if (task.id) {
             const ex = mergedMap.get(String(task.id));
@@ -82,11 +76,8 @@ export default function AnnotatorDashboard() {
             mergedMap.set(String(task.id), {
               ...ex,
               ...task,
-              // Ưu tiên progress lớn hơn
               progress: localIsAdv ? ex.progress : Math.max(localProgress, apiProgress),
-              // Giữ status tiên tiến hơn
               status: localIsAdv ? ex.status : (localProgress > apiProgress ? 'in_progress' : task.status),
-              // Quan trọng: Phải giữ totalItems từ local nếu API trả về 0
               totalItems: task.totalItems || ex?.totalItems || 0,
               items: task.items?.length > 0 ? task.items : (ex?.items || []),
             });
@@ -154,17 +145,17 @@ export default function AnnotatorDashboard() {
           <div className="relative z-10 max-w-2xl">
             <h1 className="text-4xl font-black mb-4 tracking-tight">Tổng quan hiệu suất</h1>
             <p className="text-indigo-100/90 text-lg leading-relaxed">
-              Chào mừng bạn trở lại! Hệ thống đã ghi nhận các thống kê mới nhất về tiến độ gán nhãn của bạn. 
+              Chào mừng bạn trở lại! Hệ thống đã ghi nhận các thống kê mới nhất về tiến độ gán nhãn của bạn.
               Hãy kiểm tra các mục tiêu cần hoàn thành trong ngày hôm nay.
             </p>
           </div>
-          
-          {/* Decorative background circles */}
+
+
           <div className="absolute top-[-20%] right-[-10%] w-96 h-96 bg-white/10 rounded-full blur-3xl pointer-events-none"></div>
           <div className="absolute bottom-[-10%] right-[15%] w-64 h-64 bg-indigo-500/20 rounded-full blur-2xl pointer-events-none"></div>
         </div>
 
-        {/* Stats Grid - 6 Columns for 6 statuses */}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5 mb-12">
           {[
             { label: 'Tổng nhiệm vụ', count: stats.total, color: 'indigo', icon: Folder },
@@ -198,7 +189,6 @@ export default function AnnotatorDashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left Column: Urgent Tasks */}
           <div className="lg:col-span-2">
             <div className="bg-white border border-slate-100 rounded-[2.5rem] p-8 shadow-sm h-full flex flex-col">
               <div className="flex items-center justify-between mb-8">
@@ -237,24 +227,24 @@ export default function AnnotatorDashboard() {
                     const isOverdue = days < 0;
 
                     return (
-                      <div 
-                        key={task.id} 
+                      <div
+                        key={task.id}
                         onClick={() => navigate(`/annotator/tasks/${task.id}`, { state: { task } })}
                         className="flex flex-col justify-between group cursor-pointer bg-slate-50/50 hover:bg-white border border-transparent hover:border-slate-100 rounded-3xl p-5 transition-all duration-300 hover:shadow-lg"
                       >
                         <div className="mb-4">
                           <div className="flex items-start justify-between mb-2">
-                             <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ${isOverdue ? 'bg-rose-100 text-rose-600' : isUrgent ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>
-                                {isOverdue ? 'Quá hạn' : isUrgent ? 'Gấp' : 'Bình thường'}
-                             </div>
-                             <ArrowRight className="w-4 h-4 text-slate-300 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                            <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ${isOverdue ? 'bg-rose-100 text-rose-600' : isUrgent ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>
+                              {isOverdue ? 'Quá hạn' : isUrgent ? 'Gấp' : 'Bình thường'}
+                            </div>
+                            <ArrowRight className="w-4 h-4 text-slate-300 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
                           </div>
                           <p className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-1">{task.projectName || task.title}</p>
                           <p className="text-[11px] text-slate-400 font-medium mt-0.5 truncate uppercase tracking-tight">
                             {task.title && !task.title.startsWith('Task #') ? task.title : `ID: #${task.id?.slice(0, 8)}`}
                           </p>
                         </div>
-                        
+
                         <div className="flex items-center justify-between pt-3 border-t border-slate-100/50 mt-auto">
                           <div className="flex items-center gap-1.5 text-slate-500">
                             <Calendar className="w-3.5 h-3.5" />
@@ -272,26 +262,25 @@ export default function AnnotatorDashboard() {
             </div>
           </div>
 
-          {/* Right Column: Mini Status / Info Card */}
           <div className="lg:col-span-1 space-y-8">
-             <div className="bg-indigo-600 rounded-[2.5rem] p-8 text-white shadow-xl shadow-indigo-100 flex flex-col h-full">
-                <h3 className="text-xl font-black mb-2">Mẹo gán nhãn</h3>
-                <p className="text-indigo-100/80 text-sm leading-relaxed mb-8 italic">
-                  "Sự đồng thuận cao giữa các annotator giúp dữ liệu trở nên giá trị hơn. Hãy đảm bảo bạn đọc kỹ hướng dẫn trước khi bắt đầu."
-                </p>
-                
-                <div className="mt-auto pt-8 border-t border-indigo-500/30">
-                   <div className="flex items-center gap-4">
-                      <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center">
-                         <ThumbsUp className="w-7 h-7" />
-                      </div>
-                      <div>
-                         <p className="text-xs font-black text-indigo-200 uppercase tracking-widest">Tỷ lệ đồng thuận</p>
-                         <p className="text-3xl font-black">94.8%</p>
-                      </div>
-                   </div>
+            <div className="bg-indigo-600 rounded-[2.5rem] p-8 text-white shadow-xl shadow-indigo-100 flex flex-col h-full">
+              <h3 className="text-xl font-black mb-2">Mẹo gán nhãn</h3>
+              <p className="text-indigo-100/80 text-sm leading-relaxed mb-8 italic">
+                "Sự đồng thuận cao giữa các annotator giúp dữ liệu trở nên giá trị hơn. Hãy đảm bảo bạn đọc kỹ hướng dẫn trước khi bắt đầu."
+              </p>
+
+              <div className="mt-auto pt-8 border-t border-indigo-500/30">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center">
+                    <ThumbsUp className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-black text-indigo-200 uppercase tracking-widest">Tỷ lệ đồng thuận</p>
+                    <p className="text-3xl font-black">94.8%</p>
+                  </div>
                 </div>
-             </div>
+              </div>
+            </div>
           </div>
         </div>
       </main>

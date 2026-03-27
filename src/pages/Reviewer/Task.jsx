@@ -14,7 +14,6 @@ import {
     HelpCircle, MessageSquare
 } from 'lucide-react';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 function resolveImageUrl(item) {
     if (!item) return '';
     const nested = item?.datasetItem || item?.DatasetItem;
@@ -125,7 +124,6 @@ function BBoxCanvas({ annotations, imgRef, imgNaturalSize }) {
     return <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none" style={{ width: '100%', height: '100%' }} />;
 }
 
-// ── Conflict Version Card ──────────────────────────────────────────────────
 function ConflictVersionCard({ v, vIdx, onSelect }) {
     const imgRef = useRef(null);
     const [imgNaturalSize, setImgNaturalSize] = useState({ w: 0, h: 0 });
@@ -181,7 +179,6 @@ function ConflictVersionCard({ v, vIdx, onSelect }) {
     );
 }
 
-// ── Right Bar Thumbnail ──────────────────────────────────────────────────────
 function RightBarThumb({ item, idx, isSelected, status, onClick }) {
     const bboxCount = extractAnnotations(item).length;
     return (
@@ -244,7 +241,6 @@ function RightBarThumb({ item, idx, isSelected, status, onClick }) {
     );
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────────
 const ReviewerTask = () => {
     const { taskId } = useParams();
     const navigate = useNavigate();
@@ -503,13 +499,12 @@ const ReviewerTask = () => {
                     reviewedAt: new Date().toISOString(),
                     feedback: payload.feedback,
                     type: 'image',
-                    reviewTime: Math.floor(Math.random() * 5) + 2 // Estimated if not tracked
+                    reviewTime: Math.floor(Math.random() * 5) + 2
                 };
                 const reviewHistory = JSON.parse(localStorage.getItem('reviewHistory') || '[]');
                 reviewHistory.unshift(historyEntry);
                 localStorage.setItem('reviewHistory', JSON.stringify(reviewHistory.slice(0, 50)));
 
-                // CRITICAL: Dispatch events for real-time UI updates
                 window.dispatchEvent(new CustomEvent('reviewHistoryUpdated'));
                 window.dispatchEvent(new CustomEvent('reviewTaskUpdated', { detail: { taskId, decision: actionType } }));
             } catch (e) {

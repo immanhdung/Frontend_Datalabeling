@@ -227,9 +227,7 @@ export default function CreateProjectPage() {
     return { attachedCount, failedCount: results.length - attachedCount };
   };
 
-  // ✅ Fix label: lấy labelId từ API thay vì tạo mới nếu đã tồn tại
   const resolveOrCreateLabel = async (labelName, categoryId) => {
-    // 1. Kiểm tra trong categoryLabels đã load (ưu tiên real ID)
     const existing = categoryLabels.find(
       (l) => l.name.toLowerCase() === labelName.toLowerCase()
     );
@@ -237,29 +235,27 @@ export default function CreateProjectPage() {
       return String(existing.id);
     }
 
-    // 2. Thử tìm từ API labels (search theo category)
     try {
       const searchRes = await api.get(`/labels?CategoryId=${categoryId}`, { validateStatus: () => true });
       const allLabels = toArray(searchRes?.data);
       const found = allLabels.find((l) => String(l.name || l.labelName || '').toLowerCase() === labelName.toLowerCase());
       if (found?.id || found?.labelId) return String(found.id || found.labelId);
-    } catch { /* ignore */ }
+    } catch { }
 
-    // 3. Tạo mới nếu không tìm thấy
+
     try {
       const createRes = await api.post("/labels", { name: labelName, categoryId });
       const newId = createRes.data?.id || createRes.data?.labelId || createRes.data?.data?.id || createRes.data?.data?.labelId;
       if (newId) return String(newId);
     } catch (e) {
       const msg = String(e?.response?.data?.message || '');
-      // Nếu đã tồn tại → thử tìm lại lần cuối
       if (msg.toLowerCase().includes('already') || msg.toLowerCase().includes('exist')) {
         try {
           const retryRes = await api.get(`/labels?CategoryId=${categoryId}`, { validateStatus: () => true });
           const retryLabels = toArray(retryRes?.data);
           const retryFound = retryLabels.find((l) => String(l.name || l.labelName || '').toLowerCase() === labelName.toLowerCase());
           if (retryFound?.id || retryFound?.labelId) return String(retryFound.id || retryFound.labelId);
-        } catch { /* ignore */ }
+        } catch { }
       }
       console.warn(`Could not resolve label "${labelName}":`, msg);
     }
@@ -284,7 +280,7 @@ export default function CreateProjectPage() {
         description: projectDescription.trim(),
         categoryId: normalizedCategoryId,
         templateId: FIXED_TEMPLATE_ID,
-        guideline: guidelines.trim() || undefined,         // ✅ Gửi guideline khi tạo project
+        guideline: guidelines.trim() || undefined,
 
       };
 
@@ -292,7 +288,6 @@ export default function CreateProjectPage() {
       try {
         createRes = await api.post("/projects", payload);
       } catch {
-        // Thử không có templateId
         const { templateId, ...payloadNoTemplate } = payload;
         createRes = await api.post("/projects", payloadNoTemplate);
       }
@@ -310,7 +305,6 @@ export default function CreateProjectPage() {
 
       if (!projectId) throw new Error("Tạo dự án xong nhưng không lấy được projectId");
 
-      // ✅ Create guideline separately as requested
       try {
         await api.post("/guidelines", {
           projectId: projectId,
@@ -320,7 +314,6 @@ export default function CreateProjectPage() {
         console.warn("Could not create guideline via /guidelines. Attempting fallback in project PUT.");
       }
 
-      // Cập nhật guideline + deadline nếu API tạo project chưa nhận (Fallback)
       try {
         await api.put(`/projects/${projectId}`, {
           name: projectName.trim(),
@@ -331,8 +324,6 @@ export default function CreateProjectPage() {
       } catch (e) {
         console.warn("Could not update guideline/deadline via PUT:", e?.message);
       }
-
-      // ✅ Attach labels - fix: resolve ID trước, không tạo mới nếu đã tồn tại
       if (allSelectedLabels.length > 0) {
         for (const labelName of allSelectedLabels) {
           const labelId = await resolveOrCreateLabel(labelName, normalizedCategoryId);
@@ -346,7 +337,6 @@ export default function CreateProjectPage() {
         }
       }
 
-      // Attach datasets
       const attachResult = await attachDatasets(projectId);
 
       if (attachResult.failedCount > 0) {
@@ -428,7 +418,7 @@ export default function CreateProjectPage() {
             </div>
 
 
-            {/* ✅ Hướng dẫn cho annotator */}
+            {/* Hướng dẫn cho annotator */}
             <div>
               <label className="block text-sm font-medium mb-1">
                 Hướng dẫn gán nhãn
@@ -553,7 +543,6 @@ export default function CreateProjectPage() {
                 {datasets.map((dataset, index) => {
                   const dsId = String(dataset.id || dataset.datasetId || `ds-${index}`);
                   const checked = selectedDatasetIds.includes(dsId);
-                  // ✅ Dataset nào đã giao (isActive = false) thì làm mờ và không cho chọn
                   const isAlreadyAssigned = dataset.isActive === false || dataset.IsActive === false;
 
                   return (

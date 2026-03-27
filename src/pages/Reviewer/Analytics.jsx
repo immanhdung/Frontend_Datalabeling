@@ -23,7 +23,6 @@ const Analytics = () => {
   const navigate = useNavigate();
   const { reviewHistory } = useReviewHistory();
 
-  // Calculate overall statistics
   const totalReviews = reviewHistory.length;
   const approvedCount = reviewHistory.filter(r => r.decision === 'approved').length;
   const rejectedCount = reviewHistory.filter(r => r.decision === 'rejected').length;
@@ -32,7 +31,6 @@ const Analytics = () => {
     ? (reviewHistory.reduce((sum, r) => sum + r.reviewTime, 0) / totalReviews).toFixed(1)
     : 0;
 
-  // Group by date (last 7 days)
   const last7Days = Array.from({ length: 7 }, (_, i) => {
     const date = new Date();
     date.setDate(date.getDate() - (6 - i));
@@ -49,7 +47,6 @@ const Analytics = () => {
 
   const maxCount = Math.max(...reviewsByDate.map(d => d.count), 1);
 
-  // Group by annotator
   const reviewsByAnnotator = reviewHistory.reduce((acc, review) => {
     const name = review.annotatorName || 'Unknown';
     if (!acc[name]) {
@@ -66,7 +63,6 @@ const Analytics = () => {
 
   const annotatorList = Object.entries(reviewsByAnnotator).sort((a, b) => b[1].total - a[1].total);
 
-  // Group by type
   const reviewsByType = reviewHistory.reduce((acc, review) => {
     const type = review.type || 'image';
     if (!acc[type]) {
@@ -97,7 +93,6 @@ const Analytics = () => {
     video: 'Video',
   };
 
-  // Calculate percentage for pie chart
   const typeData = Object.entries(reviewsByType).map(([type, count]) => ({
     type,
     count,
@@ -141,7 +136,6 @@ const Analytics = () => {
           Quay lại Dashboard
         </button>
 
-        {/* Hero Header */}
         <div className="mb-8 relative overflow-hidden p-8 rounded-[2rem] bg-gradient-to-br from-indigo-800 via-blue-800 to-indigo-900 text-white shadow-xl shadow-indigo-200">
           <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
             <div>
@@ -162,7 +156,6 @@ const Analytics = () => {
           <div className="absolute bottom-[-20%] left-[-10%] w-64 h-64 bg-blue-400/20 rounded-full blur-3xl pointer-events-none"></div>
         </div>
 
-        {/* Overview Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100 flex flex-col hover:-translate-y-1 transition-transform duration-300">
             <div className="flex items-start justify-between mb-4">

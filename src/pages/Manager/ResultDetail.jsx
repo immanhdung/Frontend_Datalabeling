@@ -24,7 +24,6 @@ import {
   getAssignedTasksByUserMap
 } from "../../utils/annotatorTaskHelpers";
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 function resolveImageUrl(item) {
   if (!item) return '';
   const nested = item?.datasetItem || item?.DatasetItem || item?.item;
@@ -69,25 +68,22 @@ function extractAnnotations(item) {
     if (!Array.isArray(list)) return [];
     return list.map((a, idx) => {
       if (!a) return null;
-      // Handle potentially serialized item
       let dataObj = a;
       if (typeof a === 'string') {
         try { dataObj = JSON.parse(a); } catch (e) { return null; }
       }
-      
+
       const findProp = (obj, keys) => {
         if (!obj) return null;
         for (const k of keys) {
           if (obj[k] !== undefined && obj[k] !== null) return obj[k];
           for (const rk in obj) { if (rk.toLowerCase() === k.toLowerCase()) return obj[rk]; }
         }
-        // Deep check for common nested patterns
         if (obj.payload) { const res = findProp(obj.payload, keys); if (res !== null) return res; }
         if (obj.data) { const res = findProp(obj.data, keys); if (res !== null) return res; }
         return null;
       };
 
-      // ── Label ──
       let label = 'Object';
       const labelCands = ['label', 'category', 'labelName', 'name', 'categoryName', 'text', 'value', 'tag'];
       let rawLabel = findProp(dataObj, labelCands);
@@ -96,7 +92,6 @@ function extractAnnotations(item) {
       }
       if (rawLabel) label = String(rawLabel);
 
-      // ── Coordinates ──
       const x = parseFloat(findProp(dataObj, ['x', 'left', 'x1', 'x_min', 'x_center', 'centerX']) ?? (Array.isArray(dataObj.bbox) ? dataObj.bbox[0] : 0));
       const y = parseFloat(findProp(dataObj, ['y', 'top', 'y1', 'y_min', 'y_center', 'centerY']) ?? (Array.isArray(dataObj.bbox) ? dataObj.bbox[1] : 0));
       let w = parseFloat(findProp(dataObj, ['width', 'w', 'boxWidth', 'rectWidth', 'span_x']) ?? (Array.isArray(dataObj.bbox) ? dataObj.bbox[2] : 0));
@@ -110,7 +105,7 @@ function extractAnnotations(item) {
           h = Math.abs(parseFloat(y2) - y);
         }
       }
-      if (w <= 0) w = 50; 
+      if (w <= 0) w = 50;
       if (h <= 0) h = 50;
 
       const color = dataObj.color || getLabelColor(label, idx);
@@ -125,28 +120,24 @@ function extractAnnotations(item) {
     }).filter(Boolean);
   };
 
-  // 1. If already an array, normalize it
   if (Array.isArray(item)) return normalize(item);
 
-  // 2. Handle potentially serialized containers
   let container = item;
   if (typeof item === 'string') {
     try { container = JSON.parse(item); } catch (e) { return []; }
   }
 
-  // 3. Scan possible containers
   let rawList = null;
   const listCands = ['results', 'annotations', 'Annotations', 'bboxes', 'boundingBoxes', 'labels', 'points', 'versions'];
-  
+
   for (const cand of listCands) {
     const val = container[cand] || (container.payload && container.payload[cand]) || (container.data && container.data[cand]);
     if (val && Array.isArray(val)) {
       rawList = val;
       break;
     }
-    // Check serialized results (common in some backends)
     if (typeof val === 'string' && val.trim().startsWith('[')) {
-      try { rawList = JSON.parse(val); break; } catch(e) {}
+      try { rawList = JSON.parse(val); break; } catch (e) { }
     }
   }
 
@@ -154,7 +145,6 @@ function extractAnnotations(item) {
     return normalize(rawList);
   }
 
-  // 4. Fallback: container itself as single bbox
   if (container.x !== undefined || container.left !== undefined || container.bbox || container.label) {
     return normalize([container]);
   }
@@ -175,7 +165,7 @@ function BBoxCanvas({ annotations, imgRef, imgNaturalSize }) {
 
     const natW = img.naturalWidth || imgNaturalSize.w || 1;
     const natH = img.naturalHeight || imgNaturalSize.h || 1;
-    
+
     canvas.width = dispW;
     canvas.height = dispH;
 
@@ -187,7 +177,6 @@ function BBoxCanvas({ annotations, imgRef, imgNaturalSize }) {
     const scaleY = dispH / natH;
 
     annotations.forEach((ann) => {
-      // Coordinate scaling logic
       const isNormalized =
         Math.abs(ann.x) <= 1.05 &&
         Math.abs(ann.y) <= 1.05 &&
@@ -198,16 +187,12 @@ function BBoxCanvas({ annotations, imgRef, imgNaturalSize }) {
       const y = isNormalized ? ann.y * dispH : ann.y * scaleY;
       const w = isNormalized ? ann.width * dispW : ann.width * scaleX;
       const h = isNormalized ? ann.height * dispH : ann.height * scaleY;
-
-      // Draw box with nice rounded effects if possible
       ctx.strokeStyle = ann.color;
       ctx.lineWidth = 2;
       ctx.strokeRect(x, y, w, h);
 
       ctx.fillStyle = ann.color + '22';
       ctx.fillRect(x, y, w, h);
-
-      // Draw label with background badge
       if (ann.label) {
         ctx.font = 'bold 10px sans-serif';
         const labelText = String(ann.label).toUpperCase();
@@ -227,7 +212,7 @@ function BBoxCanvas({ annotations, imgRef, imgNaturalSize }) {
   }, [annotations, imgNaturalSize, imgRef]);
 
   useEffect(() => {
-    const timer = setTimeout(draw, 100); // Small delay to ensure img size is stable
+    const timer = setTimeout(draw, 100);
     window.addEventListener('resize', draw);
     return () => {
       clearTimeout(timer);
@@ -238,13 +223,11 @@ function BBoxCanvas({ annotations, imgRef, imgNaturalSize }) {
   return <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-20" />;
 }
 
-// ── Components ────────────────────────────────────────────────────────────────
 function GalleryItem({ item, onSelect }) {
   const imgRef = useRef(null);
   const [imgNaturalSize, setImgNaturalSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
-    // If image is already cached, naturalWidth might be available immediately
     if (imgRef.current?.complete && imgRef.current.naturalWidth) {
       setImgNaturalSize({ w: imgRef.current.naturalWidth, h: imgRef.current.naturalHeight });
     }
@@ -264,7 +247,6 @@ function GalleryItem({ item, onSelect }) {
             }}
             onError={(e) => { e.target.src = 'https://placehold.co/400x300?text=No+Preview'; }}
           />
-          {/* ✅ Precision Overlay */}
           <BBoxCanvas
             annotations={item.bboxes}
             imgRef={imgRef}
@@ -321,22 +303,18 @@ export default function ManagerResultDetail() {
   const [filterLabel, setFilterLabel] = useState("all");
   const [selectedItem, setSelectedItem] = useState(null);
 
-  // ✅ Refs and state for BBox Canvas (Modal view)
   const imgRef = useRef(null);
   const [imgNaturalSize, setImgNaturalSize] = useState({ w: 0, h: 0 });
 
   const fetchData = async () => {
-    // ... no changes to fetchData
     try {
       setLoading(true);
       setError(null);
 
-      // 1. Fetch project meta
       const projRes = await api.get(`/projects/${id}`);
       const projData = resolveApiData(projRes);
       setProject(projData);
 
-      // 2. Fetch all tasks for this project
       const tasksRes = await api.get("/tasks").catch(() => ({ data: [] }));
       const apiTasks = resolveApiData(tasksRes) || [];
       const localMap = getAssignedTasksByUserMap();
@@ -344,13 +322,11 @@ export default function ManagerResultDetail() {
 
       const combinedTasks = [...apiTasks, ...allLocalTasks];
 
-      // Filter for project tasks with normalized project ID
       const projectTasksFiltered = combinedTasks.filter(t => {
         const pid = String(t.projectId || t.project?.id || t.project_id || '');
         return pid === String(id) && !!pid;
       });
 
-      // Deduplicate tasks by ID
       const uniqueTasks = [];
       const seenIds = new Set();
       projectTasksFiltered.forEach(t => {
@@ -363,16 +339,13 @@ export default function ManagerResultDetail() {
 
       setTasks(uniqueTasks);
 
-      // 3. Aggregate all items and their labels
       const aggregated = [];
-      // allLocalTasks and localMap are already defined in step 2 above.
 
       for (const task of uniqueTasks) {
         const taskId = String(task.id || task.taskId);
         if (!taskId) continue;
 
         try {
-          // Check for local task fallback first (it usually has the most recent status)
           const localTask = allLocalTasks.find(t => String(t.id || t.taskId) === taskId);
 
           const [itemsRes, annRes] = await Promise.all([
@@ -383,28 +356,21 @@ export default function ManagerResultDetail() {
           const apiItems = resolveApiData(itemsRes) || [];
           const taskAnns = resolveApiData(annRes) || [];
 
-          // Merge Local + API Items
           const taskItems = localTask?.items || apiItems;
 
           taskItems.forEach(item => {
             const itemId = String(item.id || item.itemId || item.taskItemId || '');
 
-            // ── Enhanced Annotation Source Discovery ──
-            // We need to find the "Approved" or "Winner" annotations.
-            // Local data (from Reviewer's Task.jsx) often merges the winner into the item itself.
             let sourceAnns = [];
 
-            // 1. Direct result fields on the item (Winner content)
             const directResults = item.results || item.bboxes || item.Annotations || item.annotations || item.payload?.results;
-            
+
             if (directResults && (Array.isArray(directResults) ? directResults.length > 0 : true)) {
               sourceAnns = Array.isArray(directResults) ? directResults : [directResults];
             } else {
-              // 2. Fallback to API annotations if local results aren't found
               const itemAnns = taskAnns.filter(a =>
                 String(a.itemId || a.item_id || a.taskItemId || '') === itemId
               );
-              // Pick winners if any, otherwise all
               const winners = itemAnns.filter(a => a.isConsensusWinner || a.isWinner || a.status === 'approved');
               sourceAnns = winners.length > 0 ? winners : itemAnns;
             }
@@ -412,23 +378,19 @@ export default function ManagerResultDetail() {
             const labelSet = new Set();
             const rawBBoxes = [];
 
-            // Process all detected sources
             sourceAnns.forEach(sa => {
               if (!sa) return;
-              
-              // Extract bboxes
+
               const bboxes = extractAnnotations(sa);
               bboxes.forEach(b => {
                 rawBBoxes.push(b);
                 if (b.label) labelSet.add(b.label.toUpperCase());
               });
 
-              // Also check for category/classification on the session/item object
               const cls = sa.classification || sa.category || sa.label || item.label || item.classification;
               if (cls && typeof cls === 'string') labelSet.add(cls.toUpperCase());
             });
 
-            // Status check: Skip rejected items (User request: Don't show rejected)
             const isRejected = (item.status || '').toLowerCase() === 'rejected';
             if (isRejected) return;
 
@@ -607,7 +569,6 @@ export default function ManagerResultDetail() {
                     setImgNaturalSize({ w: e.target.naturalWidth, h: e.target.naturalHeight });
                   }}
                 />
-                {/* ✅ Professional BBox Canvas (Pixel-accurate scaling) */}
                 <BBoxCanvas
                   annotations={selectedItem.bboxes || []}
                   imgRef={imgRef}

@@ -571,8 +571,6 @@ export default function Datasets() {
                             qualityText: quality.text,
                             isImage,
                         };
-
-                        // Some APIs return item metadata without filename/extension, so detect image from blob MIME.
                         if (isImage) {
                             const blobUrl = URL.createObjectURL(response.data);
                             freshBlobUrls.push(blobUrl);
@@ -640,7 +638,6 @@ export default function Datasets() {
         setPreviewImage({ src, name: name || "Dataset image" });
     };
 
-    // ================= FETCH DATA =================
     const fetchData = async () => {
         try {
             setLoading(true);
@@ -667,10 +664,10 @@ export default function Datasets() {
 
             const localTasksMap = getAssignedTasksByUserMap();
             const allLocalTasks = Object.values(localTasksMap).flat();
-            
+
             const localDatasets = [];
             const seenDids = new Set(apiDatasets.map(d => String(d.id || d.datasetId)));
-            
+
             allLocalTasks.forEach(t => {
                 const did = String(t.datasetId || t.dataset?.id || "");
                 if (did && !seenDids.has(did)) {
@@ -693,15 +690,15 @@ export default function Datasets() {
                 merged.map(async (dataset) => {
                     const datasetId = getDatasetId(dataset);
                     if (!datasetId) return { datasetId: null, itemCount: 0 };
-                    
+
                     try {
-                      const itemsRes = await api.get(`/datasets/${datasetId}/items`, { params: { PageSize: 1 } });
-                      return {
-                          datasetId,
-                          itemCount: itemsRes?.data?.totalCount || normalizeDatasetItems(itemsRes?.data).length || dataset.imagesCount || 0,
-                      };
+                        const itemsRes = await api.get(`/datasets/${datasetId}/items`, { params: { PageSize: 1 } });
+                        return {
+                            datasetId,
+                            itemCount: itemsRes?.data?.totalCount || normalizeDatasetItems(itemsRes?.data).length || dataset.imagesCount || 0,
+                        };
                     } catch {
-                      return { datasetId, itemCount: dataset.imagesCount || 0 };
+                        return { datasetId, itemCount: dataset.imagesCount || 0 };
                     }
                 })
             );
@@ -748,7 +745,6 @@ export default function Datasets() {
         return () => window.removeEventListener("click", handleClickOutside);
     }, []);
 
-    // ================= ACTIONS =================
     const handleFileChange = (e) => {
         const files = Array.from(e.target.files);
         if (uploadType === "zip") {
@@ -880,7 +876,6 @@ export default function Datasets() {
 
         try {
             setLoading(true);
-            // Standarizing to uppercase for this resource
             await api.delete(`/datasets/${id}`);
             setDatasets(prev => prev.filter(d => (d.id || d.datasetId) !== id));
             alert("Đã xóa dataset thành công!");
@@ -902,7 +897,6 @@ export default function Datasets() {
             setLoading(true);
             const dsId = selectedDataset.id || selectedDataset.datasetId;
 
-            // Thử attach trực tiếp
             const attachRes = await api.post(`/datasets/add/${projectId}`, { datasetId: String(dsId) }, {
                 validateStatus: () => true,
             });
@@ -920,8 +914,6 @@ export default function Datasets() {
                 alert("Gán thất bại: " + (attachMsg || 'Lỗi không xác định'));
                 return;
             }
-
-            // Dataset đang thuộc project khác → brute-force remove rồi add lại
             let removed = false;
             try {
                 const projRes = await api.get('/projects', { validateStatus: () => true });
@@ -953,8 +945,6 @@ export default function Datasets() {
                     return;
                 }
             }
-
-            // Dataset bị orphan - hỏi user có muốn xóa và tạo lại không
             const confirmed = window.confirm(
                 `Dataset "${selectedDataset?.name}" đang bị lỗi trạng thái trong hệ thống (không thể gán vào project nào).\n\n` +
                 `Bấm OK để XÓA dataset này và tạo lại dataset mới cùng tên (các file ảnh sẽ bị mất, cần upload lại).\n\n` +
@@ -962,15 +952,11 @@ export default function Datasets() {
             );
 
             if (!confirmed) return;
-
-            // Xóa dataset cũ
             const deleteRes = await api.delete(`/datasets/${dsId}`, { validateStatus: () => true });
             if (deleteRes.status !== 200 && deleteRes.status !== 204) {
                 alert("Không thể xóa dataset: " + (deleteRes.data?.message || 'Lỗi không xác định'));
                 return;
             }
-
-            // Tạo dataset mới cùng tên
             const createRes = await api.post('/datasets', { name: selectedDataset?.name || 'Dataset mới' });
             const newDsId = createRes.data?.id || createRes.data?.datasetId || createRes.data?.data?.id;
             if (!newDsId) {
@@ -978,7 +964,6 @@ export default function Datasets() {
                 return;
             }
 
-            // Gán dataset mới vào project
             const assignNewRes = await api.post(`/datasets/add/${projectId}`, { datasetId: String(newDsId) }, {
                 validateStatus: () => true,
             });
@@ -1025,7 +1010,7 @@ export default function Datasets() {
             patchDatasetCount(id, detail.items.length);
         } catch (err) {
             console.error("Fetch dataset details error:", err);
-            setSelectedDataset(ds); // Fallback to list info
+            setSelectedDataset(ds);
             setDetailItems([]);
         } finally {
             setLoadingDetail(false);
@@ -1157,7 +1142,6 @@ export default function Datasets() {
         }
     };
 
-    // ================= RENDER =================
     const filteredDatasets = datasets.filter(d =>
         d.name?.toLowerCase().includes(searchTerm.toLowerCase())
     );
@@ -1204,7 +1188,7 @@ export default function Datasets() {
                     value={searchTerm}
                     onChange={(e) => {
                         setSearchTerm(e.target.value);
-                        setCurrentPage(1); // Reset to page 1 on search
+                        setCurrentPage(1);
                     }}
                     className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 transition-all shadow-sm"
                 />

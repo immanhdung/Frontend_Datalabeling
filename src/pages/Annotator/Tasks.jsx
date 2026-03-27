@@ -73,11 +73,8 @@ export default function AnnotatorTasks() {
           map.set(String(t.id), {
             ...ex,
             ...t,
-            // Ưu tiên progress lớn nhất giữa Local và API
             progress: localIsAdv ? ex.progress : Math.max(localProgress, apiProgress),
-            // Giữ nguyên status tiến bộ hơn
             status: localIsAdv ? ex.status : (localProgress > apiProgress ? 'in_progress' : t.status),
-            // Quan trọng: Phải giữ totalItems từ local nếu API trả về 0
             totalItems: t.totalItems || ex?.totalItems || 0,
             items: (t.items && t.items.length > 0 ? t.items : ex?.items || []).map(apiIt => {
               const iid = String(apiIt.taskItemId || apiIt.id || '');
@@ -97,12 +94,9 @@ export default function AnnotatorTasks() {
       const finalTasks = normalizeTasks(Array.from(map.values()), uid);
       setTasks(finalTasks);
 
-      // Fetch project name + deadline (annotator có thể bị 403)
-      // Fallback: dùng projectName và dueDate đã lưu trong task (từ localStorage)
       const pids = [...new Set(finalTasks.map(t => t.projectId).filter(Boolean).map(String))];
       if (pids.length > 0) {
         const cache = {};
-        // Pre-fill cache từ task data (đã có sẵn trong localStorage)
         finalTasks.forEach(t => {
           if (t.projectId && !cache[String(t.projectId)]) {
             cache[String(t.projectId)] = {
@@ -111,7 +105,6 @@ export default function AnnotatorTasks() {
             };
           }
         });
-        // Thử fetch từ API để có data mới nhất (nếu có quyền)
         await Promise.allSettled(pids.map(async pid => {
           try {
             const res = await api.get(`/projects/${pid}`, { validateStatus: () => true });
@@ -123,7 +116,6 @@ export default function AnnotatorTasks() {
                 cache[pid] = { name: name || cache[pid]?.name || '', deadline: deadline || cache[pid]?.deadline || null };
               }
             }
-            // 403: giữ nguyên cache từ localStorage
           } catch { }
         }));
         setProjectsCache(cache);
@@ -161,7 +153,7 @@ export default function AnnotatorTasks() {
       if (sortBy === 'dueDate') return new Date(a.dueDate) - new Date(b.dueDate);
       const dateA = new Date(a.assignedAt || a.updatedAt || a.createdAt);
       const dateB = new Date(b.assignedAt || b.updatedAt || b.createdAt);
-      return dateB - dateA; // Default: Recent assigned on top
+      return dateB - dateA;
     }), [tasks, activeTab, searchTerm, sortBy]);
 
   const handleStart = (task) => navigate(`/annotator/tasks/${task.id}`, { state: { task, isRework: task.status === 'rejected' } });
@@ -249,9 +241,7 @@ export default function AnnotatorTasks() {
               const TypeIcon = TYPE_ICONS[task.type] || ImageIcon;
               const typeColor = TYPE_COLORS[task.type] || 'bg-slate-50 text-slate-600';
               const pInfo = projectsCache[String(task.projectId)] || {};
-              //  Tên project thực tế
               const displayName = pInfo.name || task.projectName || 'Dự án';
-              //  Deadline project thực tế (manager đặt khi tạo project)
               const displayDeadline = pInfo.deadline || task.dueDate;
               const days = getDaysUntilDue(displayDeadline);
               const urgency = days !== null && days <= 3 ? 'text-red-500' : 'text-amber-500';
@@ -274,12 +264,9 @@ export default function AnnotatorTasks() {
                   </div>
 
                   <div className="flex-1">
-                    {/*  Ưu tiên hiển thị tên Project làm tiêu đề chính */}
                     <h3 className="font-bold text-slate-900 text-xl mb-1 line-clamp-1 group-hover:text-blue-600 transition-colors">
                       {displayName}
                     </h3>
-
-                    {/* Progress Bar moved here */}
                     <div className="mb-3">
                       <div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1.5 uppercase tracking-tight">
 
@@ -316,7 +303,6 @@ export default function AnnotatorTasks() {
                       <span>Giao việc: {formatDateTime(task.createdAt || task.assignedAt)}</span>
                     </div>
 
-                    {/* ✅ Hạn: deadline project thực tế */}
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-xs text-slate-500">
                         <Calendar className="w-4 h-4 text-slate-400" />

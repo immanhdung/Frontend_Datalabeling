@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  ArrowLeft, 
-  Database, 
-  Folder, 
-  CheckCircle2, 
-  Clock, 
+import {
+  ArrowLeft,
+  Database,
+  Folder,
+  CheckCircle2,
+  Clock,
   Image as ImageIcon,
   Loader2,
   Calendar,
@@ -14,8 +14,8 @@ import {
   Play
 } from 'lucide-react';
 import api, { taskAPI, projectAPI } from '../../config/api';
-import { 
-  normalizeTask, 
+import {
+  normalizeTask,
   resolveApiData,
   resolveImageUrl,
   getLocalAssignedTasksForUser,
@@ -45,26 +45,23 @@ export default function TaskDetails() {
         }
 
         const normalized = normalizeTask(apiTaskData);
-        
-        // Merge with local data to get the latest progress/status
+
         const identifiers = getCurrentUserIdentifiers();
         const localTasks = getLocalAssignedTasksForUser(identifiers);
         const localMatch = localTasks.find(t => String(t.id) === String(taskId));
-        
+
         if (localMatch) {
-           const localNorm = normalizeTask(localMatch);
-           // Ưu tiên progress/status tiến bộ hơn từ local
-           normalized.progress = Math.max(normalized.progress || 0, localNorm.progress || 0);
-           if (['completed', 'approved', 'rejected', 'in_progress'].includes(localNorm.status)) {
-              normalized.status = localNorm.status;
-           }
-           normalized.totalItems = normalized.totalItems || localNorm.totalItems || 0;
-           normalized.processedCount = Math.max(normalized.processedCount || 0, localNorm.processedCount || 0);
-           normalized.projectName = normalized.projectName || localNorm.projectName;
-           normalized.guideline = normalized.guideline || localNorm.guideline;
+          const localNorm = normalizeTask(localMatch);
+          normalized.progress = Math.max(normalized.progress || 0, localNorm.progress || 0);
+          if (['completed', 'approved', 'rejected', 'in_progress'].includes(localNorm.status)) {
+            normalized.status = localNorm.status;
+          }
+          normalized.totalItems = normalized.totalItems || localNorm.totalItems || 0;
+          normalized.processedCount = Math.max(normalized.processedCount || 0, localNorm.processedCount || 0);
+          normalized.projectName = normalized.projectName || localNorm.projectName;
+          normalized.guideline = normalized.guideline || localNorm.guideline;
         }
 
-        // Try to fetch project details (name, guideline) if still missing
         if (!normalized.projectName || normalized.projectName === 'Dự án' || !normalized.guideline) {
           try {
             const projRes = await api.get(`/projects/${normalized.projectId}`, { validateStatus: () => true });
@@ -74,39 +71,35 @@ export default function TaskDetails() {
               normalized.dueDate = p.deadline || p.dueDate || normalized.dueDate;
               if (!normalized.guideline) normalized.guideline = p.guideline || "";
             }
-          } catch {}
-          
+          } catch { }
+
           if (!normalized.guideline) {
-             try {
-                const guideRes = await api.get(`/guidelines/projects/${normalized.projectId}`).catch(() => ({ data: null }));
-                const gRaw = guideRes?.data?.data || guideRes?.data;
-                normalized.guideline = (typeof gRaw === 'string' ? gRaw : gRaw?.content || gRaw?.guideline || gRaw?.text) || "";
-             } catch {}
+            try {
+              const guideRes = await api.get(`/guidelines/projects/${normalized.projectId}`).catch(() => ({ data: null }));
+              const gRaw = guideRes?.data?.data || guideRes?.data;
+              normalized.guideline = (typeof gRaw === 'string' ? gRaw : gRaw?.content || gRaw?.guideline || gRaw?.text) || "";
+            } catch { }
           }
         }
 
         setTask(normalized);
-
-        // 2. Fetch Task Items
         let apiItems = [];
         try {
-          // Try both APIs sequentially or in parallel
           const [itemsRes, projItemsRes] = await Promise.allSettled([
             taskAPI.getItems(taskId),
             normalized.projectId ? projectAPI.getTaskItems(normalized.projectId) : Promise.reject('No project ID')
           ]);
-          
+
           let list1 = itemsRes.status === 'fulfilled' ? resolveApiData(itemsRes.value) : [];
           let list2 = projItemsRes.status === 'fulfilled' ? resolveApiData(projItemsRes.value) : [];
-          
+
           if (!Array.isArray(list1)) list1 = [];
           if (!Array.isArray(list2)) list2 = [];
-          
-          // Merge based on ID
+
           const itemMap = new Map();
           [...list1, ...list2].forEach(item => {
-             const key = String(item?.taskItemId || item?.id || '').trim().toLowerCase();
-             if (key && !itemMap.has(key)) itemMap.set(key, item);
+            const key = String(item?.taskItemId || item?.id || '').trim().toLowerCase();
+            if (key && !itemMap.has(key)) itemMap.set(key, item);
           });
           apiItems = Array.from(itemMap.values());
         } catch (e) {
@@ -119,29 +112,28 @@ export default function TaskDetails() {
           const merged = apiItems.map((apiItem, idx) => {
             const apiId = String(apiItem?.taskItemId || apiItem?.id || apiItem?.itemId || '').trim().toLowerCase();
             const apiUrl = resolveImageUrl(apiItem);
-            
-            // Tìm localItem bằng ID hoặc URL hoặc theo thứ tự (index)
+
             const localItem = localItems.find(li => {
-               const lid = String(li?.taskItemId || li?.id || li?.itemId || '').trim().toLowerCase();
-               const lUrl = resolveImageUrl(li);
-               
-               if (lid && lid === apiId) return true;
-               if (apiUrl && lUrl && apiUrl === lUrl) return true;
-               return false;
+              const lid = String(li?.taskItemId || li?.id || li?.itemId || '').trim().toLowerCase();
+              const lUrl = resolveImageUrl(li);
+
+              if (lid && lid === apiId) return true;
+              if (apiUrl && lUrl && apiUrl === lUrl) return true;
+              return false;
             }) || (localItems.length === apiItems.length ? localItems[idx] : null);
-            
+
             if (localItem) {
-               const lStatus = String(localItem.status || '').toLowerCase();
-               const isLocalBetter = ['done', 'completed', 'skipped', 'submitted', 'pending_review', 'rejected', 'approved'].includes(lStatus);
-               const hasWork = lStatus === 'done' || lStatus === 'completed' || lStatus === 'approved' || (Array.isArray(localItem.annotations) && localItem.annotations.length > 0);
-               
-               if (isLocalBetter || hasWork) {
-                  return { 
-                    ...apiItem, 
-                    ...localItem, 
-                    status: (localItem.status === 'pending' && hasWork) ? 'done' : localItem.status 
-                  };
-               }
+              const lStatus = String(localItem.status || '').toLowerCase();
+              const isLocalBetter = ['done', 'completed', 'skipped', 'submitted', 'pending_review', 'rejected', 'approved'].includes(lStatus);
+              const hasWork = lStatus === 'done' || lStatus === 'completed' || lStatus === 'approved' || (Array.isArray(localItem.annotations) && localItem.annotations.length > 0);
+
+              if (isLocalBetter || hasWork) {
+                return {
+                  ...apiItem,
+                  ...localItem,
+                  status: (localItem.status === 'pending' && hasWork) ? 'done' : localItem.status
+                };
+              }
             }
             return apiItem;
           });
@@ -185,19 +177,18 @@ export default function TaskDetails() {
     );
   }
 
-  const processedItems = items.filter(it => 
+  const processedItems = items.filter(it =>
     ['done', 'completed', 'skipped', 'submitted', 'hoan thanh', 'hoàn thành'].includes(
       String(it.status || '').toLowerCase()
     )
   );
-  
+
   const totalItems = items.length || task.totalItems || 0;
-  
-  // Lấy giá trị lớn nhất giữa việc đếm từng ảnh và thông số tiến độ của task
+
   const countFromItems = processedItems.length;
   const countFromProgress = Math.round(((task.progress || 0) * totalItems) / 100);
   const finalProcessedCount = Math.max(countFromItems, countFromProgress);
-  
+
   const remainingCount = Math.max(0, totalItems - finalProcessedCount);
   const progressPercent = Math.max(
     totalItems > 0 ? Math.round((finalProcessedCount / totalItems) * 100) : 0,
@@ -207,11 +198,11 @@ export default function TaskDetails() {
   return (
     <div className="min-h-screen bg-[#F8FAFC] pb-20">
       <div className="max-w-7xl mx-auto px-6 py-10">
-        
+
         {/* Header section */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
           <div className="flex items-center gap-6">
-            <button 
+            <button
               onClick={() => navigate('/annotator/tasks')}
               className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-slate-100 hover:bg-slate-50 text-slate-400 hover:text-slate-900 transition-all"
             >
@@ -228,8 +219,8 @@ export default function TaskDetails() {
               </div>
             </div>
           </div>
-          
-          <button 
+
+          <button
             onClick={() => navigate(`/annotator/tasks/${taskId}`)}
             className="px-10 py-5 bg-indigo-600 text-white rounded-3xl font-black shadow-2xl shadow-indigo-100 hover:bg-slate-900 transition-all flex items-center gap-3"
           >
@@ -237,7 +228,6 @@ export default function TaskDetails() {
           </button>
         </div>
 
-        {/* Stats Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
           <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
             <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-6">
@@ -277,14 +267,13 @@ export default function TaskDetails() {
           </div>
         </div>
 
-        {/* Guideline Section */}
         {task.guideline && (
           <div className="bg-indigo-50/50 border border-indigo-100 rounded-[3rem] p-10 mb-12">
             <h2 className="flex items-center gap-3 text-2xl font-black text-indigo-900 mb-4">
-               <Database className="w-6 h-6" /> Hướng dẫn gán nhãn
+              <Database className="w-6 h-6" /> Hướng dẫn gán nhãn
             </h2>
             <div className="bg-white/60 backdrop-blur-sm rounded-3xl p-8 text-indigo-900/80 font-medium whitespace-pre-line leading-relaxed border border-white/50">
-               {task.guideline}
+              {task.guideline}
             </div>
           </div>
         )}
@@ -321,38 +310,34 @@ export default function TaskDetails() {
                 const isSkipped = s === 'skipped';
                 const isRejected = s === 'rejected';
                 const url = resolveImageUrl(item);
-                
+
                 return (
-                  <div 
+                  <div
                     key={idx}
-                    className={`aspect-square rounded-xl flex items-center justify-center relative overflow-hidden transition-all border-2 ${
-                      isApproved ? 'border-emerald-500 bg-emerald-50' :
-                      isRejected ? 'border-rose-400 bg-rose-50' :
-                      isSkipped ? 'border-amber-400 bg-amber-50' :
-                      'border-slate-100 bg-slate-50'
-                    }`}
+                    className={`aspect-square rounded-xl flex items-center justify-center relative overflow-hidden transition-all border-2 ${isApproved ? 'border-emerald-500 bg-emerald-50' :
+                        isRejected ? 'border-rose-400 bg-rose-50' :
+                          isSkipped ? 'border-amber-400 bg-amber-50' :
+                            'border-slate-100 bg-slate-50'
+                      }`}
                   >
                     {url ? (
-                      <img 
-                        src={url} 
-                        alt={`item-${idx}`} 
+                      <img
+                        src={url}
+                        alt={`item-${idx}`}
                         className={`w-full h-full object-cover ${(isDone || isSkipped || isRejected) ? 'opacity-100' : 'opacity-40'}`}
                       />
                     ) : (
-                       <span className={`text-xs font-black ${isDone ? 'text-emerald-600' : isSkipped ? 'text-amber-600' : isRejected ? 'text-rose-600' : 'text-slate-400'}`}>
-                         {idx + 1}
-                       </span>
+                      <span className={`text-xs font-black ${isDone ? 'text-emerald-600' : isSkipped ? 'text-amber-600' : isRejected ? 'text-rose-600' : 'text-slate-400'}`}>
+                        {idx + 1}
+                      </span>
                     )}
-                    
-                    {/* Overlay status marker */}
-                    <div className={`absolute top-1 right-1 w-2 h-2 rounded-full ${
-                      isApproved ? 'bg-emerald-500' :
-                      isRejected ? 'bg-rose-500' :
-                      isSkipped ? 'bg-amber-400' :
-                      'bg-slate-300'
-                    }`} />
-                    
-                    {/* Index marker */}
+
+                    <div className={`absolute top-1 right-1 w-2 h-2 rounded-full ${isApproved ? 'bg-emerald-500' :
+                        isRejected ? 'bg-rose-500' :
+                          isSkipped ? 'bg-amber-400' :
+                            'bg-slate-300'
+                      }`} />
+
                     <div className="absolute bottom-0 left-0 right-0 bg-black/30 backdrop-blur-[2px] text-[8px] font-black text-white px-1 py-0.5 text-center">
                       {idx + 1}
                     </div>
@@ -363,12 +348,11 @@ export default function TaskDetails() {
           </div>
         </div>
 
-        {/* Dataset Preview Placeholder */}
         <div className="rounded-[3rem] bg-slate-900 p-12 text-center relative overflow-hidden">
           <div className="relative z-10">
             <h3 className="text-white text-3xl font-extrabold mb-4">Sẵn sàng gán nhãn tiếp?</h3>
             <p className="text-indigo-200/70 mb-8 max-w-lg mx-auto font-medium">Bạn đang làm rất tốt! Hãy tiếp tục gán nhãn để hoàn thành dự án đúng hạn.</p>
-            <button 
+            <button
               onClick={() => navigate(`/annotator/tasks/${taskId}`)}
               className="px-12 py-4 bg-white text-slate-900 rounded-2xl font-black shadow-xl shadow-black/20 hover:scale-105 transition-all"
             >

@@ -35,13 +35,12 @@ export default function AssignTasks() {
   const [selectedDatasetId, setSelectedDatasetId] = useState(null);
 
   const [rolesMap, setRolesMap] = useState({});
-  const [selectedAnnotators, setSelectedAnnotators] = useState([]); 
-  const [selectedReviewer, setSelectedReviewer] = useState(null); 
+  const [selectedAnnotators, setSelectedAnnotators] = useState([]);
+  const [selectedReviewer, setSelectedReviewer] = useState(null);
 
   const selectedAnnotatorIds = useMemo(() => selectedAnnotators.map(u => u.id || u.userId), [selectedAnnotators]);
   const selectedReviewerId = useMemo(() => selectedReviewer?.id || selectedReviewer?.userId || null, [selectedReviewer]);
 
-  // Pagination for Personnel
   const [paginatedAnnotators, setPaginatedAnnotators] = useState([]);
   const [paginatedReviewers, setPaginatedReviewers] = useState([]);
   const [annPage, setAnnPage] = useState(1);
@@ -128,7 +127,7 @@ export default function AssignTasks() {
       });
       const raw = res.data;
       const users = (Array.isArray(raw?.items) ? raw.items : Array.isArray(raw?.data) ? raw.data : Array.isArray(raw) ? raw : []);
-      
+
       if (role === 'annotator') {
         setPaginatedAnnotators(users);
         setAnnTotalPages(raw?.totalPages || 1);
@@ -190,7 +189,7 @@ export default function AssignTasks() {
       if (res.status === 200 || res.status === 201) {
         fullProject = { ...project, ...(res.data?.data || res.data || {}) };
       }
-    } catch { /* use basic project info */ }
+    } catch { }
     setSelectedProject(fullProject);
     fetchDatasetsForProject(fullProject);
     setStep(2);
@@ -237,7 +236,7 @@ export default function AssignTasks() {
           });
         }
       }
-    } catch { /* ignore */ }
+    } catch { }
 
     const finalRes = await api.post(`/datasets/add/${projectId}`, { datasetId: String(datasetId) }, {
       validateStatus: () => true,
@@ -245,7 +244,6 @@ export default function AssignTasks() {
     return finalRes.status === 200 || finalRes.status === 201 || finalRes.status === 204;
   };
 
-  // Helper: parse any date value and return a valid ISO string, or fallback
   const toISOStringSafe = (dateVal, fallbackMs) => {
     if (!dateVal) return new Date(fallbackMs).toISOString();
     const d = new Date(dateVal);
@@ -275,20 +273,17 @@ export default function AssignTasks() {
         if (projRes.status === 200) {
           projectDetail = projRes.data?.data || projRes.data || selectedProject;
         }
-      } catch { /* fallback */ }
+      } catch { }
 
       const allSelectedUsers = [...selectedAnnotatorIds, selectedReviewerId].filter(Boolean);
-
-      // 1. Add all users to project as members (ignore errors)
       for (const userId of allSelectedUsers) {
         try {
           await api.post(`/projects/${projectId}/members/${userId}`, null, {
             validateStatus: () => true,
           });
-        } catch (e) { /* ignore */ }
+        } catch (e) { }
       }
 
-      // 2. Attach dataset
       const attached = await attachDatasetToProject(selectedDatasetId, projectId);
       if (!attached) {
         console.warn('Could not confirm dataset attachment, proceeding anyway...');
@@ -298,8 +293,6 @@ export default function AssignTasks() {
       const datasetInfo = datasets.find(
         (d) => String(d.id || d.datasetId) === String(selectedDatasetId)
       );
-
-      // 3. Build payload — ensure dates are always valid ISO strings
       const startedAt = new Date().toISOString();
       const deadlineAt = deadline ? new Date(deadline).toISOString() : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -307,8 +300,6 @@ export default function AssignTasks() {
       const firstAnnotatorId = selectedAnnotatorIds[0];
       let successCount = 0;
       let realTaskId = null;
-
-      // BƯỚC 3A: Gọi API thật cho annotator đầu tiên → lấy realTaskId
       const firstPayload = {
         projectId: String(projectId),
         datasetId: String(selectedDatasetId),
@@ -358,7 +349,6 @@ export default function AssignTasks() {
         errorDetails.push(`Lỗi giao việc: ${errMsg}`);
       }
 
-      // BƯỚC 3B: Người 2, 3 (annotators còn lại + reviewer) — dùng lại realTaskId, lưu local
       if (realTaskId) {
         const remainingUsers = allAssigned.filter(id => id !== firstAnnotatorId);
 
@@ -574,7 +564,6 @@ export default function AssignTasks() {
                 datasets.map((ds) => {
                   const dsId = ds.id || ds.datasetId;
                   const isSelected = selectedDatasetId === dsId;
-                  // ✅ Dataset nào đã giao (isActive = false) thì làm mờ và không cho chọn
                   const isAlreadyAssigned = ds.isActive === false || ds.IsActive === false;
 
                   return (
@@ -582,10 +571,10 @@ export default function AssignTasks() {
                       key={dsId}
                       onClick={() => !isAlreadyAssigned && setSelectedDatasetId(dsId)}
                       className={`p-8 rounded-[3rem] border-4 transition-all relative ${isAlreadyAssigned
-                          ? 'border-slate-100 bg-slate-50 opacity-60 cursor-not-allowed'
-                          : isSelected
-                            ? 'border-indigo-600 bg-indigo-50/50 shadow-xl cursor-pointer'
-                            : 'border-slate-50 bg-white hover:border-indigo-100 shadow-sm cursor-pointer'
+                        ? 'border-slate-100 bg-slate-50 opacity-60 cursor-not-allowed'
+                        : isSelected
+                          ? 'border-indigo-600 bg-indigo-50/50 shadow-xl cursor-pointer'
+                          : 'border-slate-50 bg-white hover:border-indigo-100 shadow-sm cursor-pointer'
                         }`}
                     >
                       <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mb-6 ${isAlreadyAssigned ? 'bg-slate-200 text-slate-400' : isSelected ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'
@@ -634,7 +623,7 @@ export default function AssignTasks() {
                 </div>
               </div>
 
-              {/* ✅ Chọn Deadline cho Task */}
+              {/* Chọn Deadline cho Task */}
               <div className="bg-slate-50 px-6 py-4 rounded-3xl border-2 border-slate-100 flex flex-col md:flex-row md:items-center gap-4">
                 <div className="flex items-center gap-3 shrink-0">
                   <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
@@ -685,47 +674,46 @@ export default function AssignTasks() {
                       {/* Selected Section */}
                       {selectedAnnotators.length > 0 && (
                         <div className="space-y-3 mb-8 bg-emerald-50/50 p-4 rounded-[2rem] border border-emerald-100">
-                           <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest pl-2 mb-2">Đăng chọn ({selectedAnnotators.length})</p>
-                           <div className="grid grid-cols-1 gap-2">
-                             {selectedAnnotators.map(u => (
-                               renderSimpleUserCard(u, true, () => {
-                                 const uid = u.id || u.userId;
-                                 setSelectedAnnotators(prev => prev.filter(a => (a.id || a.userId) !== uid));
-                               }, 'annotator')
-                             ))}
-                           </div>
+                          <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest pl-2 mb-2">Đăng chọn ({selectedAnnotators.length})</p>
+                          <div className="grid grid-cols-1 gap-2">
+                            {selectedAnnotators.map(u => (
+                              renderSimpleUserCard(u, true, () => {
+                                const uid = u.id || u.userId;
+                                setSelectedAnnotators(prev => prev.filter(a => (a.id || a.userId) !== uid));
+                              }, 'annotator')
+                            ))}
+                          </div>
                         </div>
                       )}
-                      
+
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">Danh sách Annotator</p>
                       {paginatedAnnotators
                         .filter(u => !selectedAnnotatorIds.includes(u.id || u.userId))
                         .map(u => {
-                        const uid = u.id || u.userId;
-                        const isSelected = selectedAnnotatorIds.includes(uid);
-                        const handleToggle = () => {
-                          if (isSelected) {
-                            setSelectedAnnotators(prev => prev.filter(a => (a.id || a.userId) !== uid));
-                          } else {
-                            setSelectedAnnotators(prev => [...prev, u]);
-                          }
-                        };
-                        return renderSimpleUserCard(u, isSelected, handleToggle, 'annotator');
-                      })}
+                          const uid = u.id || u.userId;
+                          const isSelected = selectedAnnotatorIds.includes(uid);
+                          const handleToggle = () => {
+                            if (isSelected) {
+                              setSelectedAnnotators(prev => prev.filter(a => (a.id || a.userId) !== uid));
+                            } else {
+                              setSelectedAnnotators(prev => [...prev, u]);
+                            }
+                          };
+                          return renderSimpleUserCard(u, isSelected, handleToggle, 'annotator');
+                        })}
 
-                      {/* Pagination Controls */}
                       {annTotalPages > 1 && (
                         <div className="flex items-center justify-center gap-4 pt-4">
-                          <button 
-                            disabled={annPage <= 1} 
+                          <button
+                            disabled={annPage <= 1}
                             onClick={() => setAnnPage(p => p - 1)}
                             className="p-2 bg-slate-100 rounded-xl disabled:opacity-30"
                           >
                             <ArrowLeft className="w-4 h-4" />
                           </button>
                           <span className="text-xs font-bold text-slate-500">Trang {annPage} / {annTotalPages}</span>
-                          <button 
-                            disabled={annPage >= annTotalPages} 
+                          <button
+                            disabled={annPage >= annTotalPages}
                             onClick={() => setAnnPage(p => p + 1)}
                             className="p-2 bg-slate-100 rounded-xl disabled:opacity-30"
                           >
@@ -761,8 +749,8 @@ export default function AssignTasks() {
                       {/* Selected Section */}
                       {selectedReviewer && (
                         <div className="space-y-3 mb-8 bg-indigo-50/50 p-4 rounded-[2rem] border border-indigo-100">
-                           <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest pl-2 mb-2">Đã chọn</p>
-                           {renderSimpleUserCard(selectedReviewer, true, () => setSelectedReviewer(null), 'reviewer')}
+                          <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest pl-2 mb-2">Đã chọn</p>
+                          {renderSimpleUserCard(selectedReviewer, true, () => setSelectedReviewer(null), 'reviewer')}
                         </div>
                       )}
 
@@ -770,26 +758,25 @@ export default function AssignTasks() {
                       {paginatedReviewers
                         .filter(u => (u.id || u.userId) !== selectedReviewerId)
                         .map(u => {
-                        const uid = u.id || u.userId;
-                        const isSelected = selectedReviewerId === uid;
-                        return renderSimpleUserCard(u, isSelected, () => {
-                          setSelectedReviewer(isSelected ? null : u);
-                        }, 'reviewer');
-                      })}
+                          const uid = u.id || u.userId;
+                          const isSelected = selectedReviewerId === uid;
+                          return renderSimpleUserCard(u, isSelected, () => {
+                            setSelectedReviewer(isSelected ? null : u);
+                          }, 'reviewer');
+                        })}
 
-                      {/* Pagination Controls */}
                       {revTotalPages > 1 && (
                         <div className="flex items-center justify-center gap-4 pt-4">
-                          <button 
-                            disabled={revPage <= 1} 
+                          <button
+                            disabled={revPage <= 1}
                             onClick={() => setRevPage(p => p - 1)}
                             className="p-2 bg-slate-100 rounded-xl disabled:opacity-30"
                           >
                             <ArrowLeft className="w-4 h-4" />
                           </button>
                           <span className="text-xs font-bold text-slate-500">Trang {revPage} / {revTotalPages}</span>
-                          <button 
-                            disabled={revPage >= revTotalPages} 
+                          <button
+                            disabled={revPage >= revTotalPages}
                             onClick={() => setRevPage(p => p + 1)}
                             className="p-2 bg-slate-100 rounded-xl disabled:opacity-30"
                           >

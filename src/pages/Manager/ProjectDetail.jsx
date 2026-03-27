@@ -87,7 +87,7 @@ export default function ManagerProjectDetail() {
   const [addingMember, setAddingMember] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState("");
   const [assigningTask, setAssigningTask] = useState(false);
-  
+
   const [showExportModal, setShowExportModal] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportForm, setExportForm] = useState({
@@ -205,17 +205,15 @@ export default function ManagerProjectDetail() {
     try {
       setLoading(true);
       setError(null);
-
-      // ✅ Gọi các endpoint để lấy datasets và labels của dự án theo ảnh yêu cầu
       const [projectRes, categoriesRes, datasetsRes, projectDatasetsRes, tasksRes, projectLabelsRes, usersRes, guidelineRes] = await Promise.all([
         api.get(`/projects/${id}`),
         api.get("/categories").catch(() => ({ data: [] })),
         api.get("/datasets").catch(() => ({ data: [] })),
-        api.get(`/projects/${id}/datasets`).catch(() => ({ data: [] })), // GET /api/projects/{id}/datasets
+        api.get(`/projects/${id}/datasets`).catch(() => ({ data: [] })),
         api.get("/tasks").catch(() => ({ data: [] })),
-        api.get(`/projects/${id}/labels`).catch(() => api.get(`/labels?ProjectId=${id}`)).catch(() => ({ data: [] })), // GET /api/projects/{id}/labels
+        api.get(`/projects/${id}/labels`).catch(() => api.get(`/labels?ProjectId=${id}`)).catch(() => ({ data: [] })),
         api.get("/users").catch(() => ({ data: [] })),
-        api.get(`/projects/${id}/guideline`).catch(() => ({ data: null })), // CORRECT Path based on swagger
+        api.get(`/projects/${id}/guideline`).catch(() => ({ data: null })),
       ]);
 
       const fetchedProject =
@@ -223,7 +221,6 @@ export default function ManagerProjectDetail() {
         toObject(projectRes?.data?.project) ||
         projectRes?.data;
 
-      // Extract content from separate guideline if found
       const guidelineRaw = guidelineRes?.data?.data || guidelineRes?.data;
       let guidelineContent = "";
       let foundId = null;
@@ -240,11 +237,10 @@ export default function ManagerProjectDetail() {
       if (guidelineContent) {
         fetchedProject.guideline = guidelineContent;
       } else {
-        // Fallback to project guideline if separate fetch yielded nothing
+
         fetchedProject.guideline = fetchedProject.guideline || "";
       }
 
-      // Lấy members từ project detail (nếu có) hoặc từ allUsers filter
 
       let fetchedMembers = [];
       const membersFromProject = toArray(fetchedProject?.members);
@@ -268,7 +264,6 @@ export default function ManagerProjectDetail() {
       setLabelSets(fetchedLabelSets);
       setCategories(toArray(categoriesRes?.data));
 
-      // Merge all datasets + project datasets
       const allDatasets = toArray(datasetsRes?.data);
       const projectDatasets = toArray(projectDatasetsRes?.data);
       const datasetMap = new Map();
@@ -351,7 +346,7 @@ export default function ManagerProjectDetail() {
       // Construct filename
       const timestamp = new Date().getTime();
       const filename = `Project_${id}_Export_${exportForm.format}_${timestamp}.${exportForm.format === 'json' ? 'json' : 'zip'}`;
-      
+
       const payload = {
         format: exportForm.format,
         trainSplitRatio: exportForm.format === 'yolo' ? exportForm.trainSplitRatio : 0.8,
@@ -359,7 +354,7 @@ export default function ManagerProjectDetail() {
       };
 
       const res = await api.post(`/exports/${id}`, payload, { responseType: 'blob' });
-      
+
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -367,7 +362,7 @@ export default function ManagerProjectDetail() {
       document.body.appendChild(link);
       link.click();
       link.parentNode.removeChild(link);
-      
+
       setShowExportModal(false);
       alert("Xuất dữ liệu thành công!");
     } catch (err) {
@@ -379,8 +374,6 @@ export default function ManagerProjectDetail() {
   };
 
   const handleExportJson = async () => {
-    // Keep internal JSON export as fallback or alternative if needed
-    // But now redirect to modal for consistency
     setShowExportModal(true);
   };
 
@@ -536,20 +529,17 @@ export default function ManagerProjectDetail() {
 
       await api.put(`/projects/${id}`, updatePayload);
 
-      // ✅ Update guideline separately as requested
       try {
         if (guidelineId) {
-          // Use PUT /api/guidelines/{id}
           await api.put(`/guidelines/${guidelineId}`, {
             content: editForm.guideline || ""
           });
         } else {
-          // POST to create new
+
           await api.post("/guidelines", {
             projectId: id,
             content: editForm.guideline || ""
           });
-          // Refresh after save to get new guideline ID
           setTimeout(fetchProjectDetail, 1000);
         }
       } catch (e) {
@@ -897,11 +887,10 @@ export default function ManagerProjectDetail() {
                     <button
                       key={fmt}
                       onClick={() => setExportForm(prev => ({ ...prev, format: fmt }))}
-                      className={`py-2.5 rounded-xl border-2 font-bold uppercase text-sm transition-all ${
-                        exportForm.format === fmt 
-                          ? 'border-indigo-600 bg-indigo-50 text-indigo-700' 
+                      className={`py-2.5 rounded-xl border-2 font-bold uppercase text-sm transition-all ${exportForm.format === fmt
+                          ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
                           : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-200'
-                      }`}
+                        }`}
                     >
                       {fmt}
                     </button>
@@ -967,7 +956,7 @@ export default function ManagerProjectDetail() {
                 {exporting ? "Đang xử lý..." : "Bắt đầu xuất"}
               </button>
             </div>
-            
+
             <p className="text-[10px] text-center text-gray-400">
               * Dữ liệu sẽ được xuất dựa trên các bản gán nhãn đã đạt đồng thuận hoặc được phê duyệt.
             </p>

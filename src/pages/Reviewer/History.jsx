@@ -31,9 +31,8 @@ const ReviewHistory = () => {
 
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [dateFilter, setDateFilter] = useState('all'); // all, today, week, month
+  const [dateFilter, setDateFilter] = useState('all');
 
-  // Calculate statistics
   const stats = {
     total: historySource.length,
     approved: historySource.filter(r => r.decision === 'approved').length,
@@ -47,7 +46,6 @@ const ReviewHistory = () => {
     expired: historySource.filter(r => r.taskStatus === 'expired').length,
   };
 
-  // Filter history
   const filteredHistory = historySource.filter((review) => {
     const matchesDecision = filter === 'all' || (filter === 'expired' ? review.taskStatus === 'expired' : review.decision === filter);
     const matchesSearch =
@@ -56,7 +54,6 @@ const ReviewHistory = () => {
       (review.taskId || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (review.projectName || '').toLowerCase().includes(searchTerm.toLowerCase());
 
-    // Date filter
     const reviewDate = new Date(review.reviewedAt);
     const now = new Date();
     let matchesDate = true;
@@ -168,7 +165,6 @@ const ReviewHistory = () => {
             </button>
           </div>
 
-          {/* Decision Filter Tabs */}
           <div className="flex gap-2 overflow-x-auto bg-slate-50 p-1.5 rounded-2xl w-fit">
             {[
               { key: 'all', label: 'Tất cả', count: historySource.length },
@@ -197,7 +193,6 @@ const ReviewHistory = () => {
           </div>
         </div>
 
-        {/* Review History List */}
         <div className="space-y-6">
           {filteredHistory.length === 0 ? (
             <div className="bg-white rounded-[2.5rem] p-20 text-center border-2 border-dashed border-slate-200 shadow-sm">

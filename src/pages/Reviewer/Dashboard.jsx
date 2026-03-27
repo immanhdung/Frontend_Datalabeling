@@ -42,7 +42,6 @@ const ReviewerDashboard = () => {
 
       let allFoundAnnotations = [];
 
-      // 1. Try API
       try {
         const response = await reviewAPI.getPendingReviews();
         const apiData = response.data?.data || response.data || [];
@@ -50,8 +49,6 @@ const ReviewerDashboard = () => {
       } catch (err) {
         console.warn('[Reviewer] API fetch failed, using local fallback');
       }
-
-      // 2. Load from localStorage - tasks ready for review (processed by consensus)
       const localReviewTasks = getPendingReviewerTasks();
       localReviewTasks.forEach(task => {
         if (!allFoundAnnotations.some(ann => String(ann.id) === String(task.id))) {
@@ -62,12 +59,10 @@ const ReviewerDashboard = () => {
             status: 'pending_review',
             itemCount: task.items?.length || 0,
             isConsensusTask: true,
-            // nonConflictItems tells us these are already consensus-picked items
           });
         }
       });
 
-      // 3. Scan localStorage for submitted tasks (fallback discovery)
       try {
         const rawTaskMap = localStorage.getItem('assignedTasksByUser');
         if (rawTaskMap) {
@@ -75,7 +70,6 @@ const ReviewerDashboard = () => {
           Object.values(taskMap).forEach(userTasks => {
             if (!Array.isArray(userTasks)) return;
             userTasks.forEach(t => {
-              // Only show tasks that have been through consensus (status: completed with no conflict)
               if (
                 (t.status === 'completed' || t.status === 'pending_review') &&
                 !t.hasConflict &&
@@ -101,7 +95,6 @@ const ReviewerDashboard = () => {
         console.error('[Reviewer] Local task scan failed:', e);
       }
 
-      // 4. Final Filter: Remove items already in review history
       const pendingOnly = allFoundAnnotations.filter(ann => {
         const annId = String(ann.id || '').trim().toLowerCase();
         return !reviewHistory.some(h => String(h.annotationId || '').trim().toLowerCase() === annId);
@@ -156,8 +149,8 @@ const ReviewerDashboard = () => {
       ...h,
       id: h.annotationId,
       status: h.decision === 'approved' ? 'approved' : 'rejected',
-      isHistory: true, // Marker for history items
-      createdAt: h.reviewedAt, // Use reviewed time for sorting
+      isHistory: true,
+      createdAt: h.reviewedAt,
       itemCount: h.itemCount || 0
     }));
     return [...pending, ...history];
@@ -182,10 +175,8 @@ const ReviewerDashboard = () => {
     try {
       const now = new Date().toISOString();
 
-      // Try API first
       try { await reviewAPI.approve(ann.id, { feedback: 'Duyệt', reviewedAt: now }); } catch { }
 
-      // Update local review history
       const historyEntry = {
         id: `REV-${Date.now()}`,
         annotationId: ann.id,
@@ -200,11 +191,7 @@ const ReviewerDashboard = () => {
       localStorage.setItem('reviewHistory', JSON.stringify(newHistory));
       setReviewHistory(newHistory);
       window.dispatchEvent(new CustomEvent('reviewHistoryUpdated'));
-
-      // Mark in localStorage
       markReviewerTaskReviewed(ann.id, 'approved');
-
-      // Refresh
       loadAnnotations();
     } catch (err) {
       console.error('Approve failed', err);
@@ -248,7 +235,7 @@ const ReviewerDashboard = () => {
       <Header title="Trung tâm Review" userName="Reviewer" userRole="reviewer" />
 
       <main className="max-w-7xl mx-auto px-6 py-10">
-        {/* Welcome Hero */}
+        {/* Welcome */}
         <div className="mb-12 relative overflow-hidden p-10 rounded-[3rem] bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-2xl shadow-blue-200">
           <div className="relative z-10 flex items-center justify-between">
             <div>
@@ -289,9 +276,6 @@ const ReviewerDashboard = () => {
             </div>
           ))}
         </div>
-
-
-
         {/* Tabs & Search */}
         <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-8">
           <div className="flex items-center gap-2 p-1.5 bg-slate-100 rounded-2xl">
