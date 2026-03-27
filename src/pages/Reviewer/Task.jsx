@@ -492,14 +492,14 @@ const ReviewerTask = () => {
                     });
                     localStorage.setItem('assignedTasksByUser', JSON.stringify(map));
                 }
-                const historyEntry = { 
-                    id: `REV-${Date.now()}`, 
+                const historyEntry = {
+                    id: `REV-${Date.now()}`,
                     taskId: taskId,
-                    annotationId: taskId, 
-                    taskTitle: task.title, 
-                    projectName: task.projectName, 
+                    annotationId: taskId,
+                    taskTitle: task.title,
+                    projectName: task.projectName,
                     annotatorName: items[0]?.annotatorName || 'Multiple',
-                    decision: actionType === 'approve' ? 'approved' : 'rejected', 
+                    decision: actionType === 'approve' ? 'approved' : 'rejected',
                     reviewedAt: new Date().toISOString(),
                     feedback: payload.feedback,
                     type: 'image',
@@ -508,7 +508,7 @@ const ReviewerTask = () => {
                 const reviewHistory = JSON.parse(localStorage.getItem('reviewHistory') || '[]');
                 reviewHistory.unshift(historyEntry);
                 localStorage.setItem('reviewHistory', JSON.stringify(reviewHistory.slice(0, 50)));
-                
+
                 // CRITICAL: Dispatch events for real-time UI updates
                 window.dispatchEvent(new CustomEvent('reviewHistoryUpdated'));
                 window.dispatchEvent(new CustomEvent('reviewTaskUpdated', { detail: { taskId, decision: actionType } }));
@@ -636,12 +636,12 @@ const ReviewerTask = () => {
                                         <AlertCircle className="w-5 h-5" /> ĐÃ TỪ CHỐI ẢNH NÀY
                                     </div>
                                 ) : (
-                                    <div className="flex items-center gap-3">
-                                        <button onClick={handleApproveItem} className="px-10 py-4.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-3xl font-black shadow-xl shadow-emerald-100 transition-all flex items-center gap-3 active:scale-95">
-                                            <Check className="w-5 h-5" /> CHẤP NHẬN
+                                    <div className="flex items-center gap-5">
+                                        <button onClick={handleApproveItem} className="px-16 py-6 bg-emerald-600 hover:bg-emerald-700 text-white rounded-[2rem] font-black shadow-2xl shadow-emerald-200 transition-all flex items-center gap-4 active:scale-95 text-sm tracking-widest">
+                                            <Check className="w-6 h-6" /> CHẤP NHẬN
                                         </button>
-                                        <button onClick={handleRejectItem} className="px-10 py-4.5 bg-white border-2 border-slate-200 hover:border-rose-400 hover:text-rose-500 rounded-3xl font-black text-slate-400 transition-all flex items-center gap-3 active:scale-95">
-                                            <X className="w-5 h-5" /> LOẠI BỎ
+                                        <button onClick={handleRejectItem} className="px-16 py-6 bg-rose-50 border-4 border-rose-100 hover:border-rose-400 text-rose-600 rounded-[2rem] font-black shadow-2xl shadow-rose-100 transition-all flex items-center gap-4 active:scale-95 text-sm tracking-widest">
+                                            <X className="w-6 h-6" /> LOẠI BỎ
                                         </button>
                                     </div>
                                 )}
