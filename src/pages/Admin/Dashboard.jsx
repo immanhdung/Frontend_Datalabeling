@@ -5,23 +5,18 @@ import {
   Users,
   FolderKanban,
   CheckCircle2,
-  BarChart3,
-  Plus,
-  Clock,
   TrendingUp,
   MoreHorizontal,
   ChevronRight,
   ShieldCheck,
   UserCheck,
-  Activity
+  Activity,
+  Database,
+  ImageIcon
 } from "lucide-react";
-import api from "../../config/api";
+import api, {reviewAPI, statisticsAPI} from "../../config/api";
 import {
-  toArrayData,
-  isCompletedProject,
   getProjectStatusMeta,
-  getProjectItemCount,
-  getProjectTypeLabel,
   sortProjectsByNewest,
   getProjectUpdatedAt,
   formatRelativeDateVi,
@@ -33,8 +28,8 @@ export default function AdminDashboard() {
   const [dashboardStats, setDashboardStats] = useState({
     totalUsers: 0,
     totalProjects: 0,
-    completedProjects: 0,
-    avgAccuracy: "93.6%",
+    totalDatasets: 0,
+    totalImages: 0,
     recentProjects: [],
     userRoleCounts: {
       Admin: 0,
@@ -49,83 +44,109 @@ export default function AdminDashboard() {
     const loadDashboardData = async () => {
       try {
         setLoading(true);
-        const [projectsRes, usersRes, tasksRes, reviewsRes] = await Promise.all([
-          api.get("/projects").catch(() => ({ data: [] })),
-          api.get("/users").catch(() => ({ data: [] })),
-          api.get("/tasks").catch(() => ({ data: [] })),
-          api.get("/reviews").catch(() => ({ data: [] })),
+
+        const [
+          statsRes,
+          projectsRes,
+          adminRes,
+          managerRes,
+          annotatorRes,
+          reviewerRes,
+        ] = await Promise.all([
+          statisticsAPI.getProjectOverview().catch(() => ({ data: {} })),
+
+          api.get("/projects").catch(() => ({ data: {} })),
+          api.get("/users?role=admin").catch(() => ({ data: {} })),
+          api.get("/users?role=manager").catch(() => ({ data: {} })),
+          api.get("/users?role=annotator").catch(() => ({ data: {} })),
+          api.get("/users?role=reviewer").catch(() => ({ data: {} })),
         ]);
 
-        const projects = toArrayData(projectsRes?.data);
-        const users = toArrayData(usersRes?.data);
-        const tasks = toArrayData(tasksRes?.data);
-        const reviews = toArrayData(reviewsRes?.data);
+        const projects = projectsRes?.data?.items || [];
+        const stats = statsRes?.data || {};
 
-        // 1. Project Stats
-        const completed = projects.filter((project) => isCompletedProject(project)).length;
-        const recentProjects = sortProjectsByNewest(projects).slice(0, 4).map((project) => {
-          const statusMeta = getProjectStatusMeta(project);
-          const itemCount = getProjectItemCount(project);
-          return {
-            name: project?.name || "Dự án không tên",
-            status: statusMeta.label,
-            statusType: statusMeta.statusType,
-            desc: `${getProjectTypeLabel(project)} · ${itemCount} ảnh`,
-            progress: statusMeta.statusType === "completed" ? 100 : statusMeta.statusType === "active" ? 50 : 0,
-            accuracy: "N/A",
-            updated: formatRelativeDateVi(getProjectUpdatedAt(project)),
-          };
-        });
+        const totalUsers = stats.users || 0;
+        const totalProjects = stats.projects || 0;
+        const totalDatasets = stats.datasets || 0;
+        const totalImages = stats.datasetItems || 0;
 
-        // 2. User Stats
-        const roleCounts = { Admin: 0, Manager: 0, Annotator: 0, Reviewer: 0 };
-        users.forEach(u => {
-          const role = String(u?.role || "").trim();
-          if (role.toLowerCase() === 'admin') roleCounts.Admin++;
-          else if (role.toLowerCase() === 'manager') roleCounts.Manager++;
-          else if (role.toLowerCase() === 'annotator') roleCounts.Annotator++;
-          else if (role.toLowerCase() === 'reviewer') roleCounts.Reviewer++;
-        });
+        const roleCounts = {
+          Admin: adminRes?.data?.totalItems || 0,
+          Manager: managerRes?.data?.totalItems || 0,
+          Annotator: annotatorRes?.data?.totalItems || 0,
+          Reviewer: reviewerRes?.data?.totalItems || 0,
+        };
 
-        // 3. Activity Synthesis (Recent 3)
-        const combinedActivities = [];
-        
-        projects.slice(0, 5).forEach(p => {
-            combinedActivities.push({
-                title: "Dự án mới",
-                desc: `Dự án "${p.name || 'N/A'}" đã được tạo`,
-                time: new Date(p.createdAt || Date.now()).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-                timestamp: new Date(p.createdAt || Date.now()).getTime(),
-                type: "create"
-            });
-        });
+        const topProjects = sortProjectsByNewest(projects).slice(0, 4);
+        const recentProjects = topProjects.length > 0
+          ? await Promise.all(
+              topProjects.map(async (p) => {
+                  try {
+                      const statusMeta = getProjectStatusMeta(p);
+                      const pid = String(p.id || p.projectId);
+                      const res = await statisticsAPI.getProjectOverview(pid);
+                      console.log(res);
+                      const stats = res?.data || {};
+                      const progress = Math.round(stats.progress || 0);
 
-        tasks.slice(0, 5).forEach(t => {
-            if (t.status?.toLowerCase().includes('complete') || t.status?.toLowerCase().includes('submit')) {
-                combinedActivities.push({
-                    title: "Hoàn thành task",
-                    desc: `Task "${t.title || 'gán nhãn'}" đã được nộp`,
-                    time: new Date(t.updatedAt || Date.now()).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-                    timestamp: new Date(t.updatedAt || Date.now()).getTime(),
-                    type: "update"
-                });
-            }
-        });
+                      return {
+                          id: pid,
+                          name: p?.name || p?.projectName || `Dự án #${pid.slice(0, 5)}`,
+                          images: stats.totalDatasetItems || 0,
+                          datasets: stats.totalDatasets || 0,
+                          status: statusMeta.label,
+                          statusType: statusMeta.statusType,
+                          progress,
+                          color: progress === 100
+                              ? "bg-emerald-500"
+                              : "bg-blue-500",
+                          updated: formatRelativeDateVi(getProjectUpdatedAt(p)),
+                      };
+                  } catch (e) {
+                      console.error("Project overview error:", e);
+                  }
+              })
+          )
+          : [];
 
-        const sortedActivities = combinedActivities
-            .sort((a, b) => b.timestamp - a.timestamp)
-            .slice(0, 3);
+        // const combinedActivities = [];
+        // projects.slice(0, 5).forEach(p => {
+        //     combinedActivities.push({
+        //         title: "Dự án mới",
+        //         desc: `Dự án "${p.name || 'N/A'}" đã được tạo`,
+        //         time: new Date(p.createdAt || Date.now()).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+        //         timestamp: new Date(p.createdAt || Date.now()).getTime(),
+        //         type: "create"
+        //     });
+        // });
+
+        // tasks.slice(0, 5).forEach(t => {
+        //     if (t.status?.toLowerCase().includes('complete') || t.status?.toLowerCase().includes('submit')) {
+        //         combinedActivities.push({
+        //             title: "Hoàn thành task",
+        //             desc: `Task "${t.title || 'gán nhãn'}" đã được nộp`,
+        //             time: new Date(t.updatedAt || Date.now()).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+        //             timestamp: new Date(t.updatedAt || Date.now()).getTime(),
+        //             type: "update"
+        //         });
+        //     }
+        // });
+
+        // const sortedActivities = combinedActivities
+        //     .sort((a, b) => b.timestamp - a.timestamp)
+        //     .slice(0, 3);
 
         setDashboardStats({
-          totalUsers: users.length,
-          totalProjects: projects.length,
-          completedProjects: completed,
-          avgAccuracy: "93.6%", // Backend may not have this yet
+          totalUsers,
+          totalProjects,
+          totalDatasets,
+          totalImages,
           recentProjects,
           userRoleCounts: roleCounts,
-          activities: sortedActivities.length > 0 ? sortedActivities : [
-            { title: "Hệ thống", desc: "Đang theo dõi hoạt động...", time: "--:--", type: "create" }
-          ],
+          activities: []
+          // activities: sortedActivities.length > 0 ? sortedActivities : [
+          //   { title: "Hệ thống", desc: "Đang theo dõi hoạt động...", time: "--:--", type: "create" }
+          // ],
         });
       } catch (err) {
         console.error("Dashboard data load error:", err);
@@ -151,16 +172,16 @@ export default function AdminDashboard() {
       color: "indigo"
     },
     {
-      label: "Dự án hoàn thành",
-      value: dashboardStats.completedProjects,
-      icon: CheckCircle2,
-      color: "emerald"
+      label: "Tổng bộ dữ liệu",
+      value: dashboardStats.totalDatasets,
+      icon: Database,
+      color: "indigo"
     },
     {
-      label: "Tỷ lệ chính xác TB",
-      value: dashboardStats.avgAccuracy,
-      icon: BarChart3,
-      color: "amber"
+      label: "Tổng mẫu ảnh",
+      value: dashboardStats.totalImages,
+      icon: ImageIcon,
+      color: "indigo"
     },
   ];
 
@@ -267,7 +288,7 @@ export default function AdminDashboard() {
                         </div>
                         <div>
                           <h4 className="text-xl font-bold group-hover:text-blue-600 transition-colors">{p.name}</h4>
-                          <p className="text-sm text-slate-500 font-medium mt-1">{p.desc}</p>
+                          <p className="text-sm text-slate-500 font-medium mt-1">{p.datasets} bộ dữ liệu · {p.images} ảnh</p>
                         </div>
                       </div>
                       <div className="text-right">
@@ -306,11 +327,11 @@ export default function AdminDashboard() {
           </div>
           <div className="space-y-10">
             <div className="bg-white rounded-[32px] p-10 shadow-premium border border-slate-100">
-              <h2 className="text-2xl font-display font-extrabold text-slate-900 mb-8 font-display">Phân bố nhân sự</h2>
+              <h2 className="text-2xl font-display font-extrabold text-slate-900 mb-8 font-display">Nhân sự</h2>
               <div className="space-y-5">
                 {userStats.map((u, i) => (
-                  <div key={i} className="flex items-center justify-between p-5 rounded-2xl bg-[#fafbfc] border border-transparent hover:border-slate-100 transition-all group">
-                    <div className="flex items-center gap-4">
+                  <div key={i} className="flex items-center justify-between p-4 rounded-2xl bg-[#fafbfc] border border-transparent hover:border-slate-100 transition-all group">
+                    <div className="flex items-center gap-2">
                       <div className={`p-3 rounded-xl ${u.color} text-white`}>
                         <u.icon className="w-5 h-5" />
                       </div>
@@ -323,7 +344,7 @@ export default function AdminDashboard() {
             </div>
             <div className="bg-white rounded-[32px] p-10 shadow-premium border border-slate-100 overflow-hidden relative">
               <div className="flex items-center justify-between mb-10">
-                <h2 className="text-2xl font-display font-extrabold text-slate-900 font-display">Gần đây</h2>
+                <h2 className="text-2xl font-display font-extrabold text-slate-900 font-display">Hoạt động gần đây</h2>
                 <TrendingUp className="w-6 h-6 text-emerald-500" />
               </div>
 

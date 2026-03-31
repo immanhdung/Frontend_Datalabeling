@@ -1,10 +1,10 @@
 import axios from "axios";
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ||
-  (import.meta.env.DEV
-    ? "/api"
-    : "https://labelhub-backend.onrender.com/api");
+const API_BASE_URL = "http://localhost:5018/api";
+  // import.meta.env.VITE_API_BASE_URL ||
+  // (import.meta.env.DEV
+  //   ? "/api"
+  //   : "https://labelhub-backend.onrender.com/api");
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -189,10 +189,9 @@ export const labelAPI = {
 
 export const statisticsAPI = {
   getProjectOverview: (projectId) => api.get(`/statistics/projects/${projectId}/overview`),
-  getProjectLabels: (projectId) => api.get(`/statistics/projects/${projectId}/labels`),
-  getProjectCoverage: (projectId) => api.get(`/statistics/projects/${projectId}/dataset-coverage`),
-  getProjectReviewers: (projectId) => api.get(`/statistics/projects/${projectId}/reviewers`),
-  getProjectAnnotators: (projectId) => api.get(`/statistics/projects/${projectId}/annotators`),
+  getManagerStats: () => api.get("/statistics/manager"),
+  getAnnotatorStats: (annotatorId) => api.get(`/statistics/annotator/${annotatorId}`),
+  getReviewerStats: (reviewerId) => api.get(`/statistics/reviewer/${reviewerId}`),
 
   getSystemOverview: () => api.get("/statistics/system/overview"),
   getActiveProjects: () => api.get("/statistics/system/projects-active"),

@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { reviewAPI } from '../../config/api';
+import { taskAPI, statisticsAPI } from '../../config/api';
 import Header from '../../components/common/Header';
 import useReviewHistory from '../../hooks/useReviewHistory';
 import {
   getPendingReviewerTasks,
   markReviewerTaskReviewed,
-  getAssignedTasksByUserMap,
+  getCurrentUserId
 } from '../../utils/annotatorTaskHelpers';
 import {
   FileText, Clock, CheckCircle2, XCircle,
@@ -14,6 +14,7 @@ import {
   Search, Eye, ThumbsUp, ThumbsDown,
   Calendar, TrendingUp, History, AlertCircle,
   Folder, Users, RefreshCw, CheckSquare,
+  ImageIcon,
 } from 'lucide-react';
 
 const ReviewerDashboard = () => {
@@ -35,80 +36,52 @@ const ReviewerDashboard = () => {
     approvalRate: 0,
   });
 
-  const loadAnnotations = useCallback(async () => {
+  const currentUserId = useMemo(() => getCurrentUserId(), []);
+
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      let allFoundAnnotations = [];
+      // run sequentially (safe, no race issues)
+      const statsRes = await statisticsAPI.getReviewerStats(currentUserId);
+      const tasksRes = await taskAPI.getMyTasks();
 
-      try {
-        const response = await reviewAPI.getPendingReviews();
-        const apiData = response.data?.data || response.data || [];
-        if (Array.isArray(apiData)) allFoundAnnotations = [...apiData];
-      } catch (err) {
-        console.warn('[Reviewer] API fetch failed, using local fallback');
-      }
-      const localReviewTasks = getPendingReviewerTasks();
-      localReviewTasks.forEach(task => {
-        if (!allFoundAnnotations.some(ann => String(ann.id) === String(task.id))) {
-          allFoundAnnotations.push({
-            ...task,
-            taskTitle: task.title,
-            annotatorName: `${task.annotatorCount || 3} Annotators`,
-            status: 'pending_review',
-            itemCount: task.items?.length || 0,
-            isConsensusTask: true,
-          });
-        }
+      const statsData = statsRes?.data;
+      const tasksData = tasksRes?.data?.items || [];
+
+      // normalize tasks
+      const normalizedTasks = tasksData.map(t => ({
+        id: t.id,
+        taskTitle: t.title,
+        projectName: t.projectName,
+        annotatorName: t.annotatorName || 'Annotator',
+        status: t.status,
+        itemCount: t.itemCount || 0,
+        createdAt: t.createdAt,
+      }));
+
+      setAnnotations(normalizedTasks);
+      
+      setStats({
+        total: statsData.totalItems,
+        pending: statsData.incompletedItems,
+        approved: statsData.approvedItems,
+        rejected: statsData.rejectedItems,
+        todayReviews: statsData.todayReviews,
+        approvalRate:
+          statsData.totalItems > 0
+            ? ((statsData.approvedItems / statsData.totalItems) * 100).toFixed(1)
+            : 0,
       });
 
-      try {
-        const rawTaskMap = localStorage.getItem('assignedTasksByUser');
-        if (rawTaskMap) {
-          const taskMap = JSON.parse(rawTaskMap);
-          Object.values(taskMap).forEach(userTasks => {
-            if (!Array.isArray(userTasks)) return;
-            userTasks.forEach(t => {
-              if (
-                (t.status === 'completed' || t.status === 'pending_review') &&
-                !t.hasConflict &&
-                !allFoundAnnotations.some(ann => String(ann.id) === String(t.id))
-              ) {
-                const candidates = [t.projectName, t.datasetName, t.project?.name, t.title]
-                  .filter(name => name && name.toLowerCase() !== 'dự án');
-                const realProjectName = candidates[0] || 'Dự án Hệ thống';
-
-                allFoundAnnotations.push({
-                  ...t,
-                  taskTitle: (t.title && !t.title.includes('Nhiệm vụ')) ? t.title : `Nhiệm vụ #${String(t.id).slice(0, 8)}`,
-                  projectName: realProjectName,
-                  annotatorName: 'Annotator',
-                  status: 'pending_review',
-                  itemCount: Array.isArray(t.items) ? t.items.length : 0,
-                });
-              }
-            });
-          });
-        }
-      } catch (e) {
-        console.error('[Reviewer] Local task scan failed:', e);
-      }
-
-      const pendingOnly = allFoundAnnotations.filter(ann => {
-        const annId = String(ann.id || '').trim().toLowerCase();
-        return !reviewHistory.some(h => String(h.annotationId || '').trim().toLowerCase() === annId);
-      });
-
-      setAnnotations(pendingOnly);
-      updateStats(pendingOnly, reviewHistory);
     } catch (err) {
-      console.error('Error loading reviewer data:', err);
-      setError('Không thể tải dữ liệu review.');
+      console.error(err);
+      setError('Không thể tải dữ liệu từ server');
     } finally {
       setLoading(false);
     }
-  }, [reviewHistory]);
+  }, [currentUserId]);
 
   const updateStats = (anns, history) => {
     const today = new Date().toDateString();
@@ -129,19 +102,8 @@ const ReviewerDashboard = () => {
   };
 
   useEffect(() => {
-    loadAnnotations();
-    const handleUpdate = () => loadAnnotations();
-    window.addEventListener('reviewHistoryUpdated', handleUpdate);
-    window.addEventListener('assignedTasksUpdated', handleUpdate);
-    window.addEventListener('newReviewTask', handleUpdate);
-    window.addEventListener('consensusProcessed', handleUpdate);
-    return () => {
-      window.removeEventListener('reviewHistoryUpdated', handleUpdate);
-      window.removeEventListener('assignedTasksUpdated', handleUpdate);
-      window.removeEventListener('newReviewTask', handleUpdate);
-      window.removeEventListener('consensusProcessed', handleUpdate);
-    };
-  }, [reviewHistory.length]);
+    loadData();
+  }, [loadData]);
 
   const combinedAnnotations = useMemo(() => {
     const pending = annotations.map(a => ({ ...a, status: a.status || 'pending_review' }));
@@ -192,7 +154,7 @@ const ReviewerDashboard = () => {
       setReviewHistory(newHistory);
       window.dispatchEvent(new CustomEvent('reviewHistoryUpdated'));
       markReviewerTaskReviewed(ann.id, 'approved');
-      loadAnnotations();
+      loadData();
     } catch (err) {
       console.error('Approve failed', err);
     }
@@ -227,7 +189,7 @@ const ReviewerDashboard = () => {
     setRejectId(null);
     setRejectAnn(null);
     setRejectFeedback('');
-    loadAnnotations();
+    loadData();
   };
 
   return (
@@ -245,7 +207,7 @@ const ReviewerDashboard = () => {
               </p>
             </div>
             <div className="hidden lg:flex gap-4">
-              <button onClick={loadAnnotations} className="px-6 py-3 bg-white text-blue-600 hover:bg-blue-50 rounded-2xl font-bold transition-all shadow-xl flex items-center gap-2">
+              <button onClick={loadData} className="px-6 py-3 bg-white text-blue-600 hover:bg-blue-50 rounded-2xl font-bold transition-all shadow-xl flex items-center gap-2">
                 <RefreshCw className="w-4 h-4" /> Làm mới
               </button>
             </div>
@@ -255,12 +217,13 @@ const ReviewerDashboard = () => {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-6 mb-12">
           {[
-            { label: 'Cần Review', val: stats.pending, icon: Clock, color: 'blue', desc: 'Chờ duyệt ngay' },
-            { label: 'Đã Duyệt', val: stats.approved, icon: CheckCircle2, color: 'emerald', desc: 'Tổng cộng' },
-            { label: 'Từ Chối', val: stats.rejected, icon: XCircle, color: 'rose', desc: 'Cần sửa lại' },
-            { label: 'Tỷ Lệ Duyệt', val: `${stats.approvalRate}%`, icon: TrendingUp, color: 'indigo', desc: 'Độ ổn định' },
+            { label: 'Tổng số', val: stats.total, icon: ImageIcon, color: 'blue', desc: 'Tổng số mẫu ảnh' },
+            { label: 'Cần Review', val: stats.pending, icon: Clock, color: 'blue', desc: 'Số mẫu chờ duyệt' },
+            { label: 'Đã Duyệt', val: stats.approved, icon: CheckCircle2, color: 'emerald', desc: 'Số mẫu đã duyệt' },
+            { label: 'Từ Chối', val: stats.rejected, icon: XCircle, color: 'rose', desc: 'Số mẫu bị từ chối' },
+            { label: 'Tỷ Lệ Duyệt', val: `${stats.approvalRate}%`, icon: TrendingUp, color: 'indigo', desc: 'Số mẫu duyệt / Tổng số mẫu' },
           ].map((s, i) => (
             <div key={i} className="group bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
               <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-6 bg-${s.color}-50 text-${s.color}-600 group-hover:scale-110 transition-transform`}>

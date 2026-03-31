@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/common/Header';
-import { taskAPI } from '../../config/api';
+import { projectAPI, taskAPI, statisticsAPI } from '../../config/api';
 import {
   fetchAssignedTasksForUser,
   getCurrentUserId,
@@ -12,6 +12,7 @@ import {
 import {
   Clock,
   Zap,
+  XCircle,
   CheckCircle2,
   AlertCircle,
   ArrowRight,
@@ -37,81 +38,91 @@ export default function AnnotatorDashboard() {
   const [activeTab, setActiveTab] = useState('pending');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('recent');
+  const [statsData, setStatsData] = useState({
+    total: 0,
+    pending: 0,
+    inProgress: 0,
+    completed: 0,
+    skipped: 0,
+    expired: 0,
+    todayCount: 0,
+  });
 
   useEffect(() => {
-    const loadTasks = async () => {
-      const currentUserId = getCurrentUserId();
-      const currentUserIdentifiers = getCurrentUserIdentifiers();
+    const loadData = async () => {
+      const userId = getCurrentUserId();
 
       try {
         setLoading(true);
-        setError('');
+        setError("");
 
-        if (!currentUserId) {
-          setError('Không tìm thấy thông tin người dùng hiện tại.');
-          return;
-        }
+        const [taskRes, statsRes] = await Promise.all([
+          taskAPI.getMyTasks(),
+          statisticsAPI.getAnnotatorStats(userId),
+        ]);
 
-        let apiTasks = [];
-        try {
-          apiTasks = await fetchAssignedTasksForUser(taskAPI, currentUserIdentifiers);
-        } catch (apiErr) {
-          console.warn('API task fetch failed', apiErr);
-        }
+        const taskData = taskRes?.data?.items || [];
+        const stats = statsRes?.data;
 
-        const localAssignedTasks = getLocalAssignedTasksForUser(currentUserIdentifiers);
-        const normalizedLocalTasks = normalizeTasks(localAssignedTasks, currentUserId);
+        const enrichedTasks = await Promise.all(
+          taskData.map(async (task) => {
+            try {
+              const projectRes = await projectAPI.getById(task.projectId);
+              const project = projectRes?.data;
 
-        const mergedMap = new Map();
-        normalizedLocalTasks.forEach((task) => {
-          if (task.id) mergedMap.set(String(task.id), task);
+              return {
+                ...task,
+                projectName: project?.name || project?.projectName,
+              };
+            } catch (err) {
+              console.warn("Project load failed:", task.projectId);
+
+              return {
+                ...task,
+                projectName: "Unknown project",
+                projectError: true,
+              };
+            }
+          })
+        );
+
+        setTasks(enrichedTasks);
+
+        setStatsData({
+          total: stats?.totalItems ?? 0,
+          pending: stats?.incompletedItems ?? 0,
+          inProgress: stats?.submittedItems ?? 0,
+          completed: stats?.completedItems ?? 0,
+          skipped: stats?.skippedItems ?? 0,
+          expired: stats?.expiredItems ?? 0,
+          todayCount: stats?.todayAnnotationCount ?? 0,
         });
-        apiTasks.forEach((task) => {
-          if (task.id) {
-            const ex = mergedMap.get(String(task.id));
-            const localIsAdv = ex && ['completed', 'approved', 'rejected', 'expired'].includes(ex.status);
-            const localProgress = ex?.progress || 0;
-            const apiProgress = task.progress || 0;
 
-            mergedMap.set(String(task.id), {
-              ...ex,
-              ...task,
-              progress: localIsAdv ? ex.progress : Math.max(localProgress, apiProgress),
-              status: localIsAdv ? ex.status : (localProgress > apiProgress ? 'in_progress' : task.status),
-              totalItems: task.totalItems || ex?.totalItems || 0,
-              items: task.items?.length > 0 ? task.items : (ex?.items || []),
-            });
-          }
-        });
-
-        const finalTasks = normalizeTasks(Array.from(mergedMap.values()), currentUserId);
-        setTasks(finalTasks);
-      } catch (loadError) {
-        console.error('Failed to load tasks:', loadError);
-        setError('Không thể tải danh sách nhiệm vụ.');
+      } catch (err) {
+        console.error(err);
+        setError("Không thể tải dữ liệu.");
       } finally {
         setLoading(false);
       }
     };
 
-    loadTasks();
+    loadData();
   }, []);
 
-  const stats = useMemo(() => ({
-    total: tasks.length,
-    pending: tasks.filter((task) => task.status === 'pending').length,
-    inProgress: tasks.filter((task) => task.status === 'in_progress').length,
-    completed: tasks.filter((task) => task.status === 'completed').length,
-    approved: tasks.filter((task) => task.status === 'approved').length,
-    rejected: tasks.filter((task) => task.status === 'rejected').length,
-    expired: tasks.filter((task) => task.status === 'expired').length,
-  }), [tasks]);
-
   const urgentTasks = useMemo(() => {
-    return [...tasks]
-      .filter((task) => task.status !== 'completed')
-      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+    const isOverdue = (task) => {
+      return getDaysUntilDue(task.deadlineAt) <= 0;
+    }
+
+    const result = [...tasks]
+      .filter((task) => task.status !== 'Closed' && !isOverdue(task))
+      .sort((a, b) => new Date(a.deadlineAt).getTime() - new Date(b.deadlineAt).getTime())
       .slice(0, 4);
+
+    console.log("🔥 urgentTasks:", result);
+    console.log("📦 raw tasks:", tasks);
+
+    return result;
   }, [tasks]);
 
   const filteredTasks = useMemo(() => {
@@ -158,19 +169,19 @@ export default function AnnotatorDashboard() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5 mb-12">
           {[
-            { label: 'Tổng nhiệm vụ', count: stats.total, color: 'indigo', icon: Folder },
-            { label: 'Chờ làm', count: stats.pending, color: 'amber', icon: Clock },
-            { label: 'Đang làm', count: stats.inProgress, color: 'blue', icon: Zap },
-            { label: 'Chờ duyệt', count: stats.completed, color: 'purple', icon: CheckCircle2 },
-            { label: 'Hoàn thành', count: stats.approved || 0, color: 'emerald', icon: ThumbsUp },
-            { label: 'Quá hạn', count: stats.expired, color: 'rose', icon: AlertCircle },
+            { label: 'Tổng mẫu ảnh', count: statsData.total, color: 'indigo', icon: Folder },
+            { label: 'Chờ làm', count: statsData.pending, color: 'amber', icon: Clock },
+            { label: 'Bị bỏ qua', count: statsData.skipped, color: 'gray', icon: XCircle },
+            { label: 'Đã làm', count: statsData.inProgress, color: 'blue', icon: Zap },
+            { label: 'Hoàn thành', count: statsData.completed, color: 'emerald', icon: CheckCircle2 },
+            { label: 'Quá hạn', count: statsData.expired, color: 'rose', icon: AlertCircle },
           ].map((item, idx) => {
             const Icon = item.icon;
             const colors = {
               indigo: 'bg-indigo-50 text-indigo-600 border-indigo-100',
               amber: 'bg-amber-50 text-amber-600 border-amber-100',
+              gray: 'bg-gray-50 text-gray-600 border-gray-100',
               blue: 'bg-blue-50 text-blue-600 border-blue-100',
-              purple: 'bg-purple-50 text-purple-600 border-purple-100',
               emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100',
               rose: 'bg-rose-50 text-rose-600 border-rose-100'
             };
@@ -216,42 +227,44 @@ export default function AnnotatorDashboard() {
                   <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-4">
                     <CheckCircle2 className="w-10 h-10 text-slate-300" />
                   </div>
-                  <p className="text-lg font-bold text-slate-400">Bạn đã hoàn thành mọi task gấp!</p>
+                  <p className="text-lg font-bold text-slate-400">Hiện đang không có task nào cần xử lí gấp!</p>
                   <p className="text-slate-400 text-sm mt-1">Danh sách đang trống.</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {urgentTasks.map((task) => {
-                    const days = getDaysUntilDue(task.dueDate);
-                    const isUrgent = days <= 2;
-                    const isOverdue = days < 0;
+                    const days = getDaysUntilDue(task.deadlineAt);
+                    const isUrgent = days <= 3 && days > 0;
 
                     return (
                       <div
-                        key={task.id}
-                        onClick={() => navigate(`/annotator/tasks/${task.id}`, { state: { task } })}
-                        className="flex flex-col justify-between group cursor-pointer bg-slate-50/50 hover:bg-white border border-transparent hover:border-slate-100 rounded-3xl p-5 transition-all duration-300 hover:shadow-lg"
+                        key={task.taskId}
+                        onClick={() => navigate(`/annotator/tasks/${task.taskId}`, { state: { task } })}
+                        className="relative flex flex-col justify-between group cursor-pointer bg-slate-50/50 hover:bg-white border border-transparent hover:border-slate-100 rounded-3xl p-5 transition-all duration-300 hover:shadow-lg"
                       >
                         <div className="mb-4">
                           <div className="flex items-start justify-between mb-2">
-                            <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ${isOverdue ? 'bg-rose-100 text-rose-600' : isUrgent ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>
-                              {isOverdue ? 'Quá hạn' : isUrgent ? 'Gấp' : 'Bình thường'}
+                            <div className="flex justify-end mb-2">
+                              {isUrgent && (
+                                <div className="absolute top-3 right-3 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter bg-amber-100 text-amber-600">
+                                  Gấp
+                                </div>
+                              )}
                             </div>
-                            <ArrowRight className="w-4 h-4 text-slate-300 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
                           </div>
-                          <p className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-1">{task.projectName || task.title}</p>
+                          <p className="text-[18px] font-bold text-indigo-600 -mt-1 mb-1">{task.projectName}</p>
                           <p className="text-[11px] text-slate-400 font-medium mt-0.5 truncate uppercase tracking-tight">
-                            {task.title && !task.title.startsWith('Task #') ? task.title : `ID: #${task.id?.slice(0, 8)}`}
+                            ID: #{task.taskId?.slice(0, 8)}
                           </p>
                         </div>
 
                         <div className="flex items-center justify-between pt-3 border-t border-slate-100/50 mt-auto">
                           <div className="flex items-center gap-1.5 text-slate-500">
                             <Calendar className="w-3.5 h-3.5" />
-                            <span className="text-[11px] font-bold">{new Date(task.dueDate).toLocaleDateString('vi-VN')}</span>
+                            <span className="text-[11px] font-bold">{new Date(task.deadlineAt).toLocaleDateString('vi-VN')}</span>
                           </div>
-                          <span className={`text-[11px] font-black ${isOverdue ? 'text-rose-500' : isUrgent ? 'text-amber-500' : 'text-slate-400'}`}>
-                            {isOverdue ? `${Math.abs(days)}d past` : `${days}d left`}
+                          <span className={`text-[11px] font-black ${isUrgent ? 'text-amber-500' : 'text-slate-400'}`}>
+                            {days}d left
                           </span>
                         </div>
                       </div>
@@ -263,22 +276,33 @@ export default function AnnotatorDashboard() {
           </div>
 
           <div className="lg:col-span-1 space-y-8">
-            <div className="bg-indigo-600 rounded-[2.5rem] p-8 text-white shadow-xl shadow-indigo-100 flex flex-col h-full">
-              <h3 className="text-xl font-black mb-2">Mẹo gán nhãn</h3>
-              <p className="text-indigo-100/80 text-sm leading-relaxed mb-8 italic">
-                "Sự đồng thuận cao giữa các annotator giúp dữ liệu trở nên giá trị hơn. Hãy đảm bảo bạn đọc kỹ hướng dẫn trước khi bắt đầu."
+            <div className="bg-indigo-600 rounded-[2.5rem] p-8 text-white shadow-xl shadow-indigo-100">
+              <h3 className="text-lg font-black mb-2">Mẹo gán nhãn</h3>
+              <p className="text-indigo-100/80 text-sm leading-snug italic">
+                "Sự đồng thuận cao giữa annotator giúp dữ liệu trở nên giá trị hơn."
+              </p>
+            </div>
+
+            <div className="bg-white border border-slate-100 rounded-[2.5rem] p-6 shadow-sm">
+              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                Hôm nay
               </p>
 
-              <div className="mt-auto pt-8 border-t border-indigo-500/30">
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center">
-                    <ThumbsUp className="w-7 h-7" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-black text-indigo-200 uppercase tracking-widest">Tỷ lệ đồng thuận</p>
-                    <p className="text-3xl font-black">94.8%</p>
-                  </div>
-                </div>
+              <p className="text-3xl font-black text-blue-600 mt-2">
+                +{statsData.todayCount}
+              </p>
+
+              <p className="text-sm text-slate-500 mt-1">
+                Annotations đã thực hiện hôm nay
+              </p>
+
+              <div className="mt-4 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-600 rounded-full"
+                  style={{
+                    width: `${Math.min(statsData.todayCount * 10, 100)}%`,
+                  }}
+                />
               </div>
             </div>
           </div>
