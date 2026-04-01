@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../../config/api";
+import api, { guidelineAPI } from "../../config/api";
 import {
   ArrowLeft,
   ArrowRight,
@@ -306,12 +306,12 @@ export default function CreateProjectPage() {
       if (!projectId) throw new Error("Tạo dự án xong nhưng không lấy được projectId");
 
       try {
-        await api.post("/guidelines", {
+        await guidelineAPI.create({
           projectId: projectId,
           content: guidelines.trim() || ""
         });
       } catch (e) {
-        console.warn("Could not create guideline via /guidelines. Attempting fallback in project PUT.");
+        console.warn("Could not create guideline via guidelineAPI. Attempting fallback in project PUT.");
       }
 
       try {

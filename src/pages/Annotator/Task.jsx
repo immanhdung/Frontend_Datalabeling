@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import api, { taskAPI, annotationAPI, trySequential } from '../../config/api';
+import api, { taskAPI, annotationAPI, guidelineAPI, trySequential } from '../../config/api';
 import {
   normalizeTask,
   resolveApiData,
@@ -15,7 +15,7 @@ import {
 import {
   ArrowLeft, ArrowRight, Save, Send, Trash2, Tag, AlertCircle,
   Check, X, ChevronLeft, ChevronRight, RotateCcw, ZoomIn, ZoomOut,
-  CheckCircle2, SkipForward, List, Loader2, Users,
+  CheckCircle2, SkipForward, List, Loader2, Users, HelpCircle, FileText
 } from 'lucide-react';
 
 const PREDEFINED_COLORS = [
@@ -207,6 +207,8 @@ export default function AnnotatorTask() {
   const [submitResult, setSubmitResult] = useState(null);
   const [submittedCount, setSubmittedCount] = useState(0);
   const [showWaiting, setShowWaiting] = useState(false);
+  const [guideline, setGuideline] = useState(null);
+  const [showGuideline, setShowGuideline] = useState(false);
 
   const canvasRef = useRef(null);
   const imgRef = useRef(null);
@@ -311,6 +313,19 @@ export default function AnnotatorTask() {
           });
           setLabels(projectLabels);
           setSelectedLabel('');
+        }
+
+        try {
+          const gRes = await guidelineAPI.getByProjectId(projectId);
+          const gData = resolveApiData(gRes);
+          if (gData && gData.content) {
+            setGuideline(gData.content);
+          } else if (taskData.guideline) {
+            setGuideline(taskData.guideline);
+          }
+        } catch (e) {
+          console.warn('[Guideline] Load failed:', e?.message);
+          if (taskData.guideline) setGuideline(taskData.guideline);
         }
       }
 
@@ -917,6 +932,14 @@ export default function AnnotatorTask() {
                 <AlertCircle className="w-4 h-4" /> ĐÃ HẾT HẠN
               </div>
             )}
+            {guideline && (
+              <button
+                onClick={() => setShowGuideline(true)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-xl hover:bg-indigo-100 text-sm font-semibold transition-all"
+              >
+                <HelpCircle className="w-4 h-4" /> Hướng dẫn
+              </button>
+            )}
             <button
               onClick={saveCurrentItem}
               disabled={saving || annotations.length === 0 || currentState.status === 'done' || isExpired}
@@ -1069,14 +1092,7 @@ export default function AnnotatorTask() {
             </h3>
 
             <div className="space-y-4">
-              {!pendingBox && (
-                <div className="bg-indigo-50/50 p-3 rounded-xl border border-indigo-100 mb-2">
-                  <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Hướng dẫn</p>
-                  <p className="text-[11px] text-indigo-700 leading-relaxed font-medium">
-                    Hãy kéo chuột trên ảnh để tạo vùng chọn (Bounding Box), sau đó chọn nhãn từ danh sách dưới đây.
-                  </p>
-                </div>
-              )}
+
 
               <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Danh sách nhãn có sẵn</p>
@@ -1260,6 +1276,48 @@ export default function AnnotatorTask() {
               <button onClick={() => setShowSubmitConfirm(false)} className="flex-1 py-3 border border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50">Hủy</button>
               <button onClick={handleSubmit} disabled={submitting} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
                 {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Nộp ngay
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Guideline Modal */}
+      {showGuideline && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b border-gray-100 flex items-center justify-between bg-indigo-50/30">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-100">
+                  <FileText className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-900 leading-tight">Hướng dẫn dự án</h3>
+                  <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Annotator Guidelines</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowGuideline(false)}
+                className="p-2 hover:bg-white rounded-xl transition-all border border-transparent hover:border-indigo-100"
+              >
+                <X className="w-6 h-6 text-slate-400" />
+              </button>
+            </div>
+
+            <div className="p-10 max-h-[60vh] overflow-y-auto custom-scrollbar">
+              <div className="prose prose-indigo max-w-none">
+                <div className="whitespace-pre-wrap text-slate-600 leading-relaxed font-medium">
+                  {guideline || "Chưa có hướng dẫn cụ thể cho dự án này."}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-8 bg-slate-50 border-t border-gray-100 flex justify-end">
+              <button
+                onClick={() => setShowGuideline(false)}
+                className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm hover:bg-indigo-600 transition-all shadow-lg"
+              >
+                ĐÃ HIỂU
               </button>
             </div>
           </div>

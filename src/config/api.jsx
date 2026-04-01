@@ -126,7 +126,12 @@ export const userAPI = {
 export const guidelineAPI = {
   create: (payload) => api.post("/guidelines", payload),
   update: (id, payload) => api.put(`/guidelines/${id}`, payload),
-  getByProjectId: (projectId) => api.get(`/projects/${projectId}/guideline`),
+  getByProjectId: (projectId) =>
+    trySequential([
+      () => api.get(`/projects/${projectId}/guideline`),
+      () => api.get(`/guidelines?ProjectId=${projectId}`),
+      () => api.get(`/guidelines?projectId=${projectId}`),
+    ]),
 };
 
 export const roleAPI = {
