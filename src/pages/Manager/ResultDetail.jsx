@@ -16,9 +16,11 @@ import {
   ExternalLink,
   ChevronRight,
   ChevronLeft,
-  Maximize2
+  Maximize2,
+  FileJson,
+  X
 } from "lucide-react";
-import api, { taskAPI, annotationAPI } from "../../config/api";
+import api, { taskAPI, annotationAPI, exportAPI } from "../../config/api";
 import {
   resolveApiData,
   getAssignedTasksByUserMap
@@ -248,7 +250,7 @@ function GalleryItem({ item, onSelect }) {
             onError={(e) => { e.target.src = 'https://placehold.co/400x300?text=No+Preview'; }}
           />
           <BBoxCanvas
-            annotations={item.bboxes}
+            annotations={(item.status || '').toLowerCase() === 'rejected' ? [] : item.bboxes}
             imgRef={imgRef}
             imgNaturalSize={imgNaturalSize}
           />
@@ -267,22 +269,33 @@ function GalleryItem({ item, onSelect }) {
       <div className="p-4 flex-1 flex flex-col">
         <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 truncate">{item.taskTitle}</div>
         <div className="flex flex-wrap gap-1 mb-4">
-          {item.allLabels.length > 0 ? (
+          {(item.status || '').toLowerCase() !== 'rejected' && item.allLabels.length > 0 ? (
             item.allLabels.slice(0, 3).map((l, lid) => (
               <span key={lid} className="bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase px-2 py-0.5 rounded-lg border border-indigo-100">{l}</span>
             ))
-          ) : (
+          ) : (item.status || '').toLowerCase() === 'rejected' ? null : (
             <span className="text-[10px] font-bold text-slate-300 italic">No labels</span>
           )}
-          {item.allLabels.length > 3 && <span className="text-[10px] font-bold text-slate-400">+{item.allLabels.length - 3}</span>}
+          {(item.status || '').toLowerCase() !== 'rejected' && item.allLabels.length > 3 && <span className="text-[10px] font-bold text-slate-400">+{item.allLabels.length - 3}</span>}
         </div>
 
         <div className="mt-auto pt-3 border-t border-slate-50 flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-xs text-slate-500 font-bold">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-            Verified
+            {(item.status || '').toLowerCase() === 'rejected' ? (
+              <>
+                <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+                Rejected
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                Verified
+              </>
+            )}
           </div>
-          <div className="text-[10px] text-slate-300 font-medium">Approved</div>
+          <div className="text-[10px] text-slate-300 font-medium tracking-tight uppercase">
+            {item.status || 'Approved'}
+          </div>
         </div>
       </div>
     </div>
@@ -301,7 +314,16 @@ export default function ManagerResultDetail() {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [filterLabel, setFilterLabel] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [selectedItem, setSelectedItem] = useState(null);
+
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportForm, setExportForm] = useState({
+    format: "json",
+    trainSplitRatio: 0.8,
+    randomSeed: 0
+  });
 
   const imgRef = useRef(null);
   const [imgNaturalSize, setImgNaturalSize] = useState({ w: 0, h: 0 });
@@ -392,7 +414,8 @@ export default function ManagerResultDetail() {
             });
 
             const isRejected = (item.status || '').toLowerCase() === 'rejected';
-            if (isRejected) return;
+            // Included all items for filtering
+            // if (isRejected) return;
 
             aggregated.push({
               ...item,
@@ -433,10 +456,73 @@ export default function ManagerResultDetail() {
   const filteredItems = useMemo(() => {
     return itemsWithLabels.filter(it => {
       const matchSearch = !searchTerm || it.taskTitle?.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchLabel = filterLabel === 'all' || it.allLabels.includes(filterLabel) || it.classification === filterLabel;
-      return matchSearch && matchLabel;
+      
+      const itemStatus = (it.status || 'approved').toLowerCase();
+      const effectiveStatus = itemStatus === 'rejected' ? 'rejected' : 'approved';
+      const isRejected = effectiveStatus === 'rejected';
+
+      // If a label is selected, and the item is rejected, we don't show it (labels are hidden for rejected)
+      const matchLabel = filterLabel === 'all' || (!isRejected && (it.allLabels.includes(filterLabel) || it.classification === filterLabel));
+      
+      const matchStatus = statusFilter === 'all' || effectiveStatus === statusFilter.toLowerCase();
+      
+      return matchSearch && matchLabel && matchStatus;
     });
-  }, [itemsWithLabels, searchTerm, filterLabel]);
+  }, [itemsWithLabels, searchTerm, filterLabel, statusFilter]);
+
+  const handleExportData = async () => {
+    try {
+      setExporting(true);
+      const timestamp = new Date().getTime();
+      const filename = `Project_${id}_Export_${exportForm.format}_${timestamp}.${exportForm.format === 'json' ? 'json' : 'zip'}`;
+
+      const payload = {
+        format: exportForm.format,
+        trainSplitRatio: exportForm.format === 'yolo' ? exportForm.trainSplitRatio : 0.8,
+        randomSeed: exportForm.format === 'yolo' ? exportForm.randomSeed : 0
+      };
+
+      const res = await exportAPI.exportProject(id, payload, { responseType: 'blob' });
+
+      // Create a blob from the response data. 
+      // If it's already a blob, we use it directly. If it's an object (fallback), we stringify it.
+      const blob = res.data instanceof Blob 
+        ? res.data 
+        : new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      
+      // Cleanup
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+        link.remove();
+      }, 100);
+
+      setShowExportModal(false);
+      alert("Xuất dữ liệu thành công!");
+    } catch (err) {
+      console.error("Export failed:", err);
+      // Try to read the error from the blob if possible
+      if (err.response?.data instanceof Blob) {
+        const errorText = await err.response.data.text();
+        try {
+          const errorJson = JSON.parse(errorText);
+          alert("Có lỗi xảy ra khi xuất dữ liệu: " + (errorJson.message || errorJson.title || "Lỗi server"));
+        } catch (e) {
+          alert("Có lỗi xảy ra khi xuất dữ liệu: " + errorText);
+        }
+      } else {
+        alert("Có lỗi xảy ra khi xuất dữ liệu: " + (err.response?.data?.message || err.message));
+      }
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -475,9 +561,17 @@ export default function ManagerResultDetail() {
                 <h1 className="text-xl font-black text-slate-900 tracking-tight">{project.name}</h1>
                 <span className="bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase px-2 py-0.5 rounded-lg border border-emerald-200">FINALIZED</span>
               </div>
-              <p className="text-xs text-slate-400 font-bold">{tasks.length} Nhiệm vụ • {itemsWithLabels.length} Hình ảnh đạt chuẩn</p>
+              <p className="text-xs text-slate-400 font-bold">{tasks.length} Nhiệm vụ • {itemsWithLabels.length} Hình ảnh tổng số</p>
             </div>
           </div>
+
+          <button
+            onClick={() => setShowExportModal(true)}
+            className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs hover:bg-slate-900 transition-all shadow-lg shadow-indigo-200"
+          >
+            <Download className="w-4 h-4" />
+            XUẤT DỮ LIỆU
+          </button>
         </div>
       </header>
 
@@ -495,6 +589,32 @@ export default function ManagerResultDetail() {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Trạng thái duyệt</p>
+            <div className="flex flex-col gap-2">
+              {[
+                { id: 'all', label: 'TẤT CẢ' },
+                { id: 'approved', label: 'ĐẠT CHUẨN' },
+                { id: 'rejected', label: 'BỊ LOẠI' }
+              ].map(st => (
+                  <button
+                    key={st.id}
+                    onClick={() => setStatusFilter(st.id)}
+                    className={`flex items-center justify-between p-3 rounded-xl text-[11px] font-black transition-all ${statusFilter === st.id ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                  >
+                    <span className="uppercase tracking-wider">{st.label}</span>
+                    <span className="opacity-60">
+                      {itemsWithLabels.filter(it => {
+                        if (st.id === 'all') return true;
+                        const effectiveStatus = (it.status || 'approved').toLowerCase() === 'rejected' ? 'rejected' : 'approved';
+                        return effectiveStatus === st.id;
+                      }).length}
+                    </span>
+                  </button>
+              ))}
             </div>
           </div>
 
@@ -518,7 +638,7 @@ export default function ManagerResultDetail() {
                   className={`w-full flex items-center justify-between p-3 rounded-xl text-xs font-black transition-all ${filterLabel === label ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'text-slate-600 hover:bg-slate-50'}`}
                 >
                   <span className="uppercase">{label}</span>
-                  <span className="opacity-40">{itemsWithLabels.filter(it => it.allLabels.includes(label) || it.classification === label).length}</span>
+                  <span className="opacity-40">{itemsWithLabels.filter(it => ((it.status || '').toLowerCase() !== 'rejected') && (it.allLabels.includes(label) || it.classification === label)).length}</span>
                 </button>
               ))}
             </div>
@@ -570,7 +690,7 @@ export default function ManagerResultDetail() {
                   }}
                 />
                 <BBoxCanvas
-                  annotations={selectedItem.bboxes || []}
+                  annotations={(selectedItem.status || '').toLowerCase() === 'rejected' ? [] : (selectedItem.bboxes || [])}
                   imgRef={imgRef}
                   imgNaturalSize={imgNaturalSize}
                 />
@@ -612,12 +732,97 @@ export default function ManagerResultDetail() {
           </div>
         </div>
       )}
+
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-[110] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-lg overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="px-10 pt-10 pb-6">
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center">
+                    <Download className="w-6 h-6 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-slate-900 leading-tight">Xuất dữ liệu dự án</h3>
+                    <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Chọn định dạng dữ liệu đạt chuẩn</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowExportModal(false)}
+                  className="p-2 hover:bg-slate-50 rounded-xl transition-colors"
+                >
+                  <X className="w-6 h-6 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Định dạng xuất</label>
+                  <div className="grid grid-cols-3 gap-3">
+                    {['JSON', 'COCO', 'YOLO'].map(fmt => (
+                      <button
+                        key={fmt}
+                        onClick={() => setExportForm(prev => ({ ...prev, format: fmt.toLowerCase() }))}
+                        className={`flex items-center justify-center p-4 rounded-2xl border-2 font-black transition-all ${exportForm.format === fmt.toLowerCase() ? 'border-indigo-600 bg-indigo-50 text-indigo-600 shadow-sm' : 'border-slate-100 bg-slate-50 text-slate-400 hover:border-slate-200'}`}
+                      >
+                        <span className="text-sm">{fmt}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {exportForm.format === 'yolo' && (
+                  <div className="space-y-4 animate-in slide-in-from-top-2 duration-300">
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tỉ lệ Training</label>
+                        <span className="text-xs font-black text-indigo-600">{Math.round(exportForm.trainSplitRatio * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        value={exportForm.trainSplitRatio}
+                        onChange={(e) => setExportForm(prev => ({ ...prev, trainSplitRatio: parseFloat(e.target.value) }))}
+                        className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-8 bg-slate-50/50 flex gap-4">
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="flex-1 py-4 bg-white border border-slate-200 text-slate-600 rounded-3xl font-black text-sm hover:bg-slate-50 transition-all shadow-sm"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleExportData}
+                disabled={exporting}
+                className="flex-[1.5] py-4 bg-indigo-600 text-white rounded-3xl font-black text-sm hover:bg-slate-900 transition-all shadow-xl shadow-indigo-100 flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {exporting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    ĐANG XỬ LÝ...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" />
+                    Xuất dữ liệu
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
-}
-
-function X({ className, ...props }) {
-  return (
-    <svg {...props} className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
-  )
 }

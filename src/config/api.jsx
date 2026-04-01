@@ -200,7 +200,7 @@ export const statisticsAPI = {
 };
 
 export const exportAPI = {
-  exportProject: (projectId, payload) => api.post(`/exports/${projectId}`, payload),
+  exportProject: (projectId, payload, config = {}) => api.post(`/exports/${projectId}`, payload, config),
 };
 
 export default api;

@@ -355,19 +355,41 @@ export default function ManagerProjectDetail() {
 
       const res = await api.post(`/exports/${id}`, payload, { responseType: 'blob' });
 
-      const url = window.URL.createObjectURL(new Blob([res.data]));
+      // Create a blob from the response data. 
+      // If it's already a blob, we use it directly. If it's an object (fallback), we stringify it.
+      const blob = res.data instanceof Blob 
+        ? res.data 
+        : new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+
+      const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', filename);
       document.body.appendChild(link);
       link.click();
-      link.parentNode.removeChild(link);
+      
+      // Cleanup
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+        link.remove();
+      }, 100);
 
       setShowExportModal(false);
       alert("Xuất dữ liệu thành công!");
     } catch (err) {
       console.error("Export failed:", err);
-      alert("Có lỗi xảy ra khi xuất dữ liệu: " + (err.response?.data?.message || err.message));
+      // Try to read the error from the blob if possible
+      if (err.response?.data instanceof Blob) {
+        const errorText = await err.response.data.text();
+        try {
+          const errorJson = JSON.parse(errorText);
+          alert("Có lỗi xảy ra khi xuất dữ liệu: " + (errorJson.message || errorJson.title || "Lỗi server"));
+        } catch (e) {
+          alert("Có lỗi xảy ra khi xuất dữ liệu: " + errorText);
+        }
+      } else {
+        alert("Có lỗi xảy ra khi xuất dữ liệu: " + (err.response?.data?.message || err.message));
+      }
     } finally {
       setExporting(false);
     }
@@ -888,8 +910,8 @@ export default function ManagerProjectDetail() {
                       key={fmt}
                       onClick={() => setExportForm(prev => ({ ...prev, format: fmt }))}
                       className={`py-2.5 rounded-xl border-2 font-bold uppercase text-sm transition-all ${exportForm.format === fmt
-                          ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
-                          : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-200'
+                        ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                        : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-200'
                         }`}
                     >
                       {fmt}
@@ -953,7 +975,7 @@ export default function ManagerProjectDetail() {
                 className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 transition-all"
               >
                 {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                {exporting ? "Đang xử lý..." : "Bắt đầu xuất"}
+                {exporting ? "Đang xử lý..." : "Xuất dữ liệu"}
               </button>
             </div>
 

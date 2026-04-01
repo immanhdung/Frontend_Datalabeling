@@ -212,14 +212,6 @@ export default function ManagerDashboard() {
             bgColor: "bg-emerald-50",
 
         },
-        {
-            label: "Annotators",
-            value: statsData.annotators,
-            icon: Users,
-            color: "text-indigo-600",
-            bgColor: "bg-indigo-50",
-
-        },
     ];
 
     const fallbackProjects = [
@@ -298,7 +290,7 @@ export default function ManagerDashboard() {
                     </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                     {statsUI.map((s, i) => (
                         <div key={i} className="bg-white p-8 rounded-[28px] border border-slate-100 shadow-premium hover:shadow-premium-hover transition-all duration-300 group">
                             <div className="flex justify-between items-start mb-5">
@@ -309,133 +301,70 @@ export default function ManagerDashboard() {
                             <div>
                                 <h3 className="text-3xl font-display font-extrabold mt-1">{s.value}</h3>
                                 <p className="text-slate-600 text-base font-bold uppercase tracking-wide mt-1">{s.label}</p>
-                                <p className="text-sm text-slate-400 font-medium mt-3 flex items-center gap-2">
-                                    <TrendingUp className="w-4 h-4" />
-                                    {s.trend}
-                                </p>
                             </div>
                         </div>
                     ))}
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-                    <div className="lg:col-span-2 space-y-8">
-                        <div className="bg-white rounded-[32px] border border-slate-100 shadow-premium p-10">
-                            <div className="flex items-center justify-between mb-10">
-                                <div>
-                                    <h2 className="text-2xl font-display font-extrabold">Dự án gần đây</h2>
-                                    <p className="text-base text-slate-500 font-medium mt-1">Danh sách các dự án đang quản lý</p>
-                                </div>
-                                <button className="p-3 text-slate-400 hover:text-slate-900 transition-colors">
-                                    <MoreVertical className="w-6 h-6" />
-                                </button>
+                <div className="grid grid-cols-1 gap-10">
+                    <div className="bg-white rounded-[32px] border border-slate-100 shadow-premium p-10">
+                        <div className="flex items-center justify-between mb-10">
+                            <div>
+                                <h2 className="text-2xl font-display font-extrabold">Dự án gần đây</h2>
+                                <p className="text-base text-slate-500 font-medium mt-1">Danh sách các dự án đang quản lý</p>
                             </div>
-
-                            <div className="space-y-6">
-                                {projects.length === 0 ? (
-                                    <div className="text-center py-12 bg-slate-50/50 rounded-3xl border-2 border-dashed border-slate-100">
-                                        <FolderOpen className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                                        <p className="text-slate-400 font-bold">Chưa có dự án nào</p>
-                                    </div>
-                                ) : projects.map((p, i) => (
-                                    <div key={i} className="group flex items-center justify-between p-6 border border-slate-50 rounded-[24px] hover:border-blue-100 hover:bg-blue-50/10 transition-all duration-300 cursor-pointer">
-                                        <div className="flex items-center gap-6">
-                                            <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center group-hover:bg-blue-100 transition-colors">
-                                                <ImageIcon className="w-7 h-7 text-slate-400 group-hover:text-blue-600" />
-                                            </div>
-                                            <div>
-                                                <h4 className="text-xl font-bold group-hover:text-blue-700 transition-colors">{p.name}</h4>
-                                                <div className="flex items-center gap-4 text-sm text-slate-500 font-medium mt-1.5">
-                                                    <span className="flex items-center gap-1.5"><BarChart3 className="w-4 h-4" />{p.type}</span>
-                                                    <span>•</span>
-                                                    <span>{p.images} ảnh</span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex items-center gap-8">
-                                            <div className="hidden md:block text-right">
-                                                <span className={`text-xs font-extrabold px-4 py-1.5 rounded-full uppercase tracking-wider ${p.statusType === 'active' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
-                                                    }`}>
-                                                    {p.status}
-                                                </span>
-                                                <p className="text-xs text-slate-400 font-bold mt-2 uppercase flex items-center justify-end gap-1.5">
-                                                    <Clock className="w-4 h-4" />
-                                                    {p.updated}
-                                                </p>
-                                            </div>
-                                            <div className="p-3 rounded-2xl bg-slate-50 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-sm">
-                                                <ArrowRight className="w-6 h-6" />
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <button
-                                onClick={() => navigate("/manager/projects")}
-                                className="w-full mt-10 py-4.5 bg-slate-50 text-slate-600 rounded-2xl font-bold text-base hover:bg-blue-50 hover:text-blue-700 transition-all border border-transparent hover:border-blue-100"
-                            >
-                                Xem tất cả dự án
+                            <button className="p-3 text-slate-400 hover:text-slate-900 transition-colors">
+                                <MoreVertical className="w-6 h-6" />
                             </button>
                         </div>
-                    </div>
 
-                    <div className="space-y-10">
-                        <div className="bg-white rounded-[32px] border border-slate-100 shadow-premium p-10">
-                            <div className="flex items-center justify-between mb-10">
-                                <h2 className="text-2xl font-display font-extrabold">Tiến độ gán nhãn</h2>
-                                <BarChart3 className="w-6 h-6 text-blue-600" />
-                            </div>
-
-                            <div className="space-y-10">
-                                {progress.length === 0 ? (
-                                    <div className="text-center py-10 bg-slate-50/50 rounded-[24px] border border-dashed border-slate-100">
-                                        <BarChart3 className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-                                        <p className="text-slate-400 text-sm font-bold uppercase tracking-wider">Chưa có tiến độ thực tế</p>
-                                    </div>
-                                ) : progress.map((p, i) => (
-                                    <div key={i} className="space-y-4">
-                                        <div className="flex justify-between items-start">
-                                            <div className="max-w-[180px]">
-                                                <p className="text-lg font-bold text-slate-800 leading-tight truncate">{p.name}</p>
-                                                <p className="text-sm text-slate-500 font-medium mt-1.5">{p.done}/{p.total} hoàn thành</p>
+                        <div className="space-y-6">
+                            {projects.length === 0 ? (
+                                <div className="text-center py-12 bg-slate-50/50 rounded-3xl border-2 border-dashed border-slate-100">
+                                    <FolderOpen className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                                    <p className="text-slate-400 font-bold">Chưa có dự án nào</p>
+                                </div>
+                            ) : projects.map((p, i) => (
+                                <div key={i} className="group flex items-center justify-between p-6 border border-slate-50 rounded-[24px] hover:border-blue-100 hover:bg-blue-50/10 transition-all duration-300 cursor-pointer">
+                                    <div className="flex items-center gap-6">
+                                        <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center group-hover:bg-blue-100 transition-colors">
+                                            <ImageIcon className="w-7 h-7 text-slate-400 group-hover:text-blue-600" />
+                                        </div>
+                                        <div>
+                                            <h4 className="text-xl font-bold group-hover:text-blue-700 transition-colors">{p.name}</h4>
+                                            <div className="flex items-center gap-4 text-sm text-slate-500 font-medium mt-1.5">
+                                                <span className="flex items-center gap-1.5"><BarChart3 className="w-4 h-4" />{p.type}</span>
+                                                <span>•</span>
+                                                <span>{p.images} ảnh</span>
                                             </div>
-                                            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{p.status}</span>
-                                        </div>
-                                        <div className="relative h-3 w-full bg-slate-100 rounded-full overflow-hidden">
-                                            <div
-                                                className={`absolute left-0 top-0 h-full transition-all duration-1000 ease-out rounded-full ${p.color}`}
-                                                style={{ width: `${p.percent}%` }}
-                                            />
-                                        </div>
-                                        <div className="flex justify-between items-center text-xs">
-                                            <span className="font-bold text-slate-500 uppercase tracking-wider">{p.percent}% HOÀN TẤT</span>
-                                            {p.percent < 100 && <span className="text-blue-600 font-extrabold text-sm cursor-pointer hover:underline uppercase">Hối thúc →</span>}
                                         </div>
                                     </div>
-                                ))}
-                            </div>
+
+                                    <div className="flex items-center gap-8">
+                                        <div className="hidden md:block text-right">
+                                            <span className={`text-xs font-extrabold px-4 py-1.5 rounded-full uppercase tracking-wider ${p.statusType === 'active' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
+                                                }`}>
+                                                {p.status}
+                                            </span>
+                                            <p className="text-xs text-slate-400 font-bold mt-2 uppercase flex items-center justify-end gap-1.5">
+                                                <Clock className="w-4 h-4" />
+                                                {p.updated}
+                                            </p>
+                                        </div>
+                                        <div className="p-3 rounded-2xl bg-slate-50 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-sm">
+                                            <ArrowRight className="w-6 h-6" />
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
 
-                        <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[32px] p-10 text-white shadow-lg shadow-blue-200 relative overflow-hidden group">
-                            <div className="absolute -right-8 -top-8 w-40 h-40 bg-white/10 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-700" />
-                            <div className="relative border-b border-white/20 pb-6 mb-6">
-                                <Calendar className="w-8 h-8 mb-4" />
-                                <h3 className="text-2xl font-display font-extrabold">Báo cáo hàng tuần</h3>
-                                <p className="text-blue-100 text-base font-medium mt-2 underline decoration-blue-300 underline-offset-4 cursor-pointer">Sẵn sàng để xem</p>
-                            </div>
-                            <div className="grid grid-cols-2 gap-6">
-                                <div>
-                                    <p className="text-sm text-blue-100 font-bold uppercase tracking-wider">Hôm nay</p>
-                                    <p className="text-3xl font-display font-bold">+{statsData.todayLabels} nhãn</p>
-                                </div>
-                                <div className="text-right">
-                                    <p className="text-sm text-blue-100 font-bold uppercase tracking-wider">Hiệu suất</p>
-                                    <p className="text-3xl font-display font-bold">{statsData.efficiency}</p>
-                                </div>
-                            </div>
-                        </div>
+                        <button
+                            onClick={() => navigate("/manager/projects")}
+                            className="w-full mt-10 py-4.5 bg-slate-50 text-slate-600 rounded-2xl font-bold text-base hover:bg-blue-50 hover:text-blue-700 transition-all border border-transparent hover:border-blue-100"
+                        >
+                            Xem tất cả dự án
+                        </button>
                     </div>
                 </div>
             </div>

@@ -618,7 +618,7 @@ export default function AssignTasks() {
                   <ArrowLeft className="w-6 h-6" />
                 </button>
                 <div>
-                  <h2 className="text-2xl font-black text-slate-900">Thiết Lập Nhân Sự</h2>
+                  <h2 className="text-2xl font-black text-slate-900"> Nhân Sự</h2>
                   <p className="text-xs font-black text-emerald-600 uppercase tracking-widest">Dataset: {datasets.find(d => (d.id || d.datasetId) === selectedDatasetId)?.name}</p>
                 </div>
               </div>
