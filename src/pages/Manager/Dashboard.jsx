@@ -243,7 +243,7 @@ export default function ManagerDashboard() {
                             Quản lý Dự án
                         </h1>
                         <p className="text-slate-500 text-lg font-medium mt-2">
-                            Giám sát tiến độ và điều phối annotators hiệu quả.
+                            Thống kê dự án
                         </p>
                     </div>
 

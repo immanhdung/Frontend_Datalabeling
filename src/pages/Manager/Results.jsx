@@ -135,6 +135,9 @@ export default function ManagerResults() {
     fetchProjects();
   }, []);
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(6);
+
   const filteredProjects = projects.filter(
     (p) => {
       const matchSearch =
@@ -144,6 +147,16 @@ export default function ManagerResults() {
       return matchSearch;
     }
   );
+
+  const totalPages = Math.ceil(filteredProjects.length / itemsPerPage);
+  const paginatedProjects = filteredProjects.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   return (
     <div className="min-h-screen bg-slate-50/50 pb-20">
@@ -203,62 +216,96 @@ export default function ManagerResults() {
             <p className="text-slate-500 max-w-sm mx-auto">Các bộ dữ liệu sau khi được Reviewer phê duyệt sẽ xuất hiện tại đây.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {filteredProjects.map((p) => (
-              <div
-                key={p.id || p.projectId}
-                className="group bg-white rounded-[2rem] border border-slate-200/60 shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all duration-500 flex flex-col overflow-hidden"
-              >
-                <div className="h-24 bg-gradient-to-br from-slate-900 via-indigo-950 to-indigo-900 p-6 relative flex items-center justify-between">
-                  <div className="bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/20">
-                    <p className="text-[10px] font-black text-white/80 uppercase tracking-widest">{p.type || 'IMAGE'}</p>
-                  </div>
-                  <div className="bg-emerald-500 text-white p-2 rounded-full shadow-lg shadow-emerald-500/30">
-                    <CheckCircle2 className="w-4 h-4" />
-                  </div>
-                  <TrendingUp className="absolute bottom-2 right-4 w-12 h-12 text-white/5" />
-                </div>
-
-                <div className="p-8 flex-1 flex flex-col">
-                  <div className="mb-6">
-                    <h3 className="text-xl font-black text-slate-900 mb-2 leading-tight group-hover:text-indigo-600 transition-colors">
-                      {p.name}
-                    </h3>
-                    <div className="flex items-center gap-2 text-slate-400 text-xs font-medium">
-                      <Calendar className="w-3.5 h-3.5" />
-                      Hoàn tất: {p.updatedAt ? new Date(p.updatedAt).toLocaleDateString() : 'Vừa xong'}
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-12">
+              {paginatedProjects.map((p) => (
+                <div
+                  key={p.id || p.projectId}
+                  className="group bg-white rounded-[2rem] border border-slate-200/60 shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all duration-500 flex flex-col overflow-hidden"
+                >
+                  <div className="h-24 bg-gradient-to-br from-slate-900 via-indigo-950 to-indigo-900 p-6 relative flex items-center justify-between">
+                    <div className="bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/20">
+                      <p className="text-[10px] font-black text-white/80 uppercase tracking-widest">{p.type || 'IMAGE'}</p>
                     </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 mb-8">
-
-                    <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-100">
-                      <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Tổng nhãn</p>
-                      <p className="text-xl font-black text-slate-800">{p.labelsCount || 0}</p>
+                    <div className="bg-emerald-500 text-white p-2 rounded-full shadow-lg shadow-emerald-500/30">
+                      <CheckCircle2 className="w-4 h-4" />
                     </div>
+                    <TrendingUp className="absolute bottom-2 right-4 w-12 h-12 text-white/5" />
                   </div>
 
-                  <div className="mt-auto space-y-4">
-                    <div className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2 text-slate-600 font-bold">
-                        <Database className="w-4 h-4 text-indigo-500" />
-                        <span>{p.imagesCount || 0} Assets</span>
+                  <div className="p-8 flex-1 flex flex-col">
+                    <div className="mb-6">
+                      <h3 className="text-xl font-black text-slate-900 mb-2 leading-tight group-hover:text-indigo-600 transition-colors">
+                        {p.name}
+                      </h3>
+                      <div className="flex items-center gap-2 text-slate-400 text-xs font-medium">
+                        <Calendar className="w-3.5 h-3.5" />
+                        Hoàn tất: {p.updatedAt ? new Date(p.updatedAt).toLocaleDateString() : 'Vừa xong'}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 mb-8">
+                      <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-100">
+                        <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Tổng nhãn</p>
+                        <p className="text-xl font-black text-slate-800">{p.labelsCount || 0}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-auto space-y-4">
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2 text-slate-600 font-bold">
+                          <Database className="w-4 h-4 text-indigo-500" />
+                          <span>{p.imagesCount || 0} Assets</span>
+                        </div>
                       </div>
 
+                      <button
+                        onClick={() => navigate(`/manager/results/${p.id || p.projectId}`)}
+                        className="w-full bg-slate-900 text-white flex items-center justify-center gap-3 py-4 rounded-2xl font-black text-sm hover:bg-indigo-600 hover:shadow-lg hover:shadow-indigo-200 transition-all group/btn"
+                      >
+                        XEM KẾT QUẢ CHI TIẾT
+                        <ArrowUpRight className="w-5 h-5 group-hover/btn:translate-x-1 group-hover/btn:-translate-y-1 transition-transform" />
+                      </button>
                     </div>
-
-                    <button
-                      onClick={() => navigate(`/manager/results/${p.id || p.projectId}`)}
-                      className="w-full bg-slate-900 text-white flex items-center justify-center gap-3 py-4 rounded-2xl font-black text-sm hover:bg-indigo-600 hover:shadow-lg hover:shadow-indigo-200 transition-all group/btn"
-                    >
-                      XEM KẾT QUẢ CHI TIẾT
-                      <ArrowUpRight className="w-5 h-5 group-hover/btn:translate-x-1 group-hover/btn:-translate-y-1 transition-transform" />
-                    </button>
                   </div>
                 </div>
+              ))}
+            </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-4 mt-8">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  className="p-3 bg-white border border-slate-200 rounded-2xl hover:bg-slate-50 disabled:opacity-50 transition-all shadow-sm"
+                >
+                  <ChevronRight className="w-5 h-5 rotate-180" />
+                </button>
+                <div className="flex items-center gap-2">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                    <button
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
+                      className={`w-12 h-12 rounded-2xl font-bold transition-all shadow-sm ${currentPage === page
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+                        }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-3 bg-white border border-slate-200 rounded-2xl hover:bg-slate-50 disabled:opacity-50 transition-all shadow-sm"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -137,7 +137,7 @@ export default function ReviewInbox() {
           <div className="space-y-1">
             <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-1">Kiểm soát chất lượng</p>
             <h1 className="text-4xl font-black text-slate-900 tracking-tight">Hộp thư Review</h1>
-            <p className="text-slate-500 font-medium">Danh sách các nhiệm vụ đang chờ bạn phê duyệt và đánh giá.</p>
+
           </div>
           <div className="flex items-center gap-2 px-5 py-3 bg-white border border-slate-100 rounded-3xl shadow-sm text-sm font-bold text-slate-600">
             <Clock className="w-4 h-4 text-indigo-500" />
@@ -157,22 +157,7 @@ export default function ReviewInbox() {
                 className="w-full pl-14 pr-6 py-4 bg-slate-50 border border-slate-100 rounded-[1.5rem] focus:outline-none focus:ring-4 focus:ring-blue-100 focus:bg-white transition-all font-bold text-slate-700"
               />
             </div>
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-slate-50 text-slate-400 rounded-2xl">
-                <Filter className="w-5 h-5" />
-              </div>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-6 py-4 border border-slate-100 rounded-[1.5rem] bg-slate-50 text-sm font-black text-slate-600 uppercase tracking-widest focus:outline-none focus:ring-4 focus:ring-slate-100 transition-all cursor-pointer"
-              >
-                <option value="all">Tất cả trạng thái</option>
-                <option value="pending_review">Đang chờ Duyệt</option>
-                <option value="expired">Đã quá hạn</option>
-                <option value="approved">Đã phê duyệt</option>
-                <option value="rejected">Đã từ chối</option>
-              </select>
-            </div>
+
           </div>
         </div>
 

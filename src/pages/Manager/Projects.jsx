@@ -305,26 +305,16 @@ export default function ManagerProjects() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Quản lý dự án</h1>
-          <p className="text-sm text-gray-500">Tạo và quản lý các dự án gán nhãn</p>
+        <div className="space-y-2">
+          <h1 className="text-4xl font-display font-black text-slate-900 tracking-tight">Quản lý dự án</h1>
+          <p className="text-slate-500 font-medium text-lg">Tạo và quản lý các dự án gán nhãn chuyên nghiệp.</p>
         </div>
         <div className="flex gap-3">
           <button
-            onClick={() => {
-              setSelectedProjectIds([]);
-              setShowLabelModal(true);
-            }}
-            className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-all font-medium shadow-sm"
-          >
-            <Tag className="w-4 h-4 text-indigo-600" />
-            Thêm nhãn
-          </button>
-          <button
             onClick={() => navigate("/manager/projects/create")}
-            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-all font-medium shadow-md shadow-indigo-100"
+            className="flex items-center gap-3 bg-indigo-600 text-white px-8 py-4 rounded-[1.5rem] hover:bg-indigo-700 hover:-translate-y-1 transition-all font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-100"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-5 h-5" />
             Tạo dự án mới
           </button>
         </div>

@@ -12,7 +12,7 @@ import {
   FileText, Clock, CheckCircle2, XCircle,
   Image, FileText as FileTextIcon, Volume2, Video,
   Search, Eye, ThumbsUp, ThumbsDown,
-  Calendar, TrendingUp, History, AlertCircle,
+  Calendar, History, AlertCircle,
   Folder, Users, RefreshCw, CheckSquare,
 } from 'lucide-react';
 
@@ -32,7 +32,6 @@ const ReviewerDashboard = () => {
     approved: 0,
     rejected: 0,
     todayReviews: 0,
-    approvalRate: 0,
   });
 
   const loadAnnotations = useCallback(async () => {
@@ -71,8 +70,7 @@ const ReviewerDashboard = () => {
             if (!Array.isArray(userTasks)) return;
             userTasks.forEach(t => {
               if (
-                (t.status === 'completed' || t.status === 'pending_review') &&
-                !t.hasConflict &&
+                (t.status === 'completed' || t.status === 'pending_review' || t.status === 'submitted') &&
                 !allFoundAnnotations.some(ann => String(ann.id) === String(t.id))
               ) {
                 const candidates = [t.projectName, t.datasetName, t.project?.name, t.title]
@@ -83,9 +81,10 @@ const ReviewerDashboard = () => {
                   ...t,
                   taskTitle: (t.title && !t.title.includes('Nhiệm vụ')) ? t.title : `Nhiệm vụ #${String(t.id).slice(0, 8)}`,
                   projectName: realProjectName,
-                  annotatorName: 'Annotator',
+                  annotatorName: t.assignedTo || 'Annotator',
                   status: 'pending_review',
                   itemCount: Array.isArray(t.items) ? t.items.length : 0,
+                  isConsensusTask: true,
                 });
               }
             });
@@ -122,9 +121,7 @@ const ReviewerDashboard = () => {
       approved: approvedCount,
       rejected: history.filter(h => h.decision === 'rejected').length,
       todayReviews,
-      approvalRate: totalHistory > 0
-        ? ((approvedCount / totalHistory) * 100).toFixed(1)
-        : 0,
+      todayReviews,
     });
   };
 
@@ -255,12 +252,11 @@ const ReviewerDashboard = () => {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
           {[
             { label: 'Cần Review', val: stats.pending, icon: Clock, color: 'blue', desc: 'Chờ duyệt ngay' },
             { label: 'Đã Duyệt', val: stats.approved, icon: CheckCircle2, color: 'emerald', desc: 'Tổng cộng' },
             { label: 'Từ Chối', val: stats.rejected, icon: XCircle, color: 'rose', desc: 'Cần sửa lại' },
-            { label: 'Tỷ Lệ Duyệt', val: `${stats.approvalRate}%`, icon: TrendingUp, color: 'indigo', desc: 'Độ ổn định' },
           ].map((s, i) => (
             <div key={i} className="group bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
               <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-6 bg-${s.color}-50 text-${s.color}-600 group-hover:scale-110 transition-transform`}>

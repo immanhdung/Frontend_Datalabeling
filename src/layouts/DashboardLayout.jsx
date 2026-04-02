@@ -46,8 +46,7 @@ const roleNavItems = {
     reviewer: [
         { icon: LayoutDashboard, label: "Dashboard", path: "/reviewer/dashboard" },
         { icon: FileCheck, label: "Kiểm duyệt", path: "/reviewer/review" },
-        { icon: History, label: "Lịch sử review", path: "/reviewer/history" },
-        { icon: Activity, label: "Thống kê", path: "/reviewer/analytics" },
+
     ],
 };
 

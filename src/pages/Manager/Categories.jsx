@@ -505,12 +505,9 @@ export default function Categories() {
       {/* Header section with high-end typography */}
       <div className="flex justify-between items-end">
         <div className="space-y-2">
-          <div className="flex items-center gap-3 text-indigo-600 font-bold tracking-tighter mb-2">
-            <LayoutGrid className="w-5 h-5" />
-            <span className="uppercase text-[10px] tracking-widest">Manager Hub</span>
-          </div>
+
           <h1 className="text-4xl font-display font-black text-slate-900 tracking-tight">Category & Label Management</h1>
-          <p className="text-slate-500 font-medium text-lg">Phân loại tài nguyên và nhãn gán dữ liệu tập trung.</p>
+
         </div>
 
         <button
@@ -518,7 +515,7 @@ export default function Categories() {
           className="group flex items-center gap-3 px-8 py-4 bg-indigo-600 text-white rounded-[24px] font-black uppercase tracking-widest text-xs hover:bg-indigo-700 hover:-translate-y-1 transition-all shadow-xl shadow-indigo-100"
         >
           <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
-          New Category
+          Tạo Category
         </button>
       </div>
 
@@ -601,11 +598,11 @@ export default function Categories() {
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="bg-indigo-50 px-6 py-4 rounded-3xl border border-indigo-100/50">
-                    <span className="block text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Total Labels</span>
+                    <span className="block text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Tổng nhãn</span>
                     <span className="text-3xl font-black text-indigo-600 leading-none">{selectedCategory.labels.length}</span>
                   </div>
                   <div className="bg-emerald-50 px-6 py-4 rounded-3xl text-right border border-emerald-100/50">
-                    <span className="block text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Active Projects</span>
+                    <span className="block text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Dự án</span>
                     <span className="text-3xl font-black text-emerald-600 leading-none">{categoryProjects.length}</span>
                   </div>
                 </div>
@@ -614,9 +611,9 @@ export default function Categories() {
               {/* Labels Management Area */}
               <div className="space-y-8 bg-slate-50/50 p-10 rounded-[40px] border border-slate-100">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-black text-slate-900 flex items-center gap-3 uppercase tracking-widest text-[11px] text-indigo-600/70">
+                  <h3 className="font-black text-slate-900 flex items-center gap-3 uppercase tracking-widest text-sm text-indigo-600/80">
                     <Tag className="w-5 h-5" />
-                    Label Management Console
+                    Quản lý nhãn
                   </h3>
                 </div>
 
@@ -633,7 +630,7 @@ export default function Categories() {
                   <button
                     onClick={handleAddLabel}
                     disabled={addingLabel || !labelName.trim()}
-                    className="px-10 bg-indigo-600 text-white rounded-[24px] font-black uppercase tracking-widest text-xs hover:bg-indigo-700 hover:shadow-xl hover:shadow-indigo-100 disabled:opacity-30 transition-all flex items-center gap-3"
+                    className="px-10 bg-indigo-600 text-white rounded-[24px] font-black uppercase tracking-widest text-sm hover:bg-indigo-700 hover:shadow-xl hover:shadow-indigo-100 disabled:opacity-30 transition-all flex items-center gap-3"
                   >
                     <Plus className="w-4 h-4" />
                     {addingLabel ? "Adding..." : "Add Label"}
@@ -642,13 +639,7 @@ export default function Categories() {
 
                 {/* Dynamic Label Tags with Theme context */}
                 <div className="flex flex-wrap gap-3">
-                  <button
-                    onClick={() => setActiveLabelFilter("")}
-                    className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] border-2 transition-all ${activeLabelFilter === "" ? "bg-slate-900 border-slate-900 text-white shadow-xl" : "bg-white border-slate-100 text-slate-400 hover:border-slate-300"
-                      }`}
-                  >
-                    All Views
-                  </button>
+
                   {selectedCategory.labels.map((l, lIdx) => {
                     const isEditing = String(editingLabelId) === String(l.id);
                     const theme = themes[lIdx % themes.length];
@@ -658,7 +649,7 @@ export default function Categories() {
                     return (
                       <div
                         key={l.id}
-                        className={`group inline-flex items-center gap-3 rounded-2xl border-2 px-5 py-2.5 transition-all duration-300 ${isFiltered ? `bg-gradient-to-r ${theme.grad} text-white shadow-xl ${theme.border}` : `bg-white border-slate-50 ${theme.text} hover:scale-105 hover:border-slate-200`
+                        className={`group inline-flex items-center gap-3 rounded-2xl border-2 px-7 py-3 transition-all duration-300 ${isFiltered ? `bg-gradient-to-r ${theme.grad} text-white shadow-xl ${theme.border}` : `bg-white border-slate-50 ${theme.text} hover:scale-105 hover:border-slate-200`
                           }`}
                       >
                         {isEditing ? (
@@ -682,7 +673,7 @@ export default function Categories() {
                           </div>
                         ) : (
                           <>
-                            <button onClick={() => setActiveLabelFilter(isFiltered ? "" : l.name)} className="text-[10px] font-black uppercase tracking-wider">
+                            <button onClick={() => setActiveLabelFilter(isFiltered ? "" : l.name)} className="text-sm font-black uppercase tracking-wider">
                               #{l.name}
                             </button>
                             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all pl-1 border-l border-current/20">
@@ -701,7 +692,7 @@ export default function Categories() {
               <div className="space-y-8 flex-1 flex flex-col">
                 <h3 className="font-black text-slate-900 uppercase tracking-widest text-[11px] px-2 flex items-center gap-3 text-emerald-600/70">
                   <Database className="w-5 h-5" />
-                  Projects Distribution
+                  Dự án
                 </h3>
 
                 {fetchingProjects ? (
@@ -714,7 +705,7 @@ export default function Categories() {
                     <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
                       <Database className="w-8 h-8 text-slate-200" />
                     </div>
-                    <p className="text-slate-300 font-black uppercase tracking-widest text-[10px]">No projects linked yet</p>
+                    <p className="text-slate-300 font-black uppercase tracking-widest text-[10px]">Không có dự án nào</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-8 pb-10">
@@ -767,8 +758,7 @@ export default function Categories() {
 
             <div className="flex justify-between items-center mb-12">
               <div className="space-y-1">
-                <h2 className="text-3xl font-display font-black text-slate-900 tracking-tight">Create New Category</h2>
-                <p className="text-slate-400 font-medium">Khởi tạo một không gian quản lý tài nguyên mới.</p>
+                <h2 className="text-3xl font-display font-black text-slate-900 tracking-tight">Tạo category mới</h2>
               </div>
               <button
                 onClick={() => setShowModal(false)}
@@ -782,7 +772,7 @@ export default function Categories() {
               <div className="space-y-3">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-3 flex items-center gap-2">
                   <LayoutGrid className="w-4 h-4" />
-                  Category Name *
+                  Tên danh mục *
                 </label>
                 <input
                   value={newName}
@@ -795,7 +785,7 @@ export default function Categories() {
               <div className="space-y-3">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-3 flex items-center gap-2">
                   <Clock className="w-4 h-4" />
-                  Description
+                  Mô tả
                 </label>
                 <textarea
                   value={newDesc}
@@ -810,14 +800,14 @@ export default function Categories() {
                   onClick={() => setShowModal(false)}
                   className="flex-1 py-5 font-black text-[11px] uppercase tracking-widest border-2 border-slate-100 text-slate-400 rounded-[28px] hover:bg-slate-50 transition-all"
                 >
-                  Cancel
+                  Hủy
                 </button>
                 <button
                   onClick={handleCreateCategory}
                   disabled={!newName.trim()}
                   className="flex-[2] py-5 bg-indigo-600 text-white rounded-[28px] font-black text-[11px] uppercase tracking-widest hover:bg-indigo-700 hover:shadow-2xl hover:-translate-y-1 disabled:opacity-50 transition-all shadow-xl shadow-indigo-100"
                 >
-                  Launch Category
+                  Thêm
                 </button>
               </div>
             </div>
