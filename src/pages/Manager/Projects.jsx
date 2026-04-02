@@ -572,16 +572,7 @@ export default function ManagerProjects() {
                           <Eye className="w-5 h-5 opacity-70" />
                           Chi tiết
                         </button>
-                        <button
-                          onClick={() => {
-                            setSelectedProject(p);
-                            setShowDatasetModal(true);
-                          }}
-                          className="w-full flex items-center gap-4 px-7 py-4 text-sm font-black text-indigo-600 hover:bg-indigo-50 transition-all uppercase tracking-widest"
-                        >
-                          <Plus className="w-5 h-5 opacity-70" />
-                          Datasets
-                        </button>
+
                         <div className="mx-7 border-t border-slate-50 my-2" />
                         <button
                           onClick={() => handleDelete(id)}

@@ -134,11 +134,6 @@ function ConflictVersionCard({ v, vIdx, onSelect }) {
             onClick={onSelect}
             className="group relative bg-white rounded-[2.5rem] p-6 border-4 border-transparent hover:border-blue-500 cursor-pointer transition-all duration-300 shadow-sm hover:shadow-2xl overflow-hidden active:scale-95 flex flex-col h-full"
         >
-            <div className="absolute top-4 right-4 z-20">
-                <div className="px-4 py-2 bg-slate-900/80 backdrop-blur-md text-white text-[9px] font-black rounded-xl shadow-xl flex items-center gap-2 border border-white/10">
-                    <User className="w-3 h-3" /> {v.annotatorName || v.username || v.displayName || `Annotator ${vIdx + 1}`}
-                </div>
-            </div>
 
             <div className="aspect-video bg-slate-100 rounded-[2rem] overflow-hidden mb-6 relative shadow-inner">
                 <img
@@ -209,11 +204,6 @@ function RightBarThumb({ item, idx, isSelected, status, onClick }) {
                 </div>
             )}
 
-            {item.isConflict && item.annotatorName && (
-                <div className="absolute bottom-3 right-3 bg-slate-900/90 backdrop-blur-md text-white text-[7px] font-black px-2.5 py-1.5 rounded-xl max-w-[90px] truncate shadow-lg">
-                    {item.annotatorName}
-                </div>
-            )}
 
             {!item.isConflict && item.versions?.length > 1 && (
                 <div className="absolute top-3 right-3 bg-emerald-600 text-white text-[7px] font-black px-2.5 py-1 rounded-full shadow-lg border border-emerald-400">
@@ -582,7 +572,6 @@ const ReviewerTask = () => {
                                 </div>
                                 <div className="space-y-1">
                                     <h2 className="text-2xl font-black text-slate-800 tracking-tighter uppercase leading-none">Kiểm duyệt ảnh #{selectedItemIndex + 1}</h2>
-                                    <p className="text-[10px] font-black text-slate-400 tracking-widest uppercase">Annotator: {activeVersion.annotatorName || 'Unknown'}</p>
                                 </div>
                             </div>
                             <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-2xl border border-slate-100">

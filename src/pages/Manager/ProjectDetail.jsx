@@ -8,6 +8,13 @@ import {
   X,
   Trash2,
   Check,
+  ChevronDown,
+  Folder,
+  Database,
+  Tag,
+  Users,
+  LayoutGrid,
+  FolderOpen
 } from "lucide-react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
@@ -357,8 +364,8 @@ export default function ManagerProjectDetail() {
 
       // Create a blob from the response data. 
       // If it's already a blob, we use it directly. If it's an object (fallback), we stringify it.
-      const blob = res.data instanceof Blob 
-        ? res.data 
+      const blob = res.data instanceof Blob
+        ? res.data
         : new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
 
       const url = window.URL.createObjectURL(blob);
@@ -367,7 +374,7 @@ export default function ManagerProjectDetail() {
       link.setAttribute('download', filename);
       document.body.appendChild(link);
       link.click();
-      
+
       // Cleanup
       setTimeout(() => {
         window.URL.revokeObjectURL(url);
@@ -583,335 +590,362 @@ export default function ManagerProjectDetail() {
     }
   };
 
+  const statusTheme = useMemo(() => {
+    const s = String(project?.status || "").toLowerCase();
+    if (s.includes("active") || s.includes("hoạt động")) return { bg: "bg-emerald-500/10", text: "text-emerald-500", dot: "bg-emerald-500", label: "Đang hoạt động" };
+    if (s.includes("complete") || s.includes("hoàn thành")) return { bg: "bg-indigo-500/10", text: "text-indigo-500", dot: "bg-indigo-500", label: "Hoàn thành" };
+    return { bg: "bg-amber-500/10", text: "text-amber-500", dot: "bg-amber-500", label: s || "Chờ xử lý" };
+  }, [project?.status]);
+
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
-        <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
-        <p className="text-gray-500 font-medium">Đang tải thông tin dự án...</p>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-6">
+        <div className="relative">
+          <div className="w-16 h-16 border-4 border-indigo-600/20 rounded-full animate-ping absolute" />
+          <Loader2 className="w-16 h-16 text-indigo-600 animate-spin relative z-10" />
+        </div>
+        <p className="text-slate-400 font-black uppercase tracking-[0.3em] text-[10px]">Loading...</p>
       </div>
     );
   }
 
   if (error || !project) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
-        <AlertCircle className="w-12 h-12 text-red-500" />
-        <p className="text-gray-800 font-bold text-lg">{error || "Không tìm thấy dự án"}</p>
-        <button onClick={() => navigate("/manager/projects")} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-          Quay lại danh sách
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-8 animate-in fade-in zoom-in-95 duration-500">
+        <div className="w-24 h-24 bg-rose-50 rounded-[40px] flex items-center justify-center text-rose-500 shadow-xl shadow-rose-100">
+          <AlertCircle className="w-12 h-12" />
+        </div>
+        <div className="text-center space-y-2">
+          <h2 className="text-3xl font-display font-black text-slate-900 tracking-tight">Truy cập bị từ chối</h2>
+          <p className="text-slate-400 font-medium max-w-sm">{error || "Dự án không tồn tại hoặc đã bị gỡ bỏ khỏi HUB."}</p>
+        </div>
+        <button
+          onClick={() => navigate("/manager/projects")}
+          className="px-10 py-4 bg-slate-900 text-white rounded-[24px] font-black uppercase tracking-widest text-[11px] hover:bg-black hover:-translate-y-1 transition-all shadow-xl"
+        >
+          Trở lại danh sách
         </button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate(-1)} className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
+    <div className="p-4 md:p-10 space-y-10 bg-[#fcfdfe] min-h-screen font-sans max-w-7xl mx-auto">
+      {/* Premium Header */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8">
+        <div className="space-y-4">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => navigate(-1)}
+              className="w-12 h-12 rounded-[20px] bg-white shadow-premium border border-slate-50 flex items-center justify-center hover:bg-slate-50 hover:scale-105 transition-all text-slate-400 hover:text-slate-900"
+            >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <h1 className="text-2xl font-bold">{project.name}</h1>
-            <span className="px-3 py-1 text-xs rounded-full bg-blue-100 text-blue-700">{project.status || "Đang hoạt động"}</span>
+            <div className={`px-4 py-1.5 rounded-full ${statusTheme.bg} ${statusTheme.text} flex items-center gap-2 border border-current/10 shadow-sm shadow-current/10`}>
+              <div className={`w-2 h-2 rounded-full ${statusTheme.dot} animate-pulse`} />
+              <span className="text-[10px] font-black uppercase tracking-widest">{statusTheme.label}</span>
+            </div>
           </div>
-          <p className="text-gray-500 mt-1">{project.description || "Chưa có mô tả cho dự án này."}</p>
+          <div className="space-y-2">
+            <h1 className="text-5xl font-display font-black text-slate-900 tracking-tight leading-tight">{project.name}</h1>
+            <p className="text-slate-400 font-medium max-w-2xl text-lg leading-relaxed">{project.description || "Đang truy cập ngữ cảnh thông tin dự án..."}</p>
+          </div>
         </div>
-        <div className="flex gap-3">
+
+        <div className="flex items-center gap-4">
           <button
             disabled={exporting}
             onClick={() => setShowExportModal(true)}
-            className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50 text-slate-700 font-semibold"
+            className="group flex items-center gap-3 px-8 py-4 bg-white border border-slate-100 text-slate-900 rounded-[28px] font-black uppercase tracking-widest text-[11px] hover:shadow-2xl hover:-translate-y-1 transition-all shadow-premium"
           >
-            {exporting ? <Loader2 className="w-4 h-4 animate-spin text-indigo-600" /> : <Download className="w-4 h-4 text-indigo-600" />}
+            {exporting ? <Loader2 className="w-4 h-4 animate-spin text-indigo-600" /> : <Download className="w-4 h-4 text-indigo-600 group-hover:rotate-12 transition-transform" />}
             {exporting ? "Đang xử lý..." : "Xuất dữ liệu"}
           </button>
-          <button onClick={() => setIsEditMode((prev) => !prev)} className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-black">
-            {isEditMode ? <X className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
-            {isEditMode ? "Đóng chỉnh sửa" : "Chỉnh sửa"}
+          <button
+            onClick={() => setIsEditMode((prev) => !prev)}
+            className={`group flex items-center gap-3 px-8 py-4 rounded-[28px] font-black uppercase tracking-widest text-[11px] hover:shadow-2xl hover:-translate-y-1 transition-all shadow-xl ${isEditMode ? 'bg-rose-50 text-rose-600 border border-rose-100 shadow-rose-100' : 'bg-slate-900 text-white shadow-slate-200'}`}
+          >
+            {isEditMode ? <X className="w-4 h-4 group-hover:rotate-90 transition-transform duration-300" /> : <Pencil className="w-4 h-4 group-hover:-rotate-12 transition-transform" />}
+            {isEditMode ? "Hủy chỉnh sửa" : "Chỉnh sửa"}
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* Stats Dashboard Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
         {[
-          { label: "Category", value: selectedCategoryName },
-          { label: "Datasets", value: linkedDatasets.length },
-          { label: "Labels", value: allLabels.length }, // Thêm hiển thị số nhãn
-          { label: "Members", value: projectMembers.length },
-          { label: "Tasks", value: projectTasks.length },
-        ].map(({ label, value }) => (
-          <div key={label} className="bg-white rounded-xl p-4 shadow border border-gray-100">
-            <p className="text-xs font-semibold text-gray-500 uppercase">{label}</p>
-            <p className="text-lg font-bold text-gray-900 mt-1">{value}</p>
+          { label: "Category", value: selectedCategoryName, icon: <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center"><Folder className="w-5 h-5" /></div> },
+          { label: "Datasets", value: linkedDatasets.length, icon: <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center"><Database className="w-5 h-5" /></div> },
+          { label: "Nhãn", value: allLabels.length, icon: <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center"><Tag className="w-5 h-5" /></div> },
+          { label: "Thành viên", value: projectMembers.length, icon: <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center"><Users className="w-5 h-5" /></div> },
+          { label: "Công việc đã giao", value: projectTasks.length, icon: <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center"><LayoutGrid className="w-5 h-5" /></div> },
+        ].map((item, idx) => (
+          <div key={idx} className="bg-white p-6 rounded-[32px] border border-slate-50 shadow-premium flex flex-col justify-between group hover:scale-105 transition-all duration-500 cursor-default">
+            <div className="flex justify-between items-start">
+              {item.icon}
+              <div className="w-2 h-2 rounded-full bg-slate-100 group-hover:bg-indigo-400 transition-colors" />
+            </div>
+            <div className="mt-4 space-y-1">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{item.label}</p>
+              <p className="text-2xl font-display font-black text-slate-900 group-hover:text-indigo-600 transition-colors">{item.value}</p>
+            </div>
           </div>
         ))}
       </div>
 
       {isEditMode && (
-        <div className="bg-white rounded-xl p-5 shadow space-y-5 border border-indigo-100">
-          <h3 className="font-semibold text-indigo-700">Chỉnh sửa chi tiết dự án</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Tên dự án</label>
-              <input className="w-full border rounded px-3 py-2" value={editForm.name} onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))} />
+        <div className="bg-white rounded-[48px] p-10 md:p-12 shadow-premium border border-indigo-50/50 space-y-12 animate-in slide-in-from-top-10 duration-700 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50/30 blur-3xl -z-10 rounded-full -translate-y-1/2 translate-x-1/2" />
+
+          <div className="flex items-center gap-6 border-b border-slate-50 pb-8">
+            <div className="w-16 h-16 rounded-[24px] bg-indigo-600 flex items-center justify-center text-white shadow-xl shadow-indigo-100">
+              <Save className="w-8 h-8" />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Loại</label>
-              <input className="w-full border rounded px-3 py-2" value={editForm.type} onChange={(e) => setEditForm((prev) => ({ ...prev, type: e.target.value }))} />
+              <h3 className="text-3xl font-display font-black text-slate-900 tracking-tight">Cấu hình dự án</h3>
+              <p className="text-slate-400 font-medium">Cập nhật các tham số chính và phân loại cho dự án này.</p>
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Trạng thái</label>
-              <input className="w-full border rounded px-3 py-2" value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))} />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Mô tả</label>
-            <textarea className="w-full border rounded px-3 py-2" rows={3} value={editForm.description} onChange={(e) => setEditForm((prev) => ({ ...prev, description: e.target.value }))} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Hướng dẫn</label>
-            <textarea className="w-full border rounded px-3 py-2" rows={3} value={editForm.guideline} onChange={(e) => setEditForm((prev) => ({ ...prev, guideline: e.target.value }))} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Category</label>
-            <select className="w-full border rounded px-3 py-2" value={editForm.categoryId} onChange={(e) => setEditForm((prev) => ({ ...prev, categoryId: e.target.value }))}>
-              <option value="">-- Chọn category --</option>
-              {categories.map((category, idx) => {
-                const catId = category?.id ?? category?.categoryId ?? `cat-${idx}`;
-                return <option key={catId} value={String(catId)}>{category?.name || `Category ${idx + 1}`}</option>;
-              })}
-            </select>
           </div>
 
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Labels</p>
-            {categoryLabelItems.length > 0 && (
-              <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+            <div className="space-y-8">
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">Tên dự án</label>
+                <input
+                  className="w-full bg-slate-50 border border-slate-100 rounded-[28px] px-8 py-5 focus:outline-none focus:ring-4 focus:ring-indigo-100 font-bold transition-all text-slate-700"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="Nhập tên dự án..."
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">Loại công việc</label>
+                  <input
+                    className="w-full bg-slate-50 border border-slate-100 rounded-[28px] px-8 py-5 focus:outline-none focus:ring-4 focus:ring-indigo-100 font-bold transition-all text-slate-700"
+                    value={editForm.type}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, type: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">Trạng thái</label>
+                  <input
+                    className="w-full bg-slate-50 border border-slate-100 rounded-[28px] px-8 py-5 focus:outline-none focus:ring-4 focus:ring-indigo-100 font-bold transition-all text-slate-700 uppercase"
+                    value={editForm.status}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">Mô tả dự án</label>
+                <textarea
+                  className="w-full bg-slate-50 border border-slate-100 rounded-[32px] px-8 py-5 min-h-[160px] focus:outline-none focus:ring-4 focus:ring-indigo-100 font-bold transition-all text-slate-700 resize-none leading-relaxed"
+                  value={editForm.description}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, description: e.target.value }))}
+                  placeholder="Tóm tắt mục tiêu dự án..."
+                />
+              </div>
+            </div>
+
+            <div className="space-y-8">
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">Hướng dẫn thực hiện</label>
+                <textarea
+                  className="w-full bg-slate-50 border border-slate-100 rounded-[32px] px-8 py-5 min-h-[160px] focus:outline-none focus:ring-4 focus:ring-indigo-100 font-bold transition-all text-slate-700 resize-none leading-relaxed"
+                  value={editForm.guideline}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, guideline: e.target.value }))}
+                  placeholder="Cung cấp hướng dẫn chi tiết cho người dán nhãn..."
+                />
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">Danh mục</label>
+                <div className="relative group">
+                  <select
+                    className="w-full bg-slate-50 border border-slate-100 rounded-[28px] px-8 py-5 focus:outline-none focus:ring-4 focus:ring-indigo-100 font-bold transition-all text-slate-700 appearance-none cursor-pointer"
+                    value={editForm.categoryId}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, categoryId: e.target.value }))}
+                  >
+                    <option value="">-- Chọn danh mục --</option>
+                    {categories.map((category, idx) => {
+                      const catId = category?.id ?? category?.categoryId ?? `cat-${idx}`;
+                      return <option key={catId} value={String(catId)}>{category?.name || `Category ${idx + 1}`}</option>;
+                    })}
+                  </select>
+                  <div className="absolute right-8 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 group-hover:text-indigo-600 transition-colors">
+                    <ChevronDown className="w-5 h-5" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Taxonomy Section */}
+          <div className="pt-12 border-t border-slate-50 space-y-10">
+            <div className="flex items-center gap-3">
+              <Tag className="w-6 h-6 text-indigo-600" />
+              <h4 className="text-xl font-display font-black text-slate-900 tracking-tight uppercase">Định nghĩa nhãn</h4>
+            </div>
+
+            <div className="bg-slate-50/50 p-10 rounded-[40px] border border-slate-100 space-y-8">
+              <div className="flex gap-4">
+                <input
+                  value={customLabelInput}
+                  onChange={(e) => setCustomLabelInput(e.target.value)}
+                  className="flex-1 bg-white border border-slate-200 rounded-[24px] px-8 py-5 focus:outline-none focus:ring-4 focus:ring-indigo-100 font-bold text-slate-700 shadow-sm"
+                  placeholder="Thêm nhãn mới..."
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCategoryLabel}
+                  disabled={labelActionTargetId === "new" || !customLabelInput.trim() || !editForm.categoryId}
+                  className="px-10 bg-slate-900 text-white rounded-[24px] font-black uppercase tracking-widest text-[11px] hover:shadow-xl disabled:opacity-30 transition-all"
+                >
+                  Thêm nhãn
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-4">
                 {categoryLabelItems.map((label) => {
                   const checked = editForm.labels.includes(label.name);
                   const isEditing = String(editingCategoryLabelId) === String(label.id);
                   const isBusy = String(labelActionTargetId) === String(label.id);
                   return (
-                    <div key={label.id} className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-sm border ${checked ? "bg-indigo-600 text-white border-indigo-600" : "bg-white border-gray-300 text-slate-700"}`}>
+                    <div
+                      key={label.id}
+                      className={`group flex items-center transition-all duration-300 rounded-2xl border-2 px-6 py-3 ${checked ? "bg-indigo-600 border-indigo-600 text-white scale-105 shadow-lg shadow-indigo-100" : "bg-white border-slate-100 text-slate-500 hover:border-slate-200"}`}
+                    >
                       {isEditing ? (
-                        <>
-                          <input value={editingCategoryLabelName} onChange={(e) => setEditingCategoryLabelName(e.target.value)} className="w-28 border rounded px-2 py-0.5 text-xs text-slate-700" disabled={isBusy} />
-                          <button type="button" onClick={() => handleSaveCategoryLabel(label)} disabled={isBusy || !editingCategoryLabelName.trim()} className="p-1 rounded hover:bg-black/10 disabled:opacity-50"><Check className="w-3.5 h-3.5" /></button>
-                          <button type="button" onClick={cancelEditCategoryLabel} disabled={isBusy} className="p-1 rounded hover:bg-black/10 disabled:opacity-50"><X className="w-3.5 h-3.5" /></button>
-                        </>
+                        <div className="flex items-center gap-3">
+                          <input
+                            value={editingCategoryLabelName}
+                            onChange={(e) => setEditingCategoryLabelName(e.target.value)}
+                            className="w-32 bg-transparent focus:outline-none text-xs font-black border-b-2 border-current px-1"
+                            autoFocus
+                            disabled={isBusy}
+                          />
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => handleSaveCategoryLabel(label)} className="hover:scale-125 transition-transform"><Check className="w-4 h-4" /></button>
+                            <button onClick={cancelEditCategoryLabel} className="hover:scale-125 transition-transform"><X className="w-4 h-4" /></button>
+                          </div>
+                        </div>
                       ) : (
-                        <>
-                          <button type="button" onClick={() => toggleLabel(label.name)} className="px-1">{label.name}</button>
-                          <button type="button" onClick={() => startEditCategoryLabel(label)} disabled={isBusy} className="p-1 rounded hover:bg-black/10 disabled:opacity-50"><Pencil className="w-3.5 h-3.5" /></button>
-                          <button type="button" onClick={() => handleDeleteCategoryLabel(label)} disabled={isBusy} className="p-1 rounded hover:bg-black/10 disabled:opacity-50"><Trash2 className="w-3.5 h-3.5" /></button>
-                        </>
+                        <div className="flex items-center gap-4">
+                          <button onClick={() => toggleLabel(label.name)} className="text-xs font-black uppercase tracking-wider">#{label.name}</button>
+                          <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all border-l border-current/20 pl-4">
+                            <Pencil onClick={() => startEditCategoryLabel(label)} className="w-3.5 h-3.5 cursor-pointer hover:rotate-12 transition-transform" />
+                            <Trash2 onClick={() => handleDeleteCategoryLabel(label)} className="w-3.5 h-3.5 cursor-pointer hover:scale-125 transition-transform" />
+                          </div>
+                        </div>
                       )}
                     </div>
                   );
                 })}
               </div>
-            )}
-            <div className="flex gap-2">
-              <input value={customLabelInput} onChange={(e) => setCustomLabelInput(e.target.value)} className="flex-1 border rounded px-3 py-2" placeholder="Thêm nhãn tùy chỉnh..." />
-              <button type="button" onClick={handleAddCategoryLabel} disabled={labelActionTargetId === "new" || !customLabelInput.trim() || !editForm.categoryId} className="px-3 py-2 bg-gray-900 text-white rounded disabled:opacity-50">Thêm</button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {editForm.labels.map((name) => (
-                <span key={name} className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 text-sm">
-                  {name}
-                  <button type="button" onClick={() => toggleLabel(name)}><X className="w-3 h-3" /></button>
-                </span>
-              ))}
             </div>
           </div>
 
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Datasets (chỉ hiện dataset thuộc dự án này)</p>
-            {linkedDatasets.length === 0 ? (
-              <p className="text-sm text-amber-600 bg-amber-50 px-3 py-2 rounded">
-                Dự án chưa có dataset nào. Vào trang Datasets → gán dataset vào dự án này trước.
-              </p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1">
-                {linkedDatasets.map((dataset, idx) => {
-                  const dsId = String(dataset?.id ?? dataset?.datasetId ?? `ds-${idx}`);
-                  const checked = editForm.datasetIds.includes(dsId);
-                  return (
-                    <label key={dsId} className={`p-2 rounded border flex items-center gap-2 cursor-pointer ${checked ? "border-indigo-500 bg-indigo-50" : "border-gray-200"}`}>
-                      <input type="checkbox" checked={checked} onChange={() => toggleDataset(dsId)} />
-                      <span className="text-sm">{dataset?.name || `Dataset ${idx + 1}`}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="flex justify-end">
-            <button onClick={saveProject} disabled={saving} className="inline-flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {saving ? "Đang lưu..." : "Lưu thay đổi"}
+          <div className="flex justify-end pt-12 border-t border-slate-50">
+            <button
+              onClick={saveProject}
+              disabled={saving}
+              className="flex items-center gap-4 px-12 py-5 bg-indigo-600 text-white rounded-[32px] font-black uppercase tracking-widest text-xs hover:shadow-2xl hover:shadow-indigo-200 hover:-translate-y-1 disabled:opacity-50 transition-all border-none"
+            >
+              {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+              {saving ? "Đang đồng bộ..." : "Áp dụng thay đổi"}
             </button>
           </div>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-white rounded-xl p-5 shadow lg:col-span-2">
-          <h3 className="font-semibold mb-2">Hướng dẫn gán nhãn</h3>
-          <p className="text-sm text-gray-600 whitespace-pre-line">{project.guideline || "Dự án này chưa có hướng dẫn chi tiết."}</p>
-        </div>
-        <div className="bg-white rounded-xl p-5 shadow">
-          <h3 className="font-semibold mb-3">Nhãn ({allLabels.length})</h3>
-          <div className="flex gap-2 flex-wrap">
-            {allLabels.length > 0
-              ? allLabels.map((label) => <span key={label} className="px-3 py-1 text-sm rounded-full bg-blue-100 text-blue-700">{label}</span>)
-              : <p className="text-sm text-gray-400">Chưa có nhãn</p>}
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-xl p-5 shadow border border-blue-100 space-y-4">
-        <h3 className="font-semibold text-blue-700">Giao việc trong dự án</h3>
-        {projectTasks.length === 0 ? (
-          <p className="text-sm text-gray-500">Dự án này chưa có task để giao.</p>
-        ) : annotatorMembers.length === 0 ? (
-          <p className="text-sm text-gray-500">Dự án chưa có annotator member.</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-            <div>
-              <label className="block text-sm font-medium mb-1">Task</label>
-              <select value={selectedTaskId} onChange={(e) => setSelectedTaskId(e.target.value)} className="w-full border rounded px-3 py-2">
-                <option value="">-- Chọn task --</option>
-                {projectTasks.map((task, idx) => {
-                  const taskId = String(task?.id || task?.taskId || `task-${idx}`);
-                  return <option key={taskId} value={taskId}>{task?.name || task?.title || `Task ${idx + 1}`}</option>;
-                })}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Annotator</label>
-              <select value={selectedAssigneeId} onChange={(e) => setSelectedAssigneeId(e.target.value)} className="w-full border rounded px-3 py-2">
-                <option value="">-- Chọn annotator --</option>
-                {annotatorMembers.map((member, idx) => {
-                  const memberId = getEntityId(member);
-                  return <option key={memberId || `member-${idx}`} value={memberId}>{getEntityDisplayName(member, `Annotator ${idx + 1}`)}</option>;
-                })}
-              </select>
-            </div>
-            <div>
-              <button type="button" onClick={handleAssignTask} disabled={assigningTask || !selectedTaskId || !selectedAssigneeId} className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                {assigningTask ? "Đang giao..." : "Giao task"}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="bg-white rounded-xl p-5 shadow border border-emerald-100 space-y-4">
-        <h3 className="font-semibold text-emerald-700">Thêm thành viên vào dự án</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <input type="text" value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)} placeholder="Tìm theo tên, username, email..." className="md:col-span-2 border rounded px-3 py-2" />
-          <select value={memberRoleFilter} onChange={(e) => setMemberRoleFilter(e.target.value)} className="border rounded px-3 py-2">
-            <option value="annotator">Annotator</option>
-            <option value="reviewer">Reviewer</option>
-          </select>
-        </div>
-
-        {filteredUsersToAdd.length === 0 ? (
-          <p className="text-sm text-gray-500">
-            {availableUsersToAdd.length === 0 ? "Tất cả users hiện đã thuộc dự án này." : "Không có user phù hợp với bộ lọc hiện tại."}
-          </p>
-        ) : (
-          <div className="space-y-3">
-            <div className="overflow-x-auto border border-gray-200 rounded-lg">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">Username</th>
-                    <th className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">Họ tên</th>
-                    <th className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">Role</th>
-                    <th className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase text-right">Thao tác</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginatedUsersToAdd.map((user, idx) => {
-                    const userId = getEntityId(user);
-                    const role = getEntityRole(user);
-                    return (
-                      <tr key={userId || `user-${idx}`} className="border-b border-gray-100 last:border-0">
-                        <td className="px-4 py-3 text-sm text-gray-700">{user?.username || "---"}</td>
-                        <td className="px-4 py-3 text-sm text-gray-900">{getEntityDisplayName(user, `User ${idx + 1}`)}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{role || "---"}</td>
-                        <td className="px-4 py-3 text-right">
-                          <button type="button" onClick={() => handleAddMemberToProject(userId)} disabled={addingMember || !userId} className="px-3 py-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50 text-sm">
-                            {addingMember ? "Đang thêm..." : "Thêm"}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">Trang {currentMemberPage}/{totalMemberPages} - {filteredUsersToAdd.length} user</p>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setMemberPage((prev) => (prev <= 1 ? totalMemberPages : prev - 1))} className="px-3 py-1.5 border rounded text-sm hover:bg-gray-50">Trước</button>
-                <button type="button" onClick={() => setMemberPage((prev) => (prev >= totalMemberPages ? 1 : prev + 1))} className="px-3 py-1.5 border rounded text-sm hover:bg-gray-50">Sau</button>
+      {/* Content Sections Area */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pb-20">
+        <div className="lg:col-span-2 space-y-8">
+          {/* Guidelines Card */}
+          <div className="bg-white rounded-[48px] p-12 shadow-premium border border-slate-50 space-y-8 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/50 rounded-full -translate-x-12 translate-y-12 blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-3xl bg-indigo-600 text-white shadow-xl shadow-indigo-100 flex items-center justify-center">
+                <FolderOpen className="w-7 h-7" />
               </div>
+              <h3 className="text-2xl font-display font-black text-slate-900 tracking-tight">Hướng dẫn gán nhãn</h3>
+            </div>
+            <div className="bg-slate-50 p-10 rounded-[40px] border border-slate-100 leading-relaxed text-slate-600 font-medium text-lg min-h-[300px] whitespace-pre-wrap">
+              {project.guideline || "Chưa có nội dung hướng dẫn cho dự án này."}
             </div>
           </div>
-        )}
 
-        {projectMembers.length > 0 && (
-          <div className="pt-2 border-t border-gray-100">
-            <p className="text-sm font-medium text-gray-700 mb-2">Thành viên hiện tại ({projectMembers.length})</p>
-            <div className="flex flex-wrap gap-2">
-              {projectMembers.map((member, idx) => {
-                const role = getEntityRole(member);
-                const memberId = getEntityId(member);
-                const busy = removingMemberId === memberId;
-                return (
-                  <div key={`${memberId}-${idx}`} className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs bg-gray-100 text-gray-700">
-                    {getEntityDisplayName(member, `Member ${idx + 1}`)}
-                    {role ? <span className="text-gray-500">({role})</span> : null}
-                    <button type="button" onClick={() => handleRemoveMemberFromProject(member)} disabled={busy} className="ml-1 text-red-600 hover:text-red-700 disabled:opacity-50">
-                      {busy ? "..." : "xóa"}
-                    </button>
-                  </div>
-                );
-              })}
+        </div>
+
+        {/* Labels Sidebar Card */}
+        <div className="space-y-8">
+          <div className="bg-white rounded-[48px] p-10 shadow-premium border border-slate-50 space-y-10 sticky top-10">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-3xl bg-amber-500 text-white shadow-xl shadow-amber-100 flex items-center justify-center">
+                <Tag className="w-7 h-7" />
+              </div>
+              <h3 className="text-2xl font-display font-black text-slate-900 tracking-tight">Danh sách nhãn</h3>
             </div>
+
+            <div className="flex flex-wrap gap-3">
+              {allLabels.length > 0 ? (
+                allLabels.map((label, idx) => (
+                  <span
+                    key={idx}
+                    className="px-6 py-3 rounded-2xl bg-slate-50 text-slate-900 font-black uppercase tracking-[0.15em] text-[10px] border border-slate-100 hover:scale-105 hover:bg-white hover:shadow-lg transition-all cursor-default"
+                  >
+                    #{label}
+                  </span>
+                ))
+              ) : (
+                <div className="w-full py-10 text-center text-[10px] font-black text-slate-300 uppercase tracking-widest border-2 border-dashed border-slate-50 rounded-[32px]">
+                  Chưa có nhãn nào
+                </div>
+              )}
+            </div>
+
+
           </div>
-        )}
+        </div>
       </div>
 
       {/* Export Modal */}
       {showExportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                <Download className="w-5 h-5 text-indigo-600" /> Xuất dữ liệu dự án
-              </h3>
-              <button onClick={() => setShowExportModal(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                <X className="w-5 h-5 text-gray-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-md p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-[48px] shadow-2xl w-full max-w-xl p-12 space-y-10 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/50 rounded-full -translate-x-6 translate-y-6 blur-3xl opacity-50" />
+
+            <div className="flex items-center justify-between border-b border-slate-50 pb-8">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-3xl bg-indigo-600 text-white shadow-xl shadow-indigo-100 flex items-center justify-center">
+                  <Download className="w-7 h-7" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-display font-black text-slate-900 tracking-tight">Xuất dữ liệu</h3>
+                  <p className="text-slate-400 font-medium">Cấu hình các tham số trích xuất dữ liệu.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="w-12 h-12 rounded-[20px] bg-slate-50 text-slate-400 flex items-center justify-center hover:bg-rose-50 hover:text-rose-600 transition-all hover:scale-105"
+              >
+                <X className="w-6 h-6" />
               </button>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Định dạng xuất</label>
-                <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-10">
+              <div className="space-y-4">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">Định dạng tập tin đầu ra</label>
+                <div className="grid grid-cols-3 gap-4">
                   {['json', 'coco', 'yolo'].map((fmt) => (
                     <button
                       key={fmt}
                       onClick={() => setExportForm(prev => ({ ...prev, format: fmt }))}
-                      className={`py-2.5 rounded-xl border-2 font-bold uppercase text-sm transition-all ${exportForm.format === fmt
-                        ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
-                        : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-200'
+                      className={`py-5 rounded-[24px] border-2 font-black uppercase text-xs tracking-widest transition-all ${exportForm.format === fmt
+                        ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-lg shadow-indigo-100 scale-[1.02]'
+                        : 'border-slate-100 bg-slate-50 text-slate-400 hover:border-slate-200'
                         }`}
                     >
                       {fmt}
@@ -921,12 +955,12 @@ export default function ManagerProjectDetail() {
               </div>
 
               {exportForm.format === 'yolo' && (
-                <div className="space-y-4 pt-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                  <div>
-                    <div className="flex justify-between items-end mb-1.5">
-                      <label className="text-sm font-semibold text-gray-700">Tỷ lệ Train/Val</label>
-                      <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
-                        {Math.round(exportForm.trainSplitRatio * 100)}% / {Math.round((1 - exportForm.trainSplitRatio) * 100)}%
+                <div className="space-y-8 pt-4 animate-in fade-in slide-in-from-top-4 duration-500">
+                  <div className="bg-slate-50 p-8 rounded-[32px] border border-slate-100 space-y-6">
+                    <div className="flex justify-between items-end">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tỷ lệ chia tập dữ liệu</label>
+                      <span className="text-xs font-black text-indigo-600 bg-indigo-100 px-4 py-1.5 rounded-full shadow-sm">
+                        {Math.round(exportForm.trainSplitRatio * 100)}% Train / {Math.round((1 - exportForm.trainSplitRatio) * 100)}% Val
                       </span>
                     </div>
                     <input
@@ -936,52 +970,36 @@ export default function ManagerProjectDetail() {
                       step="0.05"
                       value={exportForm.trainSplitRatio}
                       onChange={(e) => setExportForm(prev => ({ ...prev, trainSplitRatio: parseFloat(e.target.value) }))}
-                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                      className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
                     />
-                    <div className="flex justify-between text-[10px] text-gray-400 font-medium px-1 mt-1">
-                      <span>10% Train</span>
-                      <span>50%</span>
-                      <span>90% Train</span>
-                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">Random Seed (0-9999)</label>
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2">Mã ngẫu nhiên (Randomizer Seed)</label>
                     <input
                       type="number"
                       min="0"
                       max="9999"
                       value={exportForm.randomSeed}
                       onChange={(e) => setExportForm(prev => ({ ...prev, randomSeed: parseInt(e.target.value) || 0 }))}
-                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-medium"
+                      className="w-full bg-slate-50 border border-slate-100 rounded-[24px] px-8 py-5 focus:outline-none focus:ring-4 focus:ring-indigo-100 font-bold text-slate-700 transition-all"
                       placeholder="VD: 42"
                     />
-                    <p className="text-[10px] text-gray-400 mt-1 px-1">Dùng để cố định kết quả xáo trộn dữ liệu khi chia tập train/val.</p>
                   </div>
                 </div>
               )}
             </div>
 
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => setShowExportModal(false)}
-                className="flex-1 py-3 border border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50 transition-all"
-              >
-                Hủy
-              </button>
+            <div className="flex gap-4 pt-6">
               <button
                 onClick={handleExportData}
                 disabled={exporting}
-                className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 transition-all"
+                className="flex-1 py-5 bg-indigo-600 text-white rounded-[32px] font-black uppercase tracking-widest text-[11px] hover:shadow-2xl hover:shadow-indigo-200 hover:-translate-y-1 transition-all flex items-center justify-center gap-3 shadow-xl"
               >
-                {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                {exporting ? "Đang xử lý..." : "Xuất dữ liệu"}
+                {exporting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
+                {exporting ? "Đang hoàn tất..." : "Bắt đầu xuất dữ liệu"}
               </button>
             </div>
-
-            <p className="text-[10px] text-center text-gray-400">
-              * Dữ liệu sẽ được xuất dựa trên các bản gán nhãn đã đạt đồng thuận hoặc được phê duyệt.
-            </p>
           </div>
         </div>
       )}

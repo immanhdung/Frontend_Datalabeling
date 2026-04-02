@@ -40,14 +40,48 @@ const ReviewerDashboard = () => {
       setError(null);
 
       let allFoundAnnotations = [];
-
+      let backendHistory = [];
       try {
         const response = await reviewAPI.getPendingReviews();
         const apiData = response.data?.data || response.data || [];
         if (Array.isArray(apiData)) allFoundAnnotations = [...apiData];
+
+        const allRes = await reviewAPI.getAll({ PageSize: 1000 });
+        const historyData = allRes.data?.data || allRes.data || [];
+        if (Array.isArray(historyData)) {
+          backendHistory = historyData.filter(ann => ann.status === 'Approved' || ann.status === 'Rejected');
+        }
       } catch (err) {
         console.warn('[Reviewer] API fetch failed, using local fallback');
       }
+
+      // Format backend history to match reviewHistory shape
+      if (backendHistory.length > 0) {
+        const actionType = 'approve';
+        const historyEntries = backendHistory.map(h => {
+          const taskId = String(h.taskId || h.id || '');
+          const candidates = [h.projectName, h.datasetName, h.project?.name, h.projectTitle, h.title]
+            .filter(name => name && typeof name === 'string' && name.toLowerCase() !== 'dự án');
+
+          return {
+            id: `BACKEND-${h.id}`,
+            annotationId: taskId,
+            taskTitle: h.taskTitle || h.title || `Nhiệm vụ #${taskId.slice(0, 8)}`,
+            annotatorName: h.annotatorName || 'Annotator',
+            projectName: candidates[0] || 'Dự án Hệ thống',
+            decision: String(h.status).toLowerCase(),
+            reviewedAt: h.createdAt || h.updatedAt || new Date().toISOString(),
+            itemCount: h.itemCount || 0
+          };
+        });
+
+        setReviewHistory(prev => {
+          const existingIds = new Set(prev.map(p => String(p.annotationId || '')));
+          const uniqueNew = historyEntries.filter(b => b.annotationId && !existingIds.has(String(b.annotationId)));
+          return [...prev, ...uniqueNew];
+        });
+      }
+
       const localReviewTasks = getPendingReviewerTasks();
       localReviewTasks.forEach(task => {
         if (!allFoundAnnotations.some(ann => String(ann.id) === String(task.id))) {
@@ -112,15 +146,13 @@ const ReviewerDashboard = () => {
   const updateStats = (anns, history) => {
     const today = new Date().toDateString();
     const todayReviews = history.filter(h => new Date(h.reviewedAt).toDateString() === today).length;
-    const approvedCount = history.filter(h => h.decision === 'approved').length;
-    const totalHistory = history.length;
+    const approvedCount = history.filter(h => String(h.decision).toLowerCase() === 'approved').length;
+    const pendingCount = anns.length;
 
     setStats({
-      total: anns.length,
-      pending: anns.filter(a => a.status === 'pending_review' || a.status === 'pending').length,
+      total: pendingCount + history.length,
+      pending: pendingCount,
       approved: approvedCount,
-      rejected: history.filter(h => h.decision === 'rejected').length,
-      todayReviews,
       todayReviews,
     });
   };
@@ -155,10 +187,11 @@ const ReviewerDashboard = () => {
 
   const filteredAnnotations = useMemo(() => {
     return combinedAnnotations.filter((ann) => {
+      const status = String(ann.status || '').toLowerCase();
       const matchesTab =
         activeTab === 'all' ||
-        (activeTab === 'pending_review' && (ann.status === 'pending_review' || ann.status === 'pending')) ||
-        ann.status === activeTab;
+        (activeTab === 'pending_review' && (status === 'pending_review' || status === 'pending')) ||
+        (activeTab === 'approved' && status === 'approved');
 
       const matchesSearch =
         String(ann.taskTitle || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -241,22 +274,17 @@ const ReviewerDashboard = () => {
                 Kiểm tra các bản gán nhãn đã đạt đồng thuận và phê duyệt kết quả cuối cùng.
               </p>
             </div>
-            <div className="hidden lg:flex gap-4">
-              <button onClick={loadAnnotations} className="px-6 py-3 bg-white text-blue-600 hover:bg-blue-50 rounded-2xl font-bold transition-all shadow-xl flex items-center gap-2">
-                <RefreshCw className="w-4 h-4" /> Làm mới
-              </button>
-            </div>
+
           </div>
           <div className="absolute top-[-20%] right-[-10%] w-96 h-96 bg-white/10 rounded-full blur-[100px]" />
           <div className="absolute bottom-[-30%] left-[-5%] w-64 h-64 bg-indigo-400/20 rounded-full blur-[80px]" />
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 mb-12">
           {[
             { label: 'Cần Review', val: stats.pending, icon: Clock, color: 'blue', desc: 'Chờ duyệt ngay' },
             { label: 'Đã Duyệt', val: stats.approved, icon: CheckCircle2, color: 'emerald', desc: 'Tổng cộng' },
-            { label: 'Từ Chối', val: stats.rejected, icon: XCircle, color: 'rose', desc: 'Cần sửa lại' },
           ].map((s, i) => (
             <div key={i} className="group bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
               <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-6 bg-${s.color}-50 text-${s.color}-600 group-hover:scale-110 transition-transform`}>
@@ -278,8 +306,7 @@ const ReviewerDashboard = () => {
             {[
               { id: 'pending_review', label: 'Chờ duyệt', count: stats.pending },
               { id: 'approved', label: 'Đã Duyệt', count: stats.approved },
-              { id: 'rejected', label: 'Từ Chối', count: stats.rejected },
-              { id: 'all', label: 'Tất cả', count: stats.total + stats.approved + stats.rejected },
+              { id: 'all', label: 'Tất cả', count: stats.total },
             ].map(t => (
               <button
                 key={t.id}
@@ -344,12 +371,6 @@ const ReviewerDashboard = () => {
                         {ann.projectName}
                       </h3>
                       <div className="flex items-center gap-4 mt-2">
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500">
-                            {ann.annotatorName?.charAt(0)}
-                          </div>
-                          <span className="text-xs font-bold text-slate-500">{ann.annotatorName}</span>
-                        </div>
                         {ann.itemCount > 0 && (
                           <>
                             <div className="w-1 h-1 bg-slate-200 rounded-full" />
@@ -390,12 +411,14 @@ const ReviewerDashboard = () => {
                         {ann.status === 'approved' ? 'ĐÃ DUYỆT' : 'ĐÃ TỪ CHỐI'}
                       </span>
                     )}
-                    <button
-                      onClick={() => navigate(`/reviewer/task/${ann.id}`)}
-                      className="p-4 bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-2xl transition-all border border-slate-100"
-                    >
-                      <Eye className="w-6 h-6" />
-                    </button>
+                    {(ann.status === 'pending_review' || ann.status === 'pending') && (
+                      <button
+                        onClick={() => navigate(`/reviewer/task/${ann.id}`)}
+                        className="p-4 bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-2xl transition-all border border-slate-100"
+                      >
+                        <Eye className="w-6 h-6" />
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="absolute top-0 right-0 w-32 h-32 bg-slate-50 rounded-full translate-x-16 -translate-y-16 -z-10" />

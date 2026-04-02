@@ -106,7 +106,7 @@ export default function CreateProjectPage() {
     const fetchCategories = async () => {
       try {
         setLoadingCategories(true);
-        const response = await api.get("/categories");
+        const response = await api.get("/categories", { params: { PageSize: 1000 } });
         const normalized = toArray(response?.data).map((category, idx) => ({
           ...category,
           id: category?.id ?? category?.categoryId ?? `category-${idx}`,
@@ -123,7 +123,7 @@ export default function CreateProjectPage() {
     const fetchDatasets = async () => {
       try {
         setLoadingDatasets(true);
-        const response = await api.get("/datasets");
+        const response = await api.get("/datasets", { params: { PageSize: 1000 } });
         setDatasets(toArray(response?.data));
       } catch {
         setDatasets([]);
