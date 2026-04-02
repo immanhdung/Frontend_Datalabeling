@@ -708,10 +708,10 @@ export default function Datasets() {
                         const itemsRes = await api.get(`/datasets/${datasetId}/items`, { params: { PageSize: 1 } });
                         const apiTotalCount = Number(itemsRes?.data?.totalCount || itemsRes?.data?.totalItems || itemsRes?.data?.count || 0);
                         const itemsArrayLength = Array.isArray(itemsRes?.data?.items || itemsRes?.data) ? (itemsRes?.data?.items || itemsRes?.data).length : 0;
-                        
+
                         // We use the MAX of all found count indicators to avoid the "1" bug during ZIP extraction
                         const finalCount = Math.max(apiTotalCount, itemsArrayLength, existingCount);
-                        
+
                         return {
                             datasetId,
                             itemCount: finalCount,
@@ -736,7 +736,7 @@ export default function Datasets() {
                     prev.map((dataset) => {
                         const datasetId = getDatasetId(dataset);
                         if (!datasetId) return dataset;
-                        
+
                         // Only update if we found a valid count in the countMap
                         const fetchedCount = countMap.get(String(datasetId));
                         if (fetchedCount === undefined) return dataset;
@@ -867,7 +867,7 @@ export default function Datasets() {
             alert("Tạo dataset thành công!");
             setShowAddModal(false);
             resetAddForm();
-            
+
             // Re-fetch data, but also patch the new dataset immediately in state if possible
             await fetchData();
             if (datasetId && uploadType === "images") {
@@ -1244,14 +1244,14 @@ export default function Datasets() {
                                     >
                                         {/* Background Decoration */}
                                         <div className={`absolute -top-12 -right-12 w-32 h-32 ${theme.bg} rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-700`} />
-                                        
+
                                         <div className="relative z-10 flex flex-col h-full">
                                             {/* Top Section: Icon & Menu */}
                                             <div className="flex justify-between items-start mb-8">
                                                 <div className={`w-16 h-16 rounded-2xl ${theme.bg} ${theme.text} flex items-center justify-center transition-transform group-hover:scale-110 group-hover:rotate-3 duration-500 shadow-sm`}>
                                                     <Database className="w-8 h-8" />
                                                 </div>
-                                                
+
                                                 <div className="relative">
                                                     <button
                                                         onClick={(e) => {
@@ -1294,7 +1294,7 @@ export default function Datasets() {
                                                 <h3 className="text-2xl font-black text-slate-900 leading-tight tracking-tight group-hover:text-indigo-600 transition-colors line-clamp-2">{ds.name}</h3>
                                                 <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
                                                     <Calendar className="w-3.5 h-3.5" />
-                                                    <span>Ngày tạo: {ds.createdAt ? new Date(ds.createdAt).toLocaleDateString() : "Đang chờ..." }</span>
+                                                    <span>Ngày tạo: {ds.createdAt ? new Date(ds.createdAt).toLocaleDateString() : "Đang chờ..."}</span>
                                                 </div>
                                             </div>
 

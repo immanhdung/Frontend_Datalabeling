@@ -141,8 +141,8 @@ export const roleAPI = {
 export const categoryAPI = {
   getAll: () =>
     trySequential([
-      () => api.get("/categories"),
-      () => api.get("/Categories"),
+      () => api.get("/categories", { params: { PageSize: 1000 } }),
+      () => api.get("/Categories", { params: { PageSize: 1000 } }),
     ]),
   create: (payload) =>
     trySequential([
@@ -153,6 +153,11 @@ export const categoryAPI = {
     trySequential([
       () => api.put(`/categories/${categoryId}`, payload),
       () => api.put(`/Categories/${categoryId}`, payload),
+    ]),
+  remove: (categoryId) =>
+    trySequential([
+      () => api.delete(`/categories/${categoryId}`),
+      () => api.delete(`/Categories/${categoryId}`),
     ]),
 };
 

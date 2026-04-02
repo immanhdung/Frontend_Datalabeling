@@ -102,7 +102,12 @@ const normalizeCategory = (category, index, labelsByCategory = {}) => {
     name: category?.name ?? `Category ${index + 1}`,
     description: category?.description ?? "",
     labels,
-    labelsCount: labels.length,
+    labelsCount: labels.length ||
+      category?.labelsCount ||
+      category?.labelCount ||
+      category?.tagsCount ||
+      category?.labels?.length ||
+      0,
   };
 };
 
@@ -170,19 +175,9 @@ export default function Categories() {
         return;
       }
 
-      const categoriesWithLabels = await Promise.all(rawCategories.map(async (cat, index) => {
-        const id = getCategoryIdValue(cat);
-        let labels = [];
-        if (id) {
-          try {
-            const labelsRes = await api.get(`/categories/${id}/labels`);
-            labels = asArray(labelsRes?.data);
-          } catch {
-            labels = [];
-          }
-        }
-        return normalizeCategory({ ...cat, labels }, index);
-      }));
+      const categoriesWithLabels = rawCategories.map((cat, index) => {
+        return normalizeCategory(cat, index);
+      });
 
       syncCategoriesState(categoriesWithLabels, preferredId || selectedCategoryId);
     } catch {
@@ -223,6 +218,38 @@ export default function Categories() {
   useEffect(() => {
     fetchCategories();
   }, []);
+
+  // Background sync for all category label counts (quietly)
+  useEffect(() => {
+    if (loading || categories.length === 0) return;
+
+    const syncAllCounts = async () => {
+      for (const cat of categories) {
+        // If already has labels, skip (unless they are 0 and we want to double check)
+        if (cat.labelsCount > 0) continue;
+
+        try {
+          const res = await api.get(`/categories/${cat.id}/labels`);
+          const fetchedLabels = asArray(res?.data);
+          if (fetchedLabels.length > 0) {
+            setCategories(prev => prev.map(item => {
+              if (String(item.id) === String(cat.id)) {
+                const normalized = normalizeLabels({ ...item, labels: fetchedLabels });
+                return { ...item, labels: normalized, labelsCount: normalized.length };
+              }
+              return item;
+            }));
+          }
+        } catch (e) {
+          // Ignore failures silently in background sync
+        }
+        // Small delay between calls to be nice to the server
+        await new Promise(r => setTimeout(r, 200));
+      }
+    };
+
+    syncAllCounts();
+  }, [loading]);
 
   useEffect(() => {
     if (!selectedCategoryId) return;
@@ -365,6 +392,22 @@ export default function Categories() {
       await fetchCategories();
     } catch (error) {
       alert(error?.response?.data?.message || error?.response?.data?.title || "Tạo category thất bại");
+    }
+  };
+  const handleDeleteCategory = async (e, categoryId, categoryName) => {
+    e.stopPropagation();
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa danh mục "${categoryName}"?`)) return;
+    try {
+      // Optimistic update: remove from local state first
+      const nextCategories = categories.filter(c => String(c.id) !== String(categoryId));
+      syncCategoriesState(nextCategories, "");
+
+      await categoryAPI.remove(categoryId);
+      await fetchCategories();
+      alert("Xóa danh mục thành công!");
+    } catch (error) {
+      console.error("Delete category error:", error);
+      alert(error?.response?.data?.message || "Xóa danh mục thất bại");
     }
   };
 
@@ -557,21 +600,29 @@ export default function Categories() {
                   const theme = themes[idx % themes.length];
                   const isActive = String(selectedCategoryId) === String(c.id);
                   return (
-                    <button
+                    <div
                       key={c.id}
                       onClick={() => { setSelectedCategoryId(String(c.id)); setActiveLabelFilter(""); }}
-                      className={`w-full text-left p-6 rounded-[32px] transition-all duration-300 border-2 flex items-center justify-between group ${isActive ? `${theme.bg} ${theme.border} scale-[1.02] shadow-lg` : "border-transparent bg-white hover:bg-slate-50"
+                      className={`w-full text-left p-6 rounded-[32px] transition-all duration-300 border-2 flex items-center justify-between group cursor-pointer ${isActive ? `${theme.bg} ${theme.border} scale-[1.02] shadow-lg` : "border-transparent bg-white hover:bg-slate-50"
                         }`}
                     >
                       <div className="space-y-1.5 flex-1 pr-4">
                         <p className={`font-black text-lg ${isActive ? theme.text : "text-slate-900"}`}>{c.name}</p>
-                        <p className="text-xs text-slate-400 font-medium line-clamp-1">{c.description || "Danh mục tài nguyên hệ thống"}</p>
+
                         <div className={`w-8 h-1 rounded-full mt-3 ${isActive ? `bg-gradient-to-r ${theme.grad}` : "bg-slate-100"}`} />
                       </div>
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${isActive ? `bg-gradient-to-br ${theme.grad} text-white shadow-md` : "bg-slate-50 text-slate-300 group-hover:bg-white"}`}>
-                        <h4 className="font-black text-sm">{c.labelsCount}</h4>
+                      <div className="flex flex-col items-end gap-3 translate-x-2 group-hover:translate-x-0 transition-transform">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${isActive ? `bg-gradient-to-br ${theme.grad} text-white shadow-md` : "bg-slate-50 text-slate-300 group-hover:bg-white"}`}>
+                          <h4 className="font-black text-sm">{c.labelsCount}</h4>
+                        </div>
+                        <button
+                          onClick={(e) => handleDeleteCategory(e, c.id, c.name)}
+                          className={`p-2 rounded-lg hover:bg-rose-50 hover:text-rose-600 transition-colors ${isActive ? "text-slate-400 opacity-60" : "text-slate-300"}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                    </button>
+                    </div>
                   );
                 })
               )}
@@ -633,7 +684,7 @@ export default function Categories() {
                     className="px-10 bg-indigo-600 text-white rounded-[24px] font-black uppercase tracking-widest text-sm hover:bg-indigo-700 hover:shadow-xl hover:shadow-indigo-100 disabled:opacity-30 transition-all flex items-center gap-3"
                   >
                     <Plus className="w-4 h-4" />
-                    {addingLabel ? "Adding..." : "Add Label"}
+                    {addingLabel ? "Adding..." : "Thêm nhãn"}
                   </button>
                 </div>
 
