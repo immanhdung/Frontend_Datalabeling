@@ -31,12 +31,12 @@ export const getProjectStatusMeta = (project) => {
 export const getProjectItemCount = (project) => {
   return Number(
     project?.imagesCount ??
-      project?.itemsCount ??
-      project?.totalItems ??
-      project?.itemCount ??
-      project?.imageCount ??
-      project?.items?.length ??
-      0
+    project?.itemsCount ??
+    project?.totalItems ??
+    project?.itemCount ??
+    project?.imageCount ??
+    project?.items?.length ??
+    0
   ) || 0;
 };
 

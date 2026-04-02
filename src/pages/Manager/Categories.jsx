@@ -1,7 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api, { categoryAPI, labelAPI } from "../../config/api";
-import { Plus, Folder, ChevronRight, Tag, X, Layers3, Pencil, Trash2, Check } from "lucide-react";
+import {
+  Plus,
+  Folder,
+  ChevronRight,
+  Tag,
+  X,
+  Layers3,
+  Pencil,
+  Trash2,
+  Check,
+  Search,
+  Clock,
+  Database,
+  LayoutGrid
+} from "lucide-react";
+
+
 
 const readArray = (value) => {
   if (Array.isArray(value)) return value;
@@ -10,11 +26,10 @@ const readArray = (value) => {
   return [];
 };
 
-
 const asArray = (value) => {
   if (Array.isArray(value)) return value;
-  if (Array.isArray(value?.items)) return value.items;
   if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.items)) return value.items;
   return [];
 };
 
@@ -71,14 +86,6 @@ const getCategoryIdValue = (category) =>
   category?.id ??
   null;
 
-const getLabelCategoryId = (label) =>
-  label?.categoryId ??
-  label?.categoryID ??
-  label?.CategoryId ??
-  label?.category?.id ??
-  label?.category?.categoryId ??
-  null;
-
 const normalizeCategory = (category, index, labelsByCategory = {}) => {
   const id = getCategoryIdValue(category) ?? `category-${index}`;
   const externalLabels = asArray(labelsByCategory[String(id)]);
@@ -98,6 +105,8 @@ const normalizeCategory = (category, index, labelsByCategory = {}) => {
     labelsCount: labels.length,
   };
 };
+
+// --- Component ---
 
 export default function Categories() {
   const navigate = useNavigate();
@@ -119,6 +128,15 @@ export default function Categories() {
 
   const [categoryProjects, setCategoryProjects] = useState([]);
   const [fetchingProjects, setFetchingProjects] = useState(false);
+
+  // Premium Vibrant Themes
+  const themes = [
+    { base: 'blue', grad: 'from-blue-600 to-indigo-700', text: 'text-blue-600', bg: 'bg-blue-50', soft: 'bg-blue-50/50', border: 'border-blue-100' },
+    { base: 'emerald', grad: 'from-emerald-500 to-teal-700', text: 'text-emerald-600', bg: 'bg-emerald-50', soft: 'bg-emerald-50/50', border: 'border-emerald-100' },
+    { base: 'amber', grad: 'from-amber-400 to-orange-600', text: 'text-amber-600', bg: 'bg-amber-50', soft: 'bg-amber-50/50', border: 'border-amber-100' },
+    { base: 'rose', grad: 'from-rose-500 to-pink-700', text: 'text-rose-600', bg: 'bg-rose-50', soft: 'bg-rose-50/50', border: 'border-rose-100' },
+    { base: 'purple', grad: 'from-purple-500 to-violet-700', text: 'text-purple-600', bg: 'bg-purple-50', soft: 'bg-purple-50/50', border: 'border-purple-100' }
+  ];
 
   const selectedCategory = useMemo(
     () => categories.find((item) => String(item.id) === String(selectedCategoryId)) || null,
@@ -392,12 +410,12 @@ export default function Categories() {
   };
 
   const handleSaveLabel = async (label) => {
-    const nextName = editingLabelName.trim();
     if (!selectedCategory || !nextName) {
       alert("Vui lòng nhập tên nhãn hợp lệ");
       return;
     }
 
+    const nextName = editingLabelName.trim();
     const sameName = String(label.name).trim().toLowerCase() === nextName.toLowerCase();
     if (sameName) {
       handleCancelEditLabel();
@@ -483,245 +501,254 @@ export default function Categories() {
   }, [categoryProjects, activeLabelFilter]);
 
   return (
-    <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Quản lý Category và Labels</h1>
-          <p className="text-gray-500">Mỗi category có danh sách nhãn riêng, có thể thêm nhãn trực tiếp.</p>
+    <div className="p-10 space-y-10 bg-[#fcfdfe] min-h-screen font-sans">
+      {/* Header section with high-end typography */}
+      <div className="flex justify-between items-end">
+        <div className="space-y-2">
+          <div className="flex items-center gap-3 text-indigo-600 font-bold tracking-tighter mb-2">
+            <LayoutGrid className="w-5 h-5" />
+            <span className="uppercase text-[10px] tracking-widest">Manager Hub</span>
+          </div>
+          <h1 className="text-4xl font-display font-black text-slate-900 tracking-tight">Category & Label Management</h1>
+          <p className="text-slate-500 font-medium text-lg">Phân loại tài nguyên và nhãn gán dữ liệu tập trung.</p>
         </div>
 
         <button
           onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          className="group flex items-center gap-3 px-8 py-4 bg-indigo-600 text-white rounded-[24px] font-black uppercase tracking-widest text-xs hover:bg-indigo-700 hover:-translate-y-1 transition-all shadow-xl shadow-indigo-100"
         >
-          <Plus className="w-4 h-4" />
-          Thêm Category
+          <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
+          New Category
         </button>
       </div>
 
-      <div className="grid grid-cols-12 gap-6">
-        <div className="col-span-4 bg-white rounded-xl p-4 shadow-sm">
-          <div className="flex items-center gap-2 mb-3">
-            <Folder className="w-5 h-5 text-blue-600" />
-            <h2 className="font-semibold text-lg">Category List</h2>
-          </div>
-
-          <input
-            value={searchKeyword}
-            onChange={(event) => setSearchKeyword(event.target.value)}
-            placeholder="Tìm theo category hoặc label..."
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4"
-          />
-
-          {loading ? (
-            <p className="text-gray-500">Đang tải...</p>
-          ) : filteredCategories.length === 0 ? (
-            <p className="text-gray-500">Không có category phù hợp</p>
-          ) : (
-            <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
-              {filteredCategories.map((category) => {
-                const isActive = String(selectedCategoryId) === String(category.id);
-                return (
-                  <button
-                    key={category.id}
-                    onClick={() => {
-                      setSelectedCategoryId(String(category.id));
-                      setActiveLabelFilter("");
-                    }}
-                    className={`w-full text-left p-4 border rounded-lg transition-all ${isActive ? "border-blue-500 bg-blue-50" : "hover:bg-gray-50"
-                      }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="font-semibold text-gray-900">{category.name}</p>
-                        <p className="text-xs text-gray-500 mt-1 line-clamp-2">
-                          {category.description || "Chưa có mô tả"}
-                        </p>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-gray-400" />
-                    </div>
-
-                    <div className="mt-3 flex items-center gap-2 text-xs">
-                      <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full font-semibold">
-                        {category.labelsCount} labels
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="col-span-8 bg-white rounded-xl shadow-sm overflow-hidden">
-          {!selectedCategory ? (
-            <div className="h-full min-h-[540px] flex flex-col items-center justify-center text-gray-500 p-12">
-              <Layers3 className="w-14 h-14 text-gray-300 mb-3" />
-              <p className="font-medium">Chọn category để quản lý nhãn</p>
-            </div>
-          ) : (
-            <div className="p-6 space-y-6">
-              <div className="flex justify-between items-start gap-4">
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-900">{selectedCategory.name}</h2>
-                  <p className="text-sm text-gray-500 mt-1">
-                    {selectedCategory.description || "Chưa có mô tả"}
-                  </p>
+      <div className="grid grid-cols-12 gap-10">
+        {/* Left Side: Category List with glassmorphism approach */}
+        <div className="col-span-4 space-y-6">
+          <div className="bg-white rounded-[40px] p-8 shadow-premium border border-slate-50 overflow-hidden relative">
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center">
+                  <Folder className="w-6 h-6 text-indigo-600" />
                 </div>
-
-                <div className="flex items-center gap-2">
-                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">
-                    {selectedCategory.labels.length} labels
-                  </span>
-                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">
-                    {filteredProjects.length} projects
-                  </span>
-                </div>
+                <h2 className="font-display font-black text-xl text-slate-900">Danh Mục</h2>
               </div>
+            </div>
 
-              <div className="border rounded-xl p-4 bg-gray-50/60 space-y-4">
-                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                  <Tag className="w-4 h-4" />
-                  Quản lý labels trong category
-                </h3>
+            <div className="relative mb-6">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+              <input
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                placeholder="Tìm kiếm danh mục hoặc nhãn..."
+                className="w-full pl-12 pr-4 py-4 bg-slate-50/50 border border-slate-100 rounded-[20px] focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium text-sm"
+              />
+            </div>
 
-                <div className="flex gap-3">
-                  <input
-                    value={labelName}
-                    onChange={(event) => setLabelName(event.target.value)}
-                    placeholder="Nhập tên nhãn mới..."
-                    className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                  />
-                  <button
-                    onClick={handleAddLabel}
-                    disabled={addingLabel}
-                    className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {addingLabel ? "Đang thêm..." : "Thêm nhãn"}
-                  </button>
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+              {loading ? (
+                <div className="py-20 flex flex-col items-center gap-4">
+                  <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                  <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Đang tải dữ liệu...</p>
                 </div>
-
-                {selectedCategory.labels.length === 0 ? (
-                  <div className="border border-dashed rounded-lg px-4 py-4 text-sm text-gray-500">
-                    Category này chưa có label. Hãy thêm nhãn để phân loại dữ liệu.
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
+              ) : filteredCategories.length === 0 ? (
+                <div className="text-center py-20 bg-slate-50/50 rounded-[32px] border border-dashed border-slate-200">
+                  <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Không tìm thấy kết quả</p>
+                </div>
+              ) : (
+                filteredCategories.map((c, idx) => {
+                  const theme = themes[idx % themes.length];
+                  const isActive = String(selectedCategoryId) === String(c.id);
+                  return (
                     <button
-                      onClick={() => setActiveLabelFilter("")}
-                      className={`px-3 py-1 rounded-full text-xs font-semibold border ${activeLabelFilter === ""
-                          ? "bg-slate-900 text-white border-slate-900"
-                          : "bg-white text-slate-700 border-slate-200"
+                      key={c.id}
+                      onClick={() => { setSelectedCategoryId(String(c.id)); setActiveLabelFilter(""); }}
+                      className={`w-full text-left p-6 rounded-[32px] transition-all duration-300 border-2 flex items-center justify-between group ${isActive ? `${theme.bg} ${theme.border} scale-[1.02] shadow-lg` : "border-transparent bg-white hover:bg-slate-50"
                         }`}
                     >
-                      Tất cả
+                      <div className="space-y-1.5 flex-1 pr-4">
+                        <p className={`font-black text-lg ${isActive ? theme.text : "text-slate-900"}`}>{c.name}</p>
+                        <p className="text-xs text-slate-400 font-medium line-clamp-1">{c.description || "Danh mục tài nguyên hệ thống"}</p>
+                        <div className={`w-8 h-1 rounded-full mt-3 ${isActive ? `bg-gradient-to-r ${theme.grad}` : "bg-slate-100"}`} />
+                      </div>
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${isActive ? `bg-gradient-to-br ${theme.grad} text-white shadow-md` : "bg-slate-50 text-slate-300 group-hover:bg-white"}`}>
+                        <h4 className="font-black text-sm">{c.labelsCount}</h4>
+                      </div>
                     </button>
-                    {selectedCategory.labels.map((label) => {
-                      const isEditing = String(editingLabelId) === String(label.id);
-                      const isProcessing = String(processingLabelId) === String(label.id);
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
 
-                      return (
-                        <div
-                          key={label.id}
-                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 ${activeLabelFilter === label.name
-                              ? "bg-indigo-600 text-white border-indigo-600"
-                              : "bg-white text-indigo-700 border-indigo-200"
-                            }`}
-                        >
-                          {isEditing ? (
-                            <>
-                              <input
-                                value={editingLabelName}
-                                onChange={(event) => setEditingLabelName(event.target.value)}
-                                className="w-28 border border-indigo-200 rounded px-2 py-0.5 text-xs text-slate-700"
-                                placeholder="Tên nhãn"
-                                disabled={isProcessing}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => handleSaveLabel(label)}
-                                disabled={isProcessing || !editingLabelName.trim()}
-                                className="p-1 rounded hover:bg-white/20 disabled:opacity-50"
-                                title="Luu"
-                              >
-                                <Check className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={handleCancelEditLabel}
-                                disabled={isProcessing}
-                                className="p-1 rounded hover:bg-white/20 disabled:opacity-50"
-                                title="Hủy"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => setActiveLabelFilter(label.name)}
-                                className="px-1 text-xs font-semibold"
-                                title="Lọc theo nhãn"
-                              >
-                                #{label.name}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleStartEditLabel(label)}
-                                disabled={isProcessing}
-                                className="p-1 rounded hover:bg-white/20 disabled:opacity-50"
-                                title="Sửa nhãn"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteLabel(label)}
-                                disabled={isProcessing}
-                                className="p-1 rounded hover:bg-white/20 disabled:opacity-50"
-                                title="Xóa nhãn"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      );
-                    })}
+        {/* Right Side: Category Detail Workspace */}
+        <div className="col-span-8 bg-white rounded-[48px] shadow-premium border border-slate-50 min-h-[700px] flex flex-col overflow-hidden relative">
+          {!selectedCategory ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-300 space-y-6">
+              <div className="w-32 h-32 rounded-[48px] bg-slate-50 flex items-center justify-center text-slate-100">
+                <Layers3 className="w-20 h-20" />
+              </div>
+              <p className="font-black uppercase tracking-[0.2em] text-sm">Chọn mục để quản lý nhãn và dự án</p>
+            </div>
+          ) : (
+            <div className="p-12 space-y-12 flex-1 animate-in fade-in slide-in-from-right-4 duration-500">
+              {/* Detail Header */}
+              <div className="flex justify-between items-start gap-10 border-b border-slate-50 pb-12">
+                <div className="space-y-3">
+                  <h2 className="text-4xl font-display font-black text-slate-900 tracking-tight">{selectedCategory.name}</h2>
+
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="bg-indigo-50 px-6 py-4 rounded-3xl border border-indigo-100/50">
+                    <span className="block text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Total Labels</span>
+                    <span className="text-3xl font-black text-indigo-600 leading-none">{selectedCategory.labels.length}</span>
                   </div>
-                )}
+                  <div className="bg-emerald-50 px-6 py-4 rounded-3xl text-right border border-emerald-100/50">
+                    <span className="block text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Active Projects</span>
+                    <span className="text-3xl font-black text-emerald-600 leading-none">{categoryProjects.length}</span>
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-3">
-                <h3 className="font-semibold text-gray-900">Dự án trong category</h3>
+              {/* Labels Management Area */}
+              <div className="space-y-8 bg-slate-50/50 p-10 rounded-[40px] border border-slate-100">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-black text-slate-900 flex items-center gap-3 uppercase tracking-widest text-[11px] text-indigo-600/70">
+                    <Tag className="w-5 h-5" />
+                    Label Management Console
+                  </h3>
+                </div>
+
+                <div className="flex gap-4">
+                  <div className="relative flex-1">
+                    <Tag className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+                    <input
+                      value={labelName}
+                      onChange={(e) => setLabelName(e.target.value)}
+                      placeholder="Nhập tên nhãn mới muốn thêm..."
+                      className="w-full bg-white border border-slate-200 rounded-[24px] pl-14 pr-6 py-5 focus:outline-none focus:ring-4 focus:ring-indigo-100 transition-all font-bold text-slate-700 shadow-sm"
+                    />
+                  </div>
+                  <button
+                    onClick={handleAddLabel}
+                    disabled={addingLabel || !labelName.trim()}
+                    className="px-10 bg-indigo-600 text-white rounded-[24px] font-black uppercase tracking-widest text-xs hover:bg-indigo-700 hover:shadow-xl hover:shadow-indigo-100 disabled:opacity-30 transition-all flex items-center gap-3"
+                  >
+                    <Plus className="w-4 h-4" />
+                    {addingLabel ? "Adding..." : "Add Label"}
+                  </button>
+                </div>
+
+                {/* Dynamic Label Tags with Theme context */}
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={() => setActiveLabelFilter("")}
+                    className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] border-2 transition-all ${activeLabelFilter === "" ? "bg-slate-900 border-slate-900 text-white shadow-xl" : "bg-white border-slate-100 text-slate-400 hover:border-slate-300"
+                      }`}
+                  >
+                    All Views
+                  </button>
+                  {selectedCategory.labels.map((l, lIdx) => {
+                    const isEditing = String(editingLabelId) === String(l.id);
+                    const theme = themes[lIdx % themes.length];
+                    const isProcessing = String(processingLabelId) === String(l.id);
+                    const isFiltered = activeLabelFilter === l.name;
+
+                    return (
+                      <div
+                        key={l.id}
+                        className={`group inline-flex items-center gap-3 rounded-2xl border-2 px-5 py-2.5 transition-all duration-300 ${isFiltered ? `bg-gradient-to-r ${theme.grad} text-white shadow-xl ${theme.border}` : `bg-white border-slate-50 ${theme.text} hover:scale-105 hover:border-slate-200`
+                          }`}
+                      >
+                        {isEditing ? (
+                          <div className="flex items-center gap-3">
+                            <input
+                              value={editingLabelName}
+                              onChange={(e) => setEditingLabelName(e.target.value)}
+                              className="w-32 bg-transparent focus:outline-none text-xs font-black border-b-2 border-current px-1"
+                              autoFocus
+                              disabled={isProcessing}
+                              onKeyDown={(e) => e.key === 'Enter' && handleSaveLabel(l)}
+                            />
+                            {isProcessing ? (
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <button onClick={() => handleSaveLabel(l)} disabled={!editingLabelName.trim()} className="hover:scale-125 transition-transform"><Check className="w-4 h-4" /></button>
+                                <button onClick={handleCancelEditLabel} className="hover:scale-125 transition-transform"><X className="w-4 h-4" /></button>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <button onClick={() => setActiveLabelFilter(isFiltered ? "" : l.name)} className="text-[10px] font-black uppercase tracking-wider">
+                              #{l.name}
+                            </button>
+                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all pl-1 border-l border-current/20">
+                              <Pencil onClick={() => handleStartEditLabel(l)} className="w-3.5 h-3.5 cursor-pointer hover:rotate-12 transition-transform" />
+
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Associated Projects View */}
+              <div className="space-y-8 flex-1 flex flex-col">
+                <h3 className="font-black text-slate-900 uppercase tracking-widest text-[11px] px-2 flex items-center gap-3 text-emerald-600/70">
+                  <Database className="w-5 h-5" />
+                  Projects Distribution
+                </h3>
 
                 {fetchingProjects ? (
-                  <div className="flex justify-center p-10">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+                  <div className="flex-1 flex flex-col items-center justify-center py-20 bg-slate-50/20 rounded-[40px] border-2 border-dashed border-slate-100">
+                    <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4" />
+                    <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Searching database...</p>
                   </div>
                 ) : filteredProjects.length === 0 ? (
-                  <div className="h-36 border-2 border-dashed rounded-xl flex items-center justify-center text-sm text-gray-400">
-                    Không có dự án nào phù hợp với label đang chọn
+                  <div className="flex-1 flex flex-col items-center justify-center py-24 bg-slate-50/20 rounded-[40px] border-2 border-dashed border-slate-100 group">
+                    <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                      <Database className="w-8 h-8 text-slate-200" />
+                    </div>
+                    <p className="text-slate-300 font-black uppercase tracking-widest text-[10px]">No projects linked yet</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-4">
-                    {filteredProjects.map((project) => (
+                  <div className="grid grid-cols-2 gap-8 pb-10">
+                    {filteredProjects.map((p) => (
                       <button
-                        key={project.id || project.projectId}
-                        type="button"
+                        key={p.id || p.projectId}
                         onClick={() => {
-                          const projectId = project?.id || project?.projectId;
-                          if (!projectId) return;
-                          navigate(`/manager/projects/${projectId}`);
+                          const pid = p.id || p.projectId;
+                          if (pid) navigate(`/manager/projects/${pid}`);
                         }}
-                        className="p-4 border border-gray-100 rounded-xl bg-gray-50/30 text-left hover:border-blue-200 hover:bg-blue-50/40 transition-colors"
+                        className="group p-8 border border-slate-100 rounded-[40px] bg-white hover:shadow-2xl hover:-translate-y-2 transition-all text-left relative overflow-hidden"
                       >
-                        <h4 className="font-bold text-gray-900">{project.name}</h4>
-                        <p className="text-sm text-gray-500 line-clamp-2 mt-1">
-                          {project.description || "Chưa có mô tả"}
-                        </p>
-                        <div className="mt-3 text-xs text-gray-500">Trang thai: {project.status || "N/A"}</div>
+                        <div className="relative z-10 space-y-5">
+                          <div className="flex items-center justify-between gap-4">
+                            <h4 className="font-black text-xl text-slate-900 group-hover:text-indigo-600 transition-colors uppercase tracking-tight line-clamp-1">{p.name}</h4>
+                            <div className="w-10 h-10 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-indigo-50 group-hover:text-indigo-500 transition-all">
+                              <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-all" />
+                            </div>
+                          </div>
+                          <p className="text-sm text-slate-400 font-medium line-clamp-2 leading-relaxed h-10">
+                            {p.description || "Dự án thu thập và gán nhãn dữ liệu chất lượng cao cho học máy."}
+                          </p>
+                          <div className="flex items-center justify-between pt-5 border-t border-slate-100/50">
+                            <div className="flex items-center gap-3">
+                              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{p.status || "In Progress"}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-slate-300">
+                              <Clock className="w-4 h-4" />
+                              <span className="text-[10px] font-bold">Latest data</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-slate-50/50 rounded-full group-hover:scale-150 transition-transform duration-700 ease-out" />
                       </button>
                     ))}
                   </div>
@@ -732,54 +759,67 @@ export default function Categories() {
         </div>
       </div>
 
+      {/* Creation Modal - Redesigned for Premium Look */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl p-8 w-[460px] shadow-2xl">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-gray-900">Thêm Category moi</h2>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xl flex items-center justify-center z-50 animate-in fade-in duration-300 p-6">
+          <div className="bg-white rounded-[48px] p-12 w-full max-w-[600px] shadow-2xl relative overflow-hidden scale-in-center border border-white/20">
+            <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-600" />
+
+            <div className="flex justify-between items-center mb-12">
+              <div className="space-y-1">
+                <h2 className="text-3xl font-display font-black text-slate-900 tracking-tight">Create New Category</h2>
+                <p className="text-slate-400 font-medium">Khởi tạo một không gian quản lý tài nguyên mới.</p>
+              </div>
               <button
                 onClick={() => setShowModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                className="w-12 h-12 flex items-center justify-center hover:bg-slate-50 rounded-2xl transition-all hover:rotate-90 text-slate-400 hover:text-slate-900"
               >
-                <X className="w-6 h-6 text-gray-400" />
+                <X className="w-7 h-7" />
               </button>
             </div>
 
-            <div className="space-y-5">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Tên category *</label>
+            <div className="space-y-8">
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-3 flex items-center gap-2">
+                  <LayoutGrid className="w-4 h-4" />
+                  Category Name *
+                </label>
                 <input
                   value={newName}
-                  onChange={(event) => setNewName(event.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3"
-                  placeholder="Ví dụ: Giao thông, Động vật..."
+                  onChange={(e) => setNewName(e.target.value)}
+                  className="w-full bg-slate-50/50 border border-slate-100 rounded-[28px] px-8 py-5 focus:outline-none focus:ring-4 focus:ring-indigo-100 font-bold text-lg transition-all"
+                  placeholder="Ví dụ: Giao thông đường bộ, Y khoa..."
+                  autoFocus
                 />
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Mo ta</label>
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-3 flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  Description
+                </label>
                 <textarea
                   value={newDesc}
-                  onChange={(event) => setNewDesc(event.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 min-h-[100px]"
-                  placeholder="Mô tả ngắn gọn về category này..."
+                  onChange={(e) => setNewDesc(e.target.value)}
+                  className="w-full bg-slate-50/50 border border-slate-100 rounded-[28px] px-8 py-5 min-h-[140px] focus:outline-none focus:ring-4 focus:ring-indigo-100 font-bold transition-all resize-none"
+                  placeholder="Mô tả mục đích sử dụng của danh mục này..."
                 />
               </div>
-            </div>
 
-            <div className="flex justify-end gap-3 mt-8">
-              <button
-                onClick={() => setShowModal(false)}
-                className="px-6 py-2.5 font-medium border border-gray-200 text-gray-600 rounded-xl hover:bg-gray-50"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={handleCreateCategory}
-                className="px-6 py-2.5 font-medium bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50"
-                disabled={!newName.trim()}
-              >
-                Tạo Category
-              </button>
+              <div className="flex gap-5 mt-12">
+                <button
+                  onClick={() => setShowModal(false)}
+                  className="flex-1 py-5 font-black text-[11px] uppercase tracking-widest border-2 border-slate-100 text-slate-400 rounded-[28px] hover:bg-slate-50 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateCategory}
+                  disabled={!newName.trim()}
+                  className="flex-[2] py-5 bg-indigo-600 text-white rounded-[28px] font-black text-[11px] uppercase tracking-widest hover:bg-indigo-700 hover:shadow-2xl hover:-translate-y-1 disabled:opacity-50 transition-all shadow-xl shadow-indigo-100"
+                >
+                  Launch Category
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -787,7 +827,3 @@ export default function Categories() {
     </div>
   );
 }
-
-
-
-

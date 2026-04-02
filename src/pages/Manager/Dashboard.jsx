@@ -7,6 +7,8 @@ import {
     Clock,
     CheckCircle2,
     Users,
+    Database,
+    ShieldCheck,
     BarChart3,
     ArrowRight,
     MoreVertical,
@@ -36,11 +38,11 @@ export default function ManagerDashboard() {
     const [recentActivity, setRecentActivity] = useState([]);
     const [statsData, setStatsData] = useState({
         totalProjects: 0,
-        activeProjects: 0,
-        completedProjects: 0,
+        totalDatasets: 0,
+        reviewers: 0,
         annotators: 0,
-        todayLabels: 0,
-        efficiency: "0%"
+        completedProjects: 0,
+        activeProjects: 0
     });
 
     useEffect(() => {
@@ -49,60 +51,58 @@ export default function ManagerDashboard() {
                 setLoading(true);
 
                 const results = await Promise.allSettled([
-                    statisticsAPI.getSystemOverview(),
                     api.get("/projects", { params: { PageSize: 1000, pageSize: 1000 } }),
-                    statisticsAPI.getSystemActivity(),
+                    api.get("/datasets", { params: { PageSize: 1000, pageSize: 1000, page: 1 } }),
                     api.get("/users", { params: { PageSize: 1000, pageSize: 1000 } }),
-                    api.get("/roles", { params: { PageSize: 1000, pageSize: 1000 } })
+                    api.get("/roles", { params: { PageSize: 1000, pageSize: 1000 } }),
+                    api.get("/tasks", { params: { PageSize: 1000, pageSize: 1000 } }).catch(() => ({ data: [] })),
                 ]);
 
-                const sysRes = results[0];
-                const projRes = results[1];
-                const actRes = results[2];
-                const usrRes = results[3];
-                const roleRes = results[4];
+                const projRes = results[0];
+                const dataRes = results[1];
+                const usrRes = results[2];
+                const roleRes = results[3];
+                const taskRes = results[4];
 
-                const sysOverview = sysRes.status === "fulfilled" ? resolveHelperData(sysRes.value) : null;
                 const apiProjects = projRes.status === "fulfilled" ? toArrayData(projRes.value?.data) : [];
-                const activity = actRes.status === "fulfilled" ? resolveHelperData(actRes.value) : [];
+                const apiDatasets = dataRes.status === "fulfilled" ? toArrayData(dataRes.value?.data) : [];
                 const users = usrRes.status === "fulfilled" ? toArrayData(usrRes.value?.data) : [];
                 const roles = roleRes.status === "fulfilled" ? toArrayData(roleRes.value?.data) : [];
+                const apiTasks = taskRes.status === "fulfilled" ? toArrayData(taskRes.value?.data) : [];
+
+                const projectsMeta = [...apiProjects];
+                const seenPids = new Set(apiProjects.map(p => String(p.id || p.projectId)));
 
                 const localTasksMap = getAssignedTasksByUserMap();
                 const allLocalTasks = Object.values(localTasksMap).flat();
-                const localProjects = [];
-                const seenPids = new Set(apiProjects.map(p => String(p.id || p.projectId)));
 
                 allLocalTasks.forEach(t => {
                     const pid = String(t.projectId || t.project?.id || "");
                     if (pid && !seenPids.has(pid)) {
-                        localProjects.push({
+                        projectsMeta.push({
                             id: pid,
-                            name: t.project?.name || `Project ${pid}`,
+                            name: t.projectName || t.project?.name || `Dự án #${pid.slice(0, 5)}`,
                             status: t.project?.status || 'Active',
                             type: t.project?.type || 'Image',
-                            itemCount: t.items?.length || 0,
-                            updatedAt: t.updatedAt
                         });
                         seenPids.add(pid);
                     }
                 });
 
-                const projects = [...apiProjects, ...localProjects];
-                setProjectList(projects);
-                setRecentActivity(Array.isArray(activity) ? activity.slice(0, 5) : []);
-                const getVal = (obj, keys, fallback = 0) => {
-                    if (!obj) return fallback;
-                    for (const k of keys) {
-                        const val = obj[k];
-                        if (val !== undefined && val !== null && val !== 0) return val;
-
-                        const lowerK = k.toLowerCase();
-                        const match = Object.keys(obj).find(ok => ok.toLowerCase() === lowerK);
-                        if (match !== undefined && obj[match] !== 0) return obj[match];
+                const datasetsMeta = [...apiDatasets];
+                const seenDids = new Set(apiDatasets.map(d => String(d.id || d.datasetId)));
+                allLocalTasks.forEach(t => {
+                    const did = String(t.datasetId || t.dataset?.id || "");
+                    if (did && !seenDids.has(did)) {
+                        datasetsMeta.push({
+                            id: did,
+                            name: t.datasetName || t.dataset?.name || `Dataset #${did.slice(0, 5)}`,
+                        });
+                        seenDids.add(did);
                     }
-                    return fallback;
-                };
+                });
+
+                setProjectList(projectsMeta);
 
                 const roleMap = {};
                 roles.forEach(r => {
@@ -111,73 +111,34 @@ export default function ManagerDashboard() {
                     if (id && name) roleMap[id] = name;
                 });
 
-                const annotatorsList = users.filter(u => {
+                const reviewersCount = users.filter(u => {
                     const rName = String(u.roleName || u.role?.name || "").toLowerCase();
                     const rId = String(u.roleId || u.role?.id || "");
-                    return rName === "annotator" || rName === "người gán nhãn" || roleMap[rId] === "annotator" || roleMap[rId] === "người gán nhãn";
-                });
-
-                const calcCompleted = projects.filter(p => {
-                    const pid = String(p.id || p.projectId || '');
-                    const projectTasks = allLocalTasks.filter(t => String(t.projectId || t.project?.id || '') === pid);
-                    const approvedTasksCount = projectTasks.filter(t =>
-                        ['approved', 'completed', 'done'].includes(String(t.status || "").toLowerCase())
-                    ).length;
-
-                    const statusVal = normalizeProjectStatus(p.status);
-                    const isStatusDone = statusVal === "completed" || statusVal === "done" || statusVal === "approved" || statusVal === "hoàn thành";
-
-                    return approvedTasksCount > 0 || isStatusDone;
+                    return rName === "reviewer" || roleMap[rId] === "reviewer" || rName === "người kiểm duyệt";
                 }).length;
 
-                const calcActive = projects.filter(p => {
-                    const statusVal = normalizeProjectStatus(p.status);
-                    const isDone = calcCompleted > 0 && (allLocalTasks.some(t => String(t.projectId || t.project?.id || "") === String(p.id || p.projectId) && ['approved', 'completed', 'done'].includes(String(t.status || "").toLowerCase())) || ["completed", "done", "approved", "hoàn thành"].includes(statusVal));
-
-                    if (isDone) return false;
-
-                    return statusVal !== "deleted" && statusVal !== "archived" && statusVal !== "cancelled";
+                const annotatorsCount = users.filter(u => {
+                    const rName = String(u.roleName || u.role?.name || "").toLowerCase();
+                    const rId = String(u.roleId || u.role?.id || "");
+                    return rName === "annotator" || roleMap[rId] === "annotator" || rName === "người gán nhãn";
                 }).length;
+
                 setStatsData({
-                    totalProjects: projects.length,
-                    activeProjects: calcActive,
-                    completedProjects: calcCompleted,
-                    annotators: annotatorsList.length,
-                    todayLabels: getVal(sysOverview, ['todayLabels', 'labelsToday', 'newLabelsTotal'], 0),
-                    efficiency: getVal(sysOverview, ['efficiency', 'performance', 'systemEfficiency'], "0%")
+                    totalProjects: projectsMeta.length,
+                    totalDatasets: datasetsMeta.length,
+                    reviewers: reviewersCount,
+                    annotators: annotatorsCount,
                 });
 
                 const topProjects = sortProjectsByNewest(projects).slice(0, 3);
-                if (topProjects.length > 0) {
-                    const progressData = await Promise.all(topProjects.map(async (proj) => {
-                        try {
-                            const pid = String(proj.id || proj.projectId);
-                            const statsRes = await statisticsAPI.getProjectOverview(pid);
-                            const stats = resolveHelperData(statsRes);
-
-                            if (stats) {
-                                const percent = stats.completionRate || 0;
-                                return {
-                                    name: proj.name || "Dự án không tên",
-                                    done: stats.completedTasks || stats.approvedTasks || 0,
-                                    total: stats.totalTasks || 1,
-                                    percent: Math.round(percent),
-                                    status: percent === 100 ? "Đã xong" : percent > 0 ? "Đang thực hiện" : "Chờ xử lý",
-                                    color: percent === 100 ? "bg-emerald-500" : percent > 0 ? "bg-blue-500" : "bg-slate-300"
-                                };
-                            }
-                        } catch (e) { }
-                        return null;
-                    }));
-
-                    const validProgress = progressData.filter(Boolean);
-                    if (validProgress.length > 0) {
-                        setTaskStats(validProgress);
-                    }
-                }
+                setTaskStats(topProjects.map(proj => ({
+                    name: proj.name || "Dự án không tên",
+                    percent: 0, // Placeholder as system overview is complex
+                    status: "Đang hoạt động"
+                })));
 
             } catch (err) {
-                console.error("Manager Dashboard critical load error:", err);
+                console.error("Manager Dashboard dynamic load error:", err);
             } finally {
                 setLoading(false);
             }
@@ -189,28 +150,32 @@ export default function ManagerDashboard() {
 
     const statsUI = [
         {
-            label: "Tổng dự án",
+            label: "Dự án",
             value: statsData.totalProjects,
             icon: FolderOpen,
             color: "text-blue-600",
             bgColor: "bg-blue-50",
-
         },
         {
-            label: "Chưa hoàn thành",
-            value: statsData.activeProjects,
-            icon: Clock,
+            label: "Datasets",
+            value: statsData.totalDatasets,
+            icon: Database,
             color: "text-amber-600",
             bgColor: "bg-amber-50",
-
         },
         {
-            label: "Hoàn thành",
-            value: statsData.completedProjects,
-            icon: CheckCircle2,
+            label: "Reviewers",
+            value: statsData.reviewers,
+            icon: ShieldCheck,
+            color: "text-purple-600",
+            bgColor: "bg-purple-50",
+        },
+        {
+            label: "Annotators",
+            value: statsData.annotators,
+            icon: Users,
             color: "text-emerald-600",
             bgColor: "bg-emerald-50",
-
         },
     ];
 
@@ -245,6 +210,7 @@ export default function ManagerDashboard() {
         ? sortProjectsByNewest(projectList).slice(0, 3).map((project) => {
             const statusMeta = getProjectStatusMeta(project);
             return {
+                id: project?.id || project?.projectId,
                 name: project?.name || project?.projectName || `Dự án #${String(project?.id || project?.projectId).slice(0, 5)}`,
                 type: getProjectTypeLabel(project),
                 images: getProjectItemCount(project),
@@ -290,7 +256,7 @@ export default function ManagerDashboard() {
                     </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
                     {statsUI.map((s, i) => (
                         <div key={i} className="bg-white p-8 rounded-[28px] border border-slate-100 shadow-premium hover:shadow-premium-hover transition-all duration-300 group">
                             <div className="flex justify-between items-start mb-5">
@@ -311,7 +277,7 @@ export default function ManagerDashboard() {
                         <div className="flex items-center justify-between mb-10">
                             <div>
                                 <h2 className="text-2xl font-display font-extrabold">Dự án gần đây</h2>
-                                <p className="text-base text-slate-500 font-medium mt-1">Danh sách các dự án đang quản lý</p>
+                                <p className="text-base text-slate-500 font-medium mt-1">Danh sách các dự án</p>
                             </div>
                             <button className="p-3 text-slate-400 hover:text-slate-900 transition-colors">
                                 <MoreVertical className="w-6 h-6" />
@@ -325,32 +291,23 @@ export default function ManagerDashboard() {
                                     <p className="text-slate-400 font-bold">Chưa có dự án nào</p>
                                 </div>
                             ) : projects.map((p, i) => (
-                                <div key={i} className="group flex items-center justify-between p-6 border border-slate-50 rounded-[24px] hover:border-blue-100 hover:bg-blue-50/10 transition-all duration-300 cursor-pointer">
+                                <div
+                                    key={i}
+                                    onClick={() => navigate(`/manager/projects/${p.id}`)}
+                                    className="group flex items-center justify-between p-6 border border-slate-50 rounded-[24px] hover:border-blue-100 hover:bg-blue-50/10 transition-all duration-300 cursor-pointer"
+                                >
                                     <div className="flex items-center gap-6">
                                         <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center group-hover:bg-blue-100 transition-colors">
                                             <ImageIcon className="w-7 h-7 text-slate-400 group-hover:text-blue-600" />
                                         </div>
                                         <div>
                                             <h4 className="text-xl font-bold group-hover:text-blue-700 transition-colors">{p.name}</h4>
-                                            <div className="flex items-center gap-4 text-sm text-slate-500 font-medium mt-1.5">
-                                                <span className="flex items-center gap-1.5"><BarChart3 className="w-4 h-4" />{p.type}</span>
-                                                <span>•</span>
-                                                <span>{p.images} ảnh</span>
-                                            </div>
+
                                         </div>
                                     </div>
 
                                     <div className="flex items-center gap-8">
-                                        <div className="hidden md:block text-right">
-                                            <span className={`text-xs font-extrabold px-4 py-1.5 rounded-full uppercase tracking-wider ${p.statusType === 'active' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
-                                                }`}>
-                                                {p.status}
-                                            </span>
-                                            <p className="text-xs text-slate-400 font-bold mt-2 uppercase flex items-center justify-end gap-1.5">
-                                                <Clock className="w-4 h-4" />
-                                                {p.updated}
-                                            </p>
-                                        </div>
+
                                         <div className="p-3 rounded-2xl bg-slate-50 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-sm">
                                             <ArrowRight className="w-6 h-6" />
                                         </div>

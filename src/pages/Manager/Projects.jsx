@@ -6,15 +6,19 @@ import {
   MoreHorizontal,
   Tag,
   Image,
+  Database,
   Users,
   Eye,
   Trash2,
   X,
+  Calendar,
+  FolderOpen,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api, { labelAPI } from "../../config/api";
 import { useAuth } from "../../context/AuthContext";
 import Pagination from "../../components/common/Pagination";
+import { getProjectItemCount, getProjectTypeLabel } from "../../utils/projectDashboardHelpers";
 
 const toArray = (value) => {
   if (Array.isArray(value)) return value;
@@ -58,6 +62,54 @@ export default function ManagerProjects() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
+  const [projectMetaMap, setProjectMetaMap] = useState({});
+
+  const navigate = useNavigate();
+  const { logout } = useAuth();
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(6);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  useEffect(() => {
+    const enrichProjectData = async () => {
+      const visibleProjects = projects
+        .filter((p) => p.name?.toLowerCase().includes(searchTerm.toLowerCase()))
+        .slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+      if (visibleProjects.length === 0) return;
+
+      const newMeta = { ...projectMetaMap };
+      let changed = false;
+
+      await Promise.allSettled(visibleProjects.map(async (p) => {
+        const pid = getProjectId(p);
+        if (!pid || (newMeta[pid]?.enriched)) return;
+
+        try {
+          const [labelsRes, datasetsRes] = await Promise.all([
+            api.get(`/projects/${pid}/labels`),
+            api.get(`/projects/${pid}/datasets`)
+          ]);
+
+          const labels = toArray(labelsRes.data);
+          const datasets = toArray(datasetsRes.data);
+
+          newMeta[pid] = {
+            labelsCount: labels.length,
+            datasetsCount: datasets.length,
+            enriched: true
+          };
+          changed = true;
+        } catch (e) { }
+      }));
+
+      if (changed) setProjectMetaMap(newMeta);
+    };
+
+    enrichProjectData();
+  }, [projects, currentPage, pageSize, searchTerm]);
 
   // Modal Thêm nhãn state
   const [showLabelModal, setShowLabelModal] = useState(false);
@@ -70,14 +122,6 @@ export default function ManagerProjects() {
   const [selectedProject, _setSelectedProject] = useState(null);
   const [datasets, setDatasets] = useState([]);
   const [loadingDatasets, setLoadingDatasets] = useState(false);
-
-  const navigate = useNavigate();
-  const { logout } = useAuth();
-
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(6);
-  const [searchTerm, setSearchTerm] = useState("");
 
   const handleAssignDataset = async (datasetId) => {
     if (!selectedProject || !datasetId) return;
@@ -471,89 +515,131 @@ export default function ManagerProjects() {
         {projects
           .filter((p) => p.name?.toLowerCase().includes(searchTerm.toLowerCase()))
           .slice((currentPage - 1) * pageSize, currentPage * pageSize)
-          .map((p) => {
+          .map((p, i) => {
             const id = getProjectId(p);
             const displayStatus = normalizeVietnameseProjectText(p.status, "Đang hoạt động");
-            const displayType = normalizeVietnameseProjectText(p.type, "Chưa xác định");
+            const type = getProjectTypeLabel(p);
+            const stats = projectMetaMap[id] || {};
+
+            // Ultra-vibrant premium themes
+            const themes = [
+              { base: 'blue', grad: 'from-blue-600 to-indigo-700', text: 'text-blue-600', shadow: 'shadow-blue-200', glow: 'group-hover:shadow-blue-500/30', light: 'bg-blue-50/50' },
+              { base: 'emerald', grad: 'from-emerald-500 to-teal-700', text: 'text-emerald-600', shadow: 'shadow-emerald-200', glow: 'group-hover:shadow-emerald-500/30', light: 'bg-emerald-50/50' },
+              { base: 'amber', grad: 'from-amber-400 to-orange-600', text: 'text-amber-600', shadow: 'shadow-amber-200', glow: 'group-hover:shadow-amber-500/30', light: 'bg-amber-50/50' },
+              { base: 'rose', grad: 'from-rose-500 to-pink-700', text: 'text-rose-600', shadow: 'shadow-rose-200', glow: 'group-hover:shadow-rose-500/30', light: 'bg-rose-50/50' },
+              { base: 'purple', grad: 'from-purple-500 to-violet-700', text: 'text-purple-600', shadow: 'shadow-purple-200', glow: 'group-hover:shadow-purple-500/30', light: 'bg-purple-50/50' }
+            ];
+            const theme = themes[i % themes.length];
+
             return (
-              <div key={id} className="bg-white border rounded-xl shadow-sm p-5 space-y-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-gray-900 line-clamp-1">
-                      {p.name || "Chưa có tên"}
-                    </h3>
-                    <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
-                      {displayStatus}
-                    </span>
+              <div
+                key={id}
+                onClick={() => navigate(`/manager/projects/${id}`)}
+                className={`group bg-white border border-slate-100 rounded-[48px] shadow-sm hover:shadow-2xl ${theme.glow} hover:-translate-y-2 transition-all duration-500 p-9 cursor-pointer flex flex-col h-full relative overflow-hidden`}
+              >
+                {/* Gradient Top Accent */}
+                <div className={`absolute top-0 left-0 right-0 h-2.5 bg-gradient-to-r ${theme.grad} opacity-90`} />
+
+                <div className="flex justify-between items-start mb-8 pt-4">
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${theme.grad} flex items-center justify-center text-white shadow-lg ${theme.shadow} group-hover:scale-110 transition-transform duration-500`}>
+                        <FolderOpen className="w-7 h-7" />
+                      </div>
+                      <h3 className="text-2xl font-display font-black text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-1 tracking-tight">
+                        {p.name || "Dự án không tên"}
+                      </h3>
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <span className={`px-5 py-2 bg-gradient-to-r ${theme.grad} text-white rounded-full text-[10px] font-black uppercase tracking-widest shadow-md ${theme.shadow}`}>
+                        {displayStatus}
+                      </span>
+                      {type !== "N/A" && type !== "Chưa xác định" && (
+                        <span className="px-5 py-2 bg-slate-50 text-slate-400 border border-slate-100 rounded-full text-[10px] font-black uppercase tracking-widest">
+                          {type}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="relative">
+                  <div className="relative" onClick={e => e.stopPropagation()}>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setOpenMenuId(openMenuId === id ? null : id);
                       }}
-                      className="p-1 hover:bg-gray-100 rounded"
+                      className="p-3.5 hover:bg-slate-50 rounded-2xl transition-all"
                     >
-                      <MoreHorizontal className="w-5 h-5 text-gray-500" />
+                      <MoreHorizontal className="w-6 h-6 text-slate-300 group-hover:text-slate-500" />
                     </button>
 
                     {openMenuId === id && (
-                      <div className="absolute right-0 mt-2 w-48 bg-white border rounded-xl shadow-xl z-20 py-2">
+                      <div className="absolute right-0 mt-3 w-60 bg-white border border-slate-100 rounded-[32px] shadow-2xl z-50 py-4 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
                         <button
                           onClick={() => navigate(`/manager/projects/${id}`)}
-                          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                          className="w-full flex items-center gap-4 px-7 py-4 text-sm font-black text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-all uppercase tracking-widest"
                         >
-                          <Eye className="w-4 h-4 text-blue-500" />
-                          Xem chi tiết
+                          <Eye className="w-5 h-5 opacity-70" />
+                          Chi tiết
                         </button>
                         <button
                           onClick={() => {
-                            navigate(`/manager/projects/${id}`);
+                            setSelectedProject(p);
+                            setShowDatasetModal(true);
                           }}
-                          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-indigo-600 hover:bg-indigo-50"
+                          className="w-full flex items-center gap-4 px-7 py-4 text-sm font-black text-indigo-600 hover:bg-indigo-50 transition-all uppercase tracking-widest"
                         >
-                          <Image className="w-4 h-4" />
-                          Quản lý trong chi tiết
+                          <Plus className="w-5 h-5 opacity-70" />
+                          Datasets
                         </button>
+                        <div className="mx-7 border-t border-slate-50 my-2" />
                         <button
                           onClick={() => handleDelete(id)}
-                          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                          className="w-full flex items-center gap-4 px-7 py-4 text-sm font-black text-rose-500 hover:bg-rose-50 transition-all uppercase tracking-widest"
                         >
-                          <Trash2 className="w-4 h-4" />
-                          Xóa dự án
+                          <Trash2 className="w-5 h-5 opacity-70" />
+                          Xóa
                         </button>
                       </div>
                     )}
                   </div>
                 </div>
 
-                <p className="text-sm text-gray-500">{p.description || "Chưa có mô tả"}</p>
+                <p className="text-slate-400 text-base font-medium mb-12 flex-1 line-clamp-2 leading-relaxed px-1">
+                  {p.description || "Gán nhãn chuyên nghiệp, chuẩn hóa dữ liệu tối ưu cho các thuật toán Computer Vision."}
+                </p>
 
-                <div className="flex items-center gap-2 text-sm text-indigo-600">
-                  <Tag className="w-4 h-4" />
-                  {displayType}
+                <div className="grid grid-cols-2 gap-x-10 gap-y-8 pt-10 border-t border-slate-50 relative">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2.5 text-indigo-500">
+                      <div className="p-1.5 rounded-lg bg-indigo-50">
+                        <Database className="w-4 h-4" />
+                      </div>
+                      <span className="text-[10px] uppercase font-black tracking-[0.2em] opacity-60">Datasets</span>
+                    </div>
+                    <p className="text-3xl font-black text-slate-900 leading-none tracking-tighter">{stats.datasetsCount ?? 0}</p>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2.5 text-amber-500">
+                      <div className="p-1.5 rounded-lg bg-amber-50">
+                        <Tag className="w-4 h-4" />
+                      </div>
+                      <span className="text-[10px] uppercase font-black tracking-[0.2em] opacity-60">Nhãn</span>
+                    </div>
+                    <p className="text-3xl font-black text-slate-900 leading-none tracking-tighter">{stats.labelsCount ?? (p.labelsCount || p.labelCount || 0)}</p>
+                  </div>
+
+                  <div className={`absolute inset-0 -m-6 ${theme.light} rounded-[40px] -z-10 opacity-0 group-hover:opacity-100 transition-all duration-700 blur-xl scale-95 group-hover:scale-100`} />
                 </div>
 
-                <div className="flex items-center justify-between text-sm text-gray-600 pt-2 border-t">
-                  <div className="flex items-center gap-1">
-                    <Image className="w-4 h-4" />
-                    {p.imagesCount ?? 0} ảnh
+                <div className="mt-10 flex items-center justify-between border-t border-slate-50 pt-8">
+                  <div className="flex items-center gap-3 px-4 py-2 bg-slate-50 rounded-2xl">
+                    <Calendar className="w-4 h-4 text-slate-300" />
+                    <span className="text-[14px] font-black text-slate-400 uppercase tracking-widest">
+                      {p.createdAt ? new Date(p.createdAt).toLocaleDateString('vi-VN') : 'N/A'}
+                    </span>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Tag className="w-4 h-4" />
-                    {p.labelsCount ?? 0} nhãn
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t">
-                  <span>
-                    {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : ""}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    <Users className="w-4 h-4" />
-                    {p.membersCount ?? 0} người
-                  </div>
+                  <div className={`h-1.5 w-12 bg-gradient-to-r ${theme.grad} rounded-full shadow-sm`} />
                 </div>
               </div>
             );

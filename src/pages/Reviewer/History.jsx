@@ -1,298 +1,206 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/common/Header';
 import useReviewHistory from '../../hooks/useReviewHistory';
+import { useAuth } from '../../context/AuthContext';
 import {
-  ArrowLeft,
-  CheckCircle2,
-  XCircle,
-  Calendar,
-  User,
-  FileText,
-  Image as ImageIcon,
-  Volume2,
-  Video,
-  Clock,
-  MessageSquare,
-  Filter,
-  Download,
   Search,
+  CheckCircle2,
+  Calendar,
+  Database,
   TrendingUp,
   BarChart3,
-  AlertTriangle,
-  FolderOpen,
-  History
+  Layers
 } from 'lucide-react';
+
+import { reviewAPI, projectAPI } from '../../config/api';
 
 const ReviewHistory = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { reviewHistory } = useReviewHistory();
-  const historySource = reviewHistory || [];
-
-  const [filter, setFilter] = useState('all');
+  const [projectGroups, setProjectGroups] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [dateFilter, setDateFilter] = useState('all');
 
-  const stats = {
-    total: historySource.length,
-    approved: historySource.filter(r => r.decision === 'approved').length,
-    rejected: historySource.filter(r => r.decision === 'rejected').length,
-    avgReviewTime: historySource.length > 0
-      ? (historySource.reduce((sum, r) => sum + r.reviewTime, 0) / historySource.length).toFixed(1)
-      : '0',
-    approvalRate: historySource.length > 0
-      ? ((historySource.filter(r => r.decision === 'approved').length / historySource.length) * 100).toFixed(1)
-      : '0',
-    expired: historySource.filter(r => r.taskStatus === 'expired').length,
-  };
+  useEffect(() => {
+    const fetchAndGroup = async () => {
+      try {
+        setLoading(true);
 
-  const filteredHistory = historySource.filter((review) => {
-    const matchesDecision = filter === 'all' || (filter === 'expired' ? review.taskStatus === 'expired' : review.decision === filter);
-    const matchesSearch =
-      (review.taskTitle || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (review.annotatorName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (review.taskId || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (review.projectName || '').toLowerCase().includes(searchTerm.toLowerCase());
+        let projectList = [];
+        try {
+          const pRes = await projectAPI.getAll({ PageSize: 1000 });
+          projectList = pRes.data?.data || pRes.data?.items || pRes.data || [];
+        } catch (e) { }
 
-    const reviewDate = new Date(review.reviewedAt);
-    const now = new Date();
-    let matchesDate = true;
+        let apiHistory = [];
+        try {
+          const response = await reviewAPI.getAll({ PageSize: 1000, ReviewerId: user?.id });
+          apiHistory = response?.data?.data || response?.data?.items || response?.data || [];
+        } catch (e) { }
 
-    if (dateFilter === 'today') {
-      matchesDate = reviewDate.toDateString() === now.toDateString();
-    } else if (dateFilter === 'week') {
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      matchesDate = reviewDate >= weekAgo;
-    } else if (dateFilter === 'month') {
-      const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      matchesDate = reviewDate >= monthAgo;
-    }
+        const localHistory = (reviewHistory || []).filter(r => (String(r.reviewerId) === String(user?.id) || r.reviewerName === user?.name));
 
-    return matchesDecision && matchesSearch && matchesDate;
-  });
+        const allReviews = [...localHistory];
+        apiHistory.forEach(apiItem => {
+          if (!allReviews.some(m => String(m.taskId || m.id) === String(apiItem.taskId || apiItem.id))) {
+            allReviews.push(apiItem);
+          }
+        });
 
-  const getTypeIcon = (type) => {
-    switch (type) {
-      case 'image': return <ImageIcon className="w-5 h-5" />;
-      case 'text': return <FileText className="w-5 h-5" />;
-      case 'audio': return <Volume2 className="w-5 h-5" />;
-      case 'video': return <Video className="w-5 h-5" />;
-      default: return <FileText className="w-5 h-5" />;
-    }
-  };
+        const processed = allReviews.filter(r => ['approved', 'rejected', 'completed', 'done'].includes(String(r.decision || r.status || '').toLowerCase()));
 
-  const handleExport = () => {
-    console.log('Exporting review history...');
-    alert('Chức năng xuất dữ liệu đang được phát triển');
-  };
+        const groups = {};
+        processed.forEach(review => {
+          const pid = String(review.projectId || review.ProjectId || review.project?.id || '');
+          if (!pid) return;
+
+          if (!groups[pid]) {
+            const pInfo = projectList.find(p => String(p.id) === pid) || {};
+            groups[pid] = {
+              id: pid,
+              name: review.projectName || pInfo.name || pInfo.projectName || `Dự án #${pid.slice(0, 5)}`,
+              description: pInfo.description || pInfo.description || 'Dự án đã kiểm duyệt hoàn tất.',
+              type: pInfo.type || 'IMAGE',
+              approvedCount: 0,
+              rejectedCount: 0,
+              totalLabels: 0,
+              latestDate: review.reviewedAt,
+            };
+          }
+
+          if (String(review.decision || review.status).toLowerCase().includes('approve')) groups[pid].approvedCount++;
+          else groups[pid].rejectedCount++;
+
+          groups[pid].totalLabels += (review.approvedCount || 0) + (review.rejectedCount || 0);
+          if (new Date(review.reviewedAt) > new Date(groups[pid].latestDate)) {
+            groups[pid].latestDate = review.reviewedAt;
+          }
+        });
+
+        setProjectGroups(Object.values(groups));
+      } catch (err) {
+        setProjectGroups([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAndGroup();
+  }, [reviewHistory, user]);
+
+  const filteredGroups = projectGroups.filter(g =>
+    g.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    g.id.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC]">
-      <Header
-        title="Lịch sử Review"
-        userName="Reviewer"
-        userRole="reviewer"
-      />
+    <div className="min-h-screen bg-slate-50/50 pb-20">
+      <Header title="Kết quả Kiểm duyệt" userName="Reviewer" userRole="reviewer" />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Back Button */}
-        <button
-          onClick={() => navigate('/reviewer')}
-          className="mb-8 flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors font-semibold group"
-        >
-          <div className="p-2 rounded-xl bg-white border shadow-sm group-hover:bg-slate-50 transition-colors">
-            <ArrowLeft className="w-4 h-4" />
-          </div>
-          Quay lại Dashboard
-        </button>
-
-        <div className="mb-8 relative overflow-hidden p-8 rounded-[2rem] bg-gradient-to-br from-indigo-700 via-blue-700 to-indigo-800 text-white shadow-xl shadow-indigo-200">
-          <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
-            <div>
-              <h1 className="text-3xl font-extrabold mb-2 text-white">Lịch sử đánh giá</h1>
-              <p className="text-indigo-100 max-w-md">Theo dõi chi tiết tất cả các nhiệm vụ bạn đã review và phản hồi cho annotator.</p>
+      <div className="bg-white border-b border-slate-200 px-8 py-10 shadow-sm">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-indigo-600 font-bold uppercase tracking-widest text-xs">
+                <BarChart3 className="w-4 h-4" />
+                Lịch sử hoàn thiện
+              </div>
+              <h1 className="text-4xl font-black text-slate-900 tracking-tight">Kết quả đã kiểm duyệt</h1>
+              <p className="text-slate-500 font-medium">Danh sách các dự án bạn đã hoàn thành việc phê duyệt và đánh giá</p>
             </div>
+            
             <div className="flex flex-wrap gap-4">
-              <div className="bg-white/10 backdrop-blur-md px-5 py-3 rounded-2xl border border-white/20">
-                <p className="text-white/70 text-xs font-semibold mb-1 uppercase tracking-wider">Tổng Review</p>
-                <p className="text-2xl font-black">{stats.total}</p>
-              </div>
-              <div className="bg-emerald-400/20 backdrop-blur-md px-5 py-3 rounded-2xl border border-emerald-400/30">
-                <p className="text-emerald-100 text-xs font-semibold mb-1 uppercase tracking-wider">Tỷ lệ duyệt</p>
-                <p className="text-2xl font-black text-emerald-300">{stats.approvalRate}%</p>
+              <div className="bg-emerald-50 border border-emerald-100 px-6 py-4 rounded-3xl">
+                <p className="text-emerald-600 text-[10px] font-black uppercase mb-1">Dự án hoàn tất</p>
+                <p className="text-3xl font-black text-emerald-700">{projectGroups.length}</p>
               </div>
             </div>
           </div>
-
-          <div className="absolute top-[-20%] right-[-10%] w-64 h-64 bg-white/10 rounded-full blur-3xl pointer-events-none"></div>
-          <div className="absolute bottom-[-20%] left-[-10%] w-64 h-64 bg-blue-400/20 rounded-full blur-3xl pointer-events-none"></div>
         </div>
+      </div>
 
-        {/* Filters and Search */}
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 mb-8">
-          <div className="flex flex-col lg:flex-row gap-4 mb-6">
-            {/* Search */}
-            <div className="flex-1 relative group">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
-              <input
-                type="text"
-                placeholder="Tìm kiếm theo tên task, annotator, dự án..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-600 focus:bg-white transition-all text-slate-800"
-              />
-            </div>
-
-            {/* Date Filter */}
-            <select
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-              className="px-4 py-3 bg-white border border-slate-200 rounded-2xl text-slate-600 font-medium focus:ring-2 focus:ring-blue-600 outline-none min-w-[160px]"
-            >
-              <option value="all">Tất cả thời gian</option>
-              <option value="today">Hôm nay</option>
-              <option value="week">7 ngày qua</option>
-              <option value="month">30 ngày qua</option>
-            </select>
-
-            {/* Export Button */}
-            <button
-              onClick={handleExport}
-              className="px-6 py-3 bg-slate-800 text-white rounded-2xl hover:bg-slate-900 transition-all shadow-md shadow-slate-200 flex items-center justify-center gap-2 font-bold whitespace-nowrap"
-            >
-              <Download className="w-4 h-4" />
-              Xuất dữ liệu
-            </button>
-          </div>
-
-          <div className="flex gap-2 overflow-x-auto bg-slate-50 p-1.5 rounded-2xl w-fit">
-            {[
-              { key: 'all', label: 'Tất cả', count: historySource.length },
-              { key: 'approved', label: 'Đã duyệt', count: historySource.filter(r => r.decision === 'approved').length },
-              { key: 'rejected', label: 'Đã từ chối', count: historySource.filter(r => r.decision === 'rejected').length },
-              { key: 'expired', label: 'Task quá hạn', count: historySource.filter(r => r.taskStatus === 'expired').length },
-            ].map((tab) => {
-              const isActive = filter === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  onClick={() => setFilter(tab.key)}
-                  className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-all relative ${isActive
-                    ? "bg-white text-blue-700 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
-                    }`}
-                >
-                  {tab.label}
-                  <span className={`ml-1 px-2 py-0.5 rounded-full text-[10px] ${isActive ? "bg-blue-100 text-blue-800" : "bg-slate-200 text-slate-600"
-                    }`}>
-                    {tab.count}
-                  </span>
-                </button>
-              )
-            })}
+      <div className="max-w-7xl mx-auto px-8 mt-10">
+        <div className="flex flex-col md:flex-row gap-4 mb-10">
+          <div className="flex-1 relative group">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
+            <input
+              type="text"
+              placeholder="Tìm kiếm dự án đã kiểm duyệt..."
+              className="w-full pl-12 pr-6 py-4 bg-white border border-slate-200 rounded-[1.5rem] focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all shadow-sm group-hover:shadow-md"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
         </div>
 
-        <div className="space-y-6">
-          {filteredHistory.length === 0 ? (
-            <div className="bg-white rounded-[2.5rem] p-20 text-center border-2 border-dashed border-slate-200 shadow-sm">
-              <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                <History className="w-12 h-12 text-slate-300" />
-              </div>
-              <p className="text-2xl font-bold text-slate-400">Không tìm thấy lịch sử review</p>
-              <p className="text-slate-500 mt-2">Thử thay đổi bộ lọc hoặc tìm kiếm lại nhé!</p>
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="bg-white rounded-[2rem] h-80 animate-pulse border border-slate-100 shadow-sm" />
+            ))}
+          </div>
+        ) : filteredGroups.length === 0 ? (
+          <div className="bg-white rounded-[3rem] p-24 text-center border-2 border-dashed border-slate-200 shadow-sm">
+            <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Layers className="w-12 h-12 text-slate-300" />
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
-              {filteredHistory.map((review) => (
-                <div
-                  key={review.id}
-                  className="group bg-white rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 p-6 flex flex-col h-full"
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className={`p-4 rounded-[1.25rem] ${review.type === 'image' ? 'bg-blue-50 text-blue-600' :
-                      review.type === 'text' ? 'bg-emerald-50 text-emerald-600' :
-                        review.type === 'audio' ? 'bg-purple-50 text-purple-600' : 'bg-orange-50 text-orange-600'
-                      }`}>
-                      {getTypeIcon(review.type)}
-                    </div>
-
-                    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider ${review.decision === 'approved'
-                      ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
-                      : 'bg-rose-50 text-rose-600 border border-rose-100'
-                      }`}>
-                      {review.decision === 'approved' ? (
-                        <>
-                          <CheckCircle2 className="w-3 h-3 flex-shrink-0" />
-                          Đã duyệt
-                        </>
-                      ) : (
-                        <>
-                          <XCircle className="w-3 h-3 flex-shrink-0" />
-                          Đã từ chối
-                        </>
-                      )}
-                    </span>
-                    {review.taskStatus === 'expired' && (
-                      <span className="ml-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-100">
-                        Task quá hạn
-                      </span>
-                    )}
+            <h3 className="text-2xl font-bold text-slate-900 mb-2">Chưa có kết quả nào</h3>
+            <p className="text-slate-500 max-w-sm mx-auto">Các dự án sau khi bạn hoàn tất review sẽ xuất hiện tại đây.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {filteredGroups.map((p) => (
+              <div
+                key={p.id}
+                className="group bg-white rounded-[2rem] border border-slate-200/60 shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all duration-500 flex flex-col overflow-hidden"
+              >
+                <div className="h-24 bg-gradient-to-br from-slate-900 via-indigo-950 to-indigo-900 p-6 relative flex items-center justify-between">
+                  <div className="bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/20">
+                    <p className="text-[10px] font-black text-white/80 uppercase tracking-widest">{p.type || 'IMAGE'}</p>
                   </div>
+                  <div className="bg-emerald-500 text-white p-2 rounded-full shadow-lg shadow-emerald-500/30">
+                    <CheckCircle2 className="w-4 h-4" />
+                  </div>
+                  <TrendingUp className="absolute bottom-2 right-4 w-12 h-12 text-white/5" />
+                </div>
 
-                  <div className="flex-1 mb-4">
-                    <h3 className="font-bold text-slate-900 text-xl mb-1 line-clamp-1 group-hover:text-blue-600 transition-colors">{review.taskTitle}</h3>
-                    <div className="flex items-center gap-2 mb-4">
-                      <FolderOpen className="w-4 h-4 text-slate-400" />
-                      <span className="text-sm font-semibold text-slate-500 line-clamp-1">{review.projectName}</span>
-                    </div>
-
-                    <div className="bg-slate-50 rounded-xl p-3 flex flex-wrap gap-x-4 gap-y-2 text-xs font-medium text-slate-600">
-                      <div className="flex items-center gap-1.5 w-full sm:w-auto">
-                        <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span className="truncate max-w-[120px]">Annotator: {review.annotatorName}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span>Dành ra: {review.reviewTime}p</span>
-                      </div>
+                <div className="p-8 flex-1 flex flex-col">
+                  <div className="mb-6">
+                    <h3 className="text-xl font-black text-slate-900 mb-2 leading-tight group-hover:text-indigo-600 transition-colors truncate">
+                      {p.name}
+                    </h3>
+                    <div className="flex items-center gap-2 text-slate-400 text-xs font-medium">
+                      <Calendar className="w-3.5 h-3.5" />
+                      Ngày duyệt: {p.latestDate ? new Date(p.latestDate).toLocaleDateString('vi-VN') : 'Vừa xong'}
                     </div>
                   </div>
 
-                  <div className="mt-auto pt-5 border-t border-slate-100 space-y-4">
-                    <div className="flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-                      <span className="text-xs text-slate-500 font-medium">Review lúc: {new Date(review.reviewedAt).toLocaleString('vi-VN')}</span>
+                  <div className="grid grid-cols-2 gap-4 mb-8">
+                    <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-100">
+                      <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Đã Duyệt</p>
+                      <p className="text-xl font-black text-emerald-600">{p.approvedCount || 0}</p>
                     </div>
+                    <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-100">
+                      <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Tổng nhãn</p>
+                      <p className="text-xl font-black text-slate-800">{p.totalLabels || 0}</p>
+                    </div>
+                  </div>
 
-                    {review.feedback && (
-                      <div className={`p-4 rounded-2xl border ${review.decision === 'approved'
-                        ? 'bg-emerald-50/50 border-emerald-100/50'
-                        : 'bg-rose-50/50 border-rose-100/50'
-                        }`}>
-                        <div className="flex items-start gap-2.5">
-                          <MessageSquare className={`w-4 h-4 mt-0.5 flex-shrink-0 ${review.decision === 'approved' ? 'text-emerald-500' : 'text-rose-500'
-                            }`} />
-                          <div>
-                            <p className={`text-[10px] font-black uppercase tracking-wider mb-1 ${review.decision === 'approved' ? 'text-emerald-700' : 'text-rose-700'
-                              }`}>
-                              Feedback của bạn
-                            </p>
-                            <p className={`text-sm font-medium leading-relaxed ${review.decision === 'approved' ? 'text-emerald-800' : 'text-rose-800'
-                              }`}>
-                              "{review.feedback}"
-                            </p>
-                          </div>
-                        </div>
+                  <div className="mt-auto space-y-4">
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2 text-slate-600 font-bold overflow-hidden">
+                        <Database className="w-4 h-4 text-indigo-500 shrink-0" />
+                        <span className="truncate">Mô tả: {p.description || 'N/A'}</span>
                       </div>
-                    )}
+                    </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </main>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

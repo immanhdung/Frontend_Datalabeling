@@ -401,6 +401,15 @@ export default function Datasets() {
     const [detailCurrentPage, setDetailCurrentPage] = useState(1);
     const [detailPageSize, setDetailPageSize] = useState(10);
 
+    // Theme definitions for dataset cards
+    const themes = [
+        { bg: "bg-indigo-50/50", text: "text-indigo-600", border: "border-indigo-100", grad: "from-indigo-500 to-purple-600", accent: "indigo" },
+        { bg: "bg-emerald-50/50", text: "text-emerald-600", border: "border-emerald-100", grad: "from-emerald-500 to-teal-600", accent: "emerald" },
+        { bg: "bg-amber-50/50", text: "text-amber-600", border: "border-amber-100", grad: "from-amber-400 to-orange-500", accent: "amber" },
+        { bg: "bg-rose-50/50", text: "text-rose-600", border: "border-rose-100", grad: "from-rose-500 to-pink-600", accent: "rose" },
+        { bg: "bg-blue-50/50", text: "text-blue-600", border: "border-blue-100", grad: "from-blue-500 to-cyan-600", accent: "blue" },
+    ];
+
     const getDatasetId = (dataset) => dataset?.id ?? dataset?.datasetId ?? null;
 
     const patchDatasetCount = (datasetId, itemCount) => {
@@ -691,14 +700,25 @@ export default function Datasets() {
                     const datasetId = getDatasetId(dataset);
                     if (!datasetId) return { datasetId: null, itemCount: 0 };
 
+                    // Prefer existing count fields from the list API if they exist and are > 1
+                    const existingCount = Number(dataset.imagesCount || dataset.itemsCount || dataset.totalItems || dataset.itemCount || dataset.imageCount || 0);
+
                     try {
+                        // Fetching items count specifically
                         const itemsRes = await api.get(`/datasets/${datasetId}/items`, { params: { PageSize: 1 } });
+                        const apiTotalCount = Number(itemsRes?.data?.totalCount || itemsRes?.data?.totalItems || itemsRes?.data?.count || 0);
+                        const itemsArrayLength = Array.isArray(itemsRes?.data?.items || itemsRes?.data) ? (itemsRes?.data?.items || itemsRes?.data).length : 0;
+                        
+                        // We use the MAX of all found count indicators to avoid the "1" bug during ZIP extraction
+                        const finalCount = Math.max(apiTotalCount, itemsArrayLength, existingCount);
+                        
                         return {
                             datasetId,
-                            itemCount: itemsRes?.data?.totalCount || normalizeDatasetItems(itemsRes?.data).length || dataset.imagesCount || 0,
+                            itemCount: finalCount,
                         };
-                    } catch {
-                        return { datasetId, itemCount: dataset.imagesCount || 0 };
+                    } catch (err) {
+                        console.warn(`[Counts] Mapping count for ${datasetId} failed, using local:`, err.message);
+                        return { datasetId, itemCount: existingCount };
                     }
                 })
             );
@@ -716,16 +736,18 @@ export default function Datasets() {
                     prev.map((dataset) => {
                         const datasetId = getDatasetId(dataset);
                         if (!datasetId) return dataset;
-                        const itemCount = countMap.get(String(datasetId));
-                        if (itemCount === undefined) return dataset;
+                        
+                        // Only update if we found a valid count in the countMap
+                        const fetchedCount = countMap.get(String(datasetId));
+                        if (fetchedCount === undefined) return dataset;
 
                         return {
                             ...dataset,
-                            itemsCount: itemCount,
-                            imagesCount: itemCount,
-                            totalItems: itemCount,
-                            itemCount,
-                            imageCount: itemCount,
+                            itemsCount: fetchedCount,
+                            imagesCount: fetchedCount,
+                            totalItems: fetchedCount,
+                            itemCount: fetchedCount,
+                            imageCount: fetchedCount,
                         };
                     })
                 );
@@ -845,7 +867,12 @@ export default function Datasets() {
             alert("Tạo dataset thành công!");
             setShowAddModal(false);
             resetAddForm();
-            fetchData();
+            
+            // Re-fetch data, but also patch the new dataset immediately in state if possible
+            await fetchData();
+            if (datasetId && uploadType === "images") {
+                patchDatasetCount(datasetId, newDataset.images.length);
+            }
         } catch (err) {
             console.error(err);
             alert("Thêm dataset thất bại: " + (err.response?.data?.message || err.message));
@@ -1120,7 +1147,7 @@ export default function Datasets() {
 
         try {
             setDeletingItemIds((prev) => [...prev, String(itemId)]);
-            await api.delete(`/datasets/${dsId}/items/${itemId}`);
+            await api.delete(`/datasets/items/${itemId}`);
 
             setDetailItems((prev) => prev.filter((it) => String(it?.id || it?.itemId || it?.datasetItemId) !== String(itemId)));
             patchDatasetCount(dsId, Math.max(detailItems.length - 1, 0));
@@ -1179,20 +1206,6 @@ export default function Datasets() {
                 </button>
             </div>
 
-            {/* Search Bar */}
-            <div className="relative group max-w-2xl">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
-                <input
-                    type="text"
-                    placeholder="Tìm kiếm dataset theo tên..."
-                    value={searchTerm}
-                    onChange={(e) => {
-                        setSearchTerm(e.target.value);
-                        setCurrentPage(1);
-                    }}
-                    className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 transition-all shadow-sm"
-                />
-            </div>
 
             {error && (
                 <div className="flex items-center gap-3 p-4 bg-red-50 text-red-700 rounded-2xl border border-red-100">
@@ -1218,98 +1231,93 @@ export default function Datasets() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                         {filteredDatasets
                             .slice((currentPage - 1) * pageSize, currentPage * pageSize)
-                            .map((ds) => {
+                            .map((ds, idx) => {
                                 const id = ds.id || ds.datasetId;
+                                const theme = themes[idx % themes.length] || themes[0];
+                                const count = ds.imagesCount || ds.itemsCount || ds.totalItems || ds.itemCount || ds.imageCount || ds.items?.length || 0;
+                                const size = ds.totalSize || ds.totalBytes || ds.size || ds.datasetSize || 0;
+
                                 return (
                                     <div
                                         key={id}
-                                        className="group bg-white rounded-3xl p-6 shadow-sm border border-gray-100 hover:shadow-xl hover:border-indigo-100 transition-all duration-300 relative overflow-hidden"
+                                        className="group relative bg-white rounded-[40px] p-8 shadow-sm border border-slate-100 hover:shadow-2xl hover:border-indigo-100 hover:-translate-y-2 transition-all duration-500 overflow-hidden"
                                     >
-                                        <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <div className="relative transition-all">
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setOpenMenuId(openMenuId === id ? null : id);
-                                                    }}
-                                                    className="p-2 bg-gray-50 hover:bg-indigo-50 rounded-xl transition-colors"
-                                                >
-                                                    <MoreVertical className="w-5 h-5 text-gray-500 hover:text-indigo-600" />
-                                                </button>
+                                        {/* Background Decoration */}
+                                        <div className={`absolute -top-12 -right-12 w-32 h-32 ${theme.bg} rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-700`} />
+                                        
+                                        <div className="relative z-10 flex flex-col h-full">
+                                            {/* Top Section: Icon & Menu */}
+                                            <div className="flex justify-between items-start mb-8">
+                                                <div className={`w-16 h-16 rounded-2xl ${theme.bg} ${theme.text} flex items-center justify-center transition-transform group-hover:scale-110 group-hover:rotate-3 duration-500 shadow-sm`}>
+                                                    <Database className="w-8 h-8" />
+                                                </div>
+                                                
+                                                <div className="relative">
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setOpenMenuId(openMenuId === id ? null : id);
+                                                        }}
+                                                        className="w-10 h-10 rounded-xl hover:bg-slate-50 flex items-center justify-center transition-colors text-slate-300 hover:text-slate-900"
+                                                    >
+                                                        <MoreVertical className="w-5 h-5" />
+                                                    </button>
 
-                                                {openMenuId === id && (
-                                                    <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-100 rounded-2xl shadow-2xl z-20 py-2 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleViewDetail(ds);
-                                                                setOpenMenuId(null);
-                                                            }}
-                                                            className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 transition-colors"
-                                                        >
-                                                            <Eye className="w-4 h-4" />
-                                                            Xem chi tiết
-                                                        </button>
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                openEditDatasetModal(ds);
-                                                                setOpenMenuId(null);
-                                                            }}
-                                                            className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
-                                                        >
-                                                            <Pencil className="w-4 h-4" />
-                                                            Chỉnh sửa dataset
-                                                        </button>
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setSelectedDataset(ds);
-                                                                setShowAssignModal(true);
-                                                                setOpenMenuId(null);
-                                                            }}
-                                                            className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
-                                                        >
-                                                            <Link2 className="w-4 h-4" />
-                                                            Gán vào project
-                                                        </button>
+                                                    {openMenuId === id && (
+                                                        <div className="absolute right-0 mt-2 w-56 bg-white/90 backdrop-blur-xl border border-slate-100 rounded-[28px] shadow-2xl z-50 py-2 px-2 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                                                            {[
+                                                                { label: "Xem Chi Tiết", icon: Eye, color: "text-indigo-600", bg: "hover:bg-indigo-50", action: () => handleViewDetail(ds) },
+                                                                { label: "Chỉnh Sửa", icon: Pencil, color: "text-slate-700", bg: "hover:bg-slate-50", action: () => openEditDatasetModal(ds) },
+                                                                { label: "Gán Project", icon: Link2, color: "text-emerald-600", bg: "hover:bg-emerald-50", action: () => { setSelectedDataset(ds); setShowAssignModal(true); } },
+                                                                { label: "Xóa Dữ Liệu", icon: Trash2, color: "text-rose-500", bg: "hover:bg-rose-50", action: () => handleDeleteDataset(id) },
+                                                            ].map((item, i) => (
+                                                                <button
+                                                                    key={i}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        item.action();
+                                                                        setOpenMenuId(null);
+                                                                    }}
+                                                                    className={`w-full flex items-center gap-3 px-4 py-3 text-[11px] font-black uppercase tracking-widest ${item.color} ${item.bg} rounded-xl transition-all`}
+                                                                >
+                                                                    <item.icon className="w-4 h-4" />
+                                                                    {item.label}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
 
-                                                        <div className="h-px bg-gray-100 my-1" />
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleDeleteDataset(id);
-                                                                setOpenMenuId(null);
-                                                            }}
-                                                            className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-50 transition-colors"
-                                                        >
-                                                            <Trash2 className="w-4 h-4" />
-                                                            Xóa Dataset
-                                                        </button>
-                                                    </div>
-                                                )}
+                                            {/* Middle Section: Identity */}
+                                            <div className="flex-1 space-y-2 mb-8">
+                                                <h3 className="text-2xl font-black text-slate-900 leading-tight tracking-tight group-hover:text-indigo-600 transition-colors line-clamp-2">{ds.name}</h3>
+                                                <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                                    <Calendar className="w-3.5 h-3.5" />
+                                                    <span>Ngày tạo: {ds.createdAt ? new Date(ds.createdAt).toLocaleDateString() : "Đang chờ..." }</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Bottom Section: Stats */}
+                                            <div className="flex items-center gap-6 pt-6 border-t border-slate-50">
+                                                <div className="flex flex-col">
+                                                    <span className="text-lg font-black text-slate-900 tracking-tight leading-none mb-1">
+                                                        {count}
+                                                    </span>
+                                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Assets</span>
+                                                </div>
+                                                <div className="w-px h-6 bg-slate-100" />
+                                                <div className="flex flex-col">
+                                                    <span className="text-lg font-black text-slate-900 tracking-tight leading-none mb-1">
+                                                        {formatBytes(size)}
+                                                    </span>
+                                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Weight</span>
+                                                </div>
                                             </div>
                                         </div>
 
-                                        <div className="p-4 bg-indigo-50 rounded-2xl w-fit mb-5 group-hover:bg-indigo-600 transition-colors duration-300">
-                                            <FolderPlus className="w-8 h-8 text-indigo-600 group-hover:text-white transition-colors duration-300" />
-                                        </div>
-
-                                        <h3 className="text-xl font-bold text-gray-900 line-clamp-1">{ds.name}</h3>
-                                        <div className="mt-4 flex items-center gap-4 text-sm font-medium text-gray-500">
-                                            <div className="flex items-center gap-1.5">
-                                                <ImageIcon className="w-4 h-4" />
-                                                {ds.imagesCount || ds.itemsCount || ds.totalItems || ds.itemCount || ds.imageCount || ds.items?.length || 0} files
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                                <Database className="w-4 h-4" />
-                                                {formatBytes(ds.totalSize || ds.totalBytes || ds.size || ds.datasetSize)}
-                                            </div>
-                                        </div>
-
-                                        <p className="text-xs text-gray-400 mt-4 italic">
-                                            Ngày tạo: {ds.createdAt ? new Date(ds.createdAt).toLocaleDateString() : "N/A"}
-                                        </p>
+                                        {/* Bottom Accent Line */}
+                                        <div className={`absolute bottom-0 left-0 right-0 h-1.5 bg-gradient-to-r ${theme.grad} transform translate-y-full group-hover:translate-y-0 transition-transform duration-500`} />
                                     </div>
                                 );
                             })}

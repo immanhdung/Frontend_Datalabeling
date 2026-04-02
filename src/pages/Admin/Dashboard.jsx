@@ -32,16 +32,11 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [dashboardStats, setDashboardStats] = useState({
     totalUsers: 0,
+    totalManagers: 0,
+    totalAnnotators: 0,
+    totalReviewers: 0,
     totalProjects: 0,
-    completedProjects: 0,
-    avgAccuracy: "93.6%",
     recentProjects: [],
-    userRoleCounts: {
-      Admin: 0,
-      Manager: 0,
-      Annotator: 0,
-      Reviewer: 0,
-    },
     activities: [],
   });
 
@@ -49,20 +44,45 @@ export default function AdminDashboard() {
     const loadDashboardData = async () => {
       try {
         setLoading(true);
-        const [projectsRes, usersRes, tasksRes, reviewsRes] = await Promise.all([
-          api.get("/projects").catch(() => ({ data: [] })),
-          api.get("/users").catch(() => ({ data: [] })),
-          api.get("/tasks").catch(() => ({ data: [] })),
-          api.get("/reviews").catch(() => ({ data: [] })),
+        const [projectsRes, usersRes, rolesRes] = await Promise.all([
+          api.get("/projects", { params: { PageSize: 1000 } }).catch(() => ({ data: [] })),
+          api.get("/users", { params: { PageSize: 1000 } }).catch(() => ({ data: [] })),
+          api.get("/roles").catch(() => ({ data: [] })),
         ]);
 
-        const projects = toArrayData(projectsRes?.data);
-        const users = toArrayData(usersRes?.data);
-        const tasks = toArrayData(tasksRes?.data);
-        const reviews = toArrayData(reviewsRes?.data);
+        const projects = toArrayData(projectsRes?.data || projectsRes);
+        const users = toArrayData(usersRes?.data || usersRes);
+        const roles = toArrayData(rolesRes?.data || rolesRes);
 
-        // 1. Project Stats
-        const completed = projects.filter((project) => isCompletedProject(project)).length;
+        const projectCount = projects.length;
+        const userCount = users.length;
+
+        const roleMap = {};
+        roles.forEach(r => {
+          const id = String(r.id || r.roleId || "");
+          const name = String(r.name || r.roleName || "").toLowerCase();
+          if (id && name) roleMap[id] = name;
+        });
+
+        const managers = users.filter(u => {
+          const rName = String(u.roleName || u.role?.name || "").toLowerCase();
+          const rId = String(u.roleId || u.role?.id || "");
+          return rName === "manager" || roleMap[rId] === "manager" || rName === "quản lý";
+        }).length;
+
+        const annotators = users.filter(u => {
+          const rName = String(u.roleName || u.role?.name || "").toLowerCase();
+          const rId = String(u.roleId || u.role?.id || "");
+          return rName === "annotator" || roleMap[rId] === "annotator" || rName === "người gán nhãn";
+        }).length;
+
+        const reviewers = users.filter(u => {
+          const rName = String(u.roleName || u.role?.name || "").toLowerCase();
+          const rId = String(u.roleId || u.role?.id || "");
+          return rName === "reviewer" || roleMap[rId] === "reviewer" || rName === "người kiểm duyệt";
+        }).length;
+
+        // Recent Projects logic
         const recentProjects = sortProjectsByNewest(projects).slice(0, 4).map((project) => {
           const statusMeta = getProjectStatusMeta(project);
           const itemCount = getProjectItemCount(project);
@@ -72,63 +92,33 @@ export default function AdminDashboard() {
             statusType: statusMeta.statusType,
             desc: `${getProjectTypeLabel(project)} · ${itemCount} ảnh`,
             progress: statusMeta.statusType === "completed" ? 100 : statusMeta.statusType === "active" ? 50 : 0,
-            accuracy: "N/A",
             updated: formatRelativeDateVi(getProjectUpdatedAt(project)),
           };
         });
 
-        // 2. User Stats
-        const roleCounts = { Admin: 0, Manager: 0, Annotator: 0, Reviewer: 0 };
-        users.forEach(u => {
-          const role = String(u?.role || "").trim();
-          if (role.toLowerCase() === 'admin') roleCounts.Admin++;
-          else if (role.toLowerCase() === 'manager') roleCounts.Manager++;
-          else if (role.toLowerCase() === 'annotator') roleCounts.Annotator++;
-          else if (role.toLowerCase() === 'reviewer') roleCounts.Reviewer++;
-        });
-
-        // 3. Activity Synthesis (Recent 3)
+        // Activities synthesis
         const combinedActivities = [];
-        
         projects.slice(0, 5).forEach(p => {
-            combinedActivities.push({
-                title: "Dự án mới",
-                desc: `Dự án "${p.name || 'N/A'}" đã được tạo`,
-                time: new Date(p.createdAt || Date.now()).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-                timestamp: new Date(p.createdAt || Date.now()).getTime(),
-                type: "create"
-            });
+          combinedActivities.push({
+            title: "Dự án mới",
+            desc: `Dự án "${p.name || 'N/A'}" đã được tạo`,
+            time: new Date(p.createdAt || Date.now()).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+            timestamp: new Date(p.createdAt || Date.now()).getTime(),
+            type: "create"
+          });
         });
-
-        tasks.slice(0, 5).forEach(t => {
-            if (t.status?.toLowerCase().includes('complete') || t.status?.toLowerCase().includes('submit')) {
-                combinedActivities.push({
-                    title: "Hoàn thành task",
-                    desc: `Task "${t.title || 'gán nhãn'}" đã được nộp`,
-                    time: new Date(t.updatedAt || Date.now()).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-                    timestamp: new Date(t.updatedAt || Date.now()).getTime(),
-                    type: "update"
-                });
-            }
-        });
-
-        const sortedActivities = combinedActivities
-            .sort((a, b) => b.timestamp - a.timestamp)
-            .slice(0, 3);
 
         setDashboardStats({
-          totalUsers: users.length,
-          totalProjects: projects.length,
-          completedProjects: completed,
-          avgAccuracy: "93.6%", // Backend may not have this yet
+          totalUsers: userCount,
+          totalProjects: projectCount,
+          totalManagers: managers,
+          totalAnnotators: annotators,
+          totalReviewers: reviewers,
           recentProjects,
-          userRoleCounts: roleCounts,
-          activities: sortedActivities.length > 0 ? sortedActivities : [
-            { title: "Hệ thống", desc: "Đang theo dõi hoạt động...", time: "--:--", type: "create" }
-          ],
+          activities: combinedActivities.sort((a, b) => b.timestamp - a.timestamp).slice(0, 3)
         });
       } catch (err) {
-        console.error("Dashboard data load error:", err);
+        console.error("Admin Dashboard load error:", err);
       } finally {
         setLoading(false);
       }
@@ -145,21 +135,21 @@ export default function AdminDashboard() {
       color: "blue"
     },
     {
-      label: "Tổng dự án",
-      value: dashboardStats.totalProjects,
-      icon: FolderKanban,
+      label: "Tổng Manager",
+      value: dashboardStats.totalManagers,
+      icon: ShieldCheck,
       color: "indigo"
     },
     {
-      label: "Dự án hoàn thành",
-      value: dashboardStats.completedProjects,
-      icon: CheckCircle2,
+      label: "Tổng Annotator",
+      value: dashboardStats.totalAnnotators,
+      icon: UserCheck,
       color: "emerald"
     },
     {
-      label: "Tỷ lệ chính xác TB",
-      value: dashboardStats.avgAccuracy,
-      icon: BarChart3,
+      label: "Tổng Reviewer",
+      value: dashboardStats.totalReviewers,
+      icon: Activity,
       color: "amber"
     },
   ];
@@ -206,10 +196,9 @@ export default function AdminDashboard() {
   const projects = dashboardStats.recentProjects.length > 0 ? dashboardStats.recentProjects : fallbackProjects;
 
   const userStats = [
-    { role: "Admin", count: dashboardStats.userRoleCounts.Admin, color: "bg-indigo-500", icon: ShieldCheck },
-    { role: "Manager", count: dashboardStats.userRoleCounts.Manager, color: "bg-blue-500", icon: Activity },
-    { role: "Annotator", count: dashboardStats.userRoleCounts.Annotator, color: "bg-green-500", icon: UserCheck },
-    { role: "Reviewer", count: dashboardStats.userRoleCounts.Reviewer, color: "bg-emerald-500", icon: CheckCircle2 },
+    { role: "Manager", count: dashboardStats.totalManagers, color: "bg-blue-500", icon: ShieldCheck },
+    { role: "Annotator", count: dashboardStats.totalAnnotators, color: "bg-green-500", icon: UserCheck },
+    { role: "Reviewer", count: dashboardStats.totalReviewers, color: "bg-emerald-500", icon: Activity },
   ];
 
   const activities = dashboardStats.activities;
@@ -220,11 +209,8 @@ export default function AdminDashboard() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
             <h1 className="text-4xl font-display font-extrabold tracking-tight">
-              Quản trị Hệ thống
+              Quản trị hệ thống
             </h1>
-            <p className="text-slate-500 text-lg font-medium mt-2">
-              Chào mừng trở lại! Dưới đây là tóm tắt hoạt động hôm nay.
-            </p>
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
@@ -249,8 +235,7 @@ export default function AdminDashboard() {
             <div className="bg-white rounded-[32px] p-10 shadow-premium border border-slate-100">
               <div className="flex items-center justify-between mb-10">
                 <div>
-                  <h2 className="text-2xl font-display font-extrabold text-slate-900">Tiến độ dự án</h2>
-                  <p className="text-base text-slate-500 font-medium mt-1">Theo dõi hoạt động gán nhãn thời gian thực</p>
+                  <h2 className="text-2xl font-display font-extrabold text-slate-900"> Dự án gần đây</h2>
                 </div>
                 <button className="p-3 text-slate-400 hover:text-slate-600">
                   <MoreHorizontal className="w-6 h-6" />
@@ -267,27 +252,10 @@ export default function AdminDashboard() {
                         </div>
                         <div>
                           <h4 className="text-xl font-bold group-hover:text-blue-600 transition-colors">{p.name}</h4>
-                          <p className="text-sm text-slate-500 font-medium mt-1">{p.desc}</p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <span className={`text-xs uppercase tracking-wider font-extrabold px-4 py-1.5 rounded-full ${p.statusType === 'active' ? 'bg-emerald-50 text-emerald-600' :
-                          p.statusType === 'completed' ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-500'
-                          }`}>
-                          {p.status}
-                        </span>
-                        <p className="text-xs text-slate-400 font-bold mt-2 uppercase">Cập nhật: {p.updated}</p>
                       </div>
-                    </div>
-
-                    <div className="flex items-center gap-6">
-                      <div className="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full transition-all duration-1000 ${p.progress === 100 ? 'bg-emerald-500' : 'bg-blue-500'}`}
-                          style={{ width: `${p.progress}%` }}
-                        />
-                      </div>
-                      <span className="text-sm font-bold text-slate-700 min-w-[40px]">{p.progress}%</span>
                     </div>
 
                     {i !== projects.length - 1 && <div className="border-b border-slate-50 mt-8" />}
@@ -295,7 +263,7 @@ export default function AdminDashboard() {
                 ))}
               </div>
 
-              <button 
+              <button
                 onClick={() => navigate("/admin/projects")}
                 className="w-full mt-10 py-4.5 bg-slate-50 text-slate-600 rounded-2xl font-bold text-base hover:bg-blue-50 hover:text-blue-700 transition-all border border-transparent hover:border-blue-100 flex items-center justify-center gap-2"
               >
@@ -348,7 +316,7 @@ export default function AdminDashboard() {
               </div>
 
               <div className="mt-10 pt-8 border-t border-slate-50">
-                <button 
+                <button
                   onClick={() => navigate("/admin/activity")}
                   className="text-base font-bold text-blue-600 hover:text-blue-700 transition-colors flex items-center gap-1.5 mx-auto"
                 >

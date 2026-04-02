@@ -41,8 +41,7 @@ const roleNavItems = {
     annotator: [
         { icon: LayoutDashboard, label: "Dashboard", path: "/annotator/dashboard" },
         { icon: Tag, label: "Nhiệm vụ gán nhãn", path: "/annotator/tasks" },
-        { icon: History, label: "Lịch sử dự án", path: "/annotator/history" },
-        { icon: MessageSquare, label: "Phản hồi", path: "/annotator/feedback" },
+
     ],
     reviewer: [
         { icon: LayoutDashboard, label: "Dashboard", path: "/reviewer/dashboard" },

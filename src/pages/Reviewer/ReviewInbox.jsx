@@ -133,47 +133,16 @@ export default function ReviewInbox() {
       <Header title="Nhận task review" userName="Reviewer" userRole="reviewer" />
 
       <main className="max-w-7xl mx-auto px-6 py-10">
-        {/* Welcome */}
-        <div className="mb-12 relative overflow-hidden p-10 rounded-[3rem] bg-gradient-to-br from-blue-700 via-indigo-700 to-blue-800 text-white shadow-2xl shadow-blue-200">
-          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-8">
-            <div>
-              <h1 className="text-4xl font-black tracking-tight mb-2">Hộp thư Review</h1>
-              <p className="text-white/80 font-medium max-w-lg">
-                Các nhiệm vụ gán nhãn đã hoàn thành và đang chờ bạn phê duyệt. Hãy kiểm tra kỹ lưỡng để đảm bảo chất lượng dữ liệu.
-              </p>
-            </div>
-            <div className="flex gap-4">
-              <div className="bg-white/10 backdrop-blur-md px-6 py-4 rounded-3xl border border-white/20">
-                <p className="text-white/60 text-[10px] font-black uppercase tracking-widest mb-1">Đang chờ</p>
-                <div className="flex items-end gap-2">
-                  <span className="text-3xl font-black leading-none">{stats.pending}</span>
-                  <span className="text-xs font-bold text-white/40 pb-1">Task</span>
-                </div>
-              </div>
-            </div>
+        <div className="mb-10 flex items-center justify-between">
+          <div className="space-y-1">
+            <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-1">Kiểm soát chất lượng</p>
+            <h1 className="text-4xl font-black text-slate-900 tracking-tight">Hộp thư Review</h1>
+            <p className="text-slate-500 font-medium">Danh sách các nhiệm vụ đang chờ bạn phê duyệt và đánh giá.</p>
           </div>
-          <div className="absolute top-[-50%] right-[-10%] w-[500px] h-[500px] bg-white/10 rounded-full blur-[120px] pointer-events-none" />
-          <div className="absolute bottom-[-30%] left-[-5%] w-64 h-64 bg-blue-400/20 rounded-full blur-[80px] pointer-events-none" />
-        </div>
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
-          {[
-            { label: 'Tổng số task', val: stats.total, color: 'blue', icon: Eye },
-            { label: 'Chờ duyệt', val: stats.pending, color: 'indigo', icon: Clock },
-            { label: 'Quá hạn', val: stats.expired, color: 'rose', icon: AlertCircle },
-            { label: 'Đã hoàn thành', val: stats.done, color: 'emerald', icon: Eye },
-          ].map((s, i) => (
-            <div key={i} className="bg-white p-7 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
-              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-6 bg-${s.color}-50 text-${s.color}-600`}>
-                <s.icon className="w-6 h-6" />
-              </div>
-              <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{s.label}</p>
-                <p className="text-3xl font-black text-slate-900">{s.val}</p>
-              </div>
-            </div>
-          ))}
+          <div className="flex items-center gap-2 px-5 py-3 bg-white border border-slate-100 rounded-3xl shadow-sm text-sm font-bold text-slate-600">
+            <Clock className="w-4 h-4 text-indigo-500" />
+            <span>{stats.pending} Task đang chờ</span>
+          </div>
         </div>
 
         {/* Search & Filter Bar */}

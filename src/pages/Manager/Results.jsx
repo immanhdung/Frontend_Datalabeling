@@ -231,10 +231,7 @@ export default function ManagerResults() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-4 mb-8">
-                    <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-100">
-                      <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Tiến độ Duyệt</p>
-                      <p className="text-xl font-black text-slate-800">{p.completionRate}%</p>
-                    </div>
+
                     <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-100">
                       <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Tổng nhãn</p>
                       <p className="text-xl font-black text-slate-800">{p.labelsCount || 0}</p>
@@ -247,10 +244,7 @@ export default function ManagerResults() {
                         <Database className="w-4 h-4 text-indigo-500" />
                         <span>{p.imagesCount || 0} Assets</span>
                       </div>
-                      <div className="flex items-center gap-2 text-slate-600 font-bold">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                        <span>{p.approvedTasks} Đạt chuẩn</span>
-                      </div>
+
                     </div>
 
                     <button
